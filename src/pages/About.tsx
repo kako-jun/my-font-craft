@@ -29,6 +29,7 @@ export default function About() {
                   viewBox="0 0 48 48"
                   fill="none"
                   xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
                 >
                   {/* Printer icon - pixel art style */}
                   <rect x="12" y="8" width="24" height="4" fill="var(--accent)" />
@@ -46,7 +47,7 @@ export default function About() {
             </div>
 
             <div class="about-workflow__arrow">
-              <svg width="32" height="16" viewBox="0 0 32 16" fill="none">
+              <svg width="32" height="16" viewBox="0 0 32 16" fill="none" aria-hidden="true">
                 <rect x="0" y="6" width="4" height="4" fill="var(--accent-light)" />
                 <rect x="8" y="6" width="4" height="4" fill="var(--accent-light)" />
                 <rect x="16" y="6" width="4" height="4" fill="var(--accent-light)" />
@@ -64,6 +65,7 @@ export default function About() {
                   viewBox="0 0 48 48"
                   fill="none"
                   xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
                 >
                   {/* Pen icon - pixel art style */}
                   <rect x="32" y="8" width="4" height="4" fill="var(--accent)" />
@@ -82,7 +84,7 @@ export default function About() {
             </div>
 
             <div class="about-workflow__arrow">
-              <svg width="32" height="16" viewBox="0 0 32 16" fill="none">
+              <svg width="32" height="16" viewBox="0 0 32 16" fill="none" aria-hidden="true">
                 <rect x="0" y="6" width="4" height="4" fill="var(--accent-light)" />
                 <rect x="8" y="6" width="4" height="4" fill="var(--accent-light)" />
                 <rect x="16" y="6" width="4" height="4" fill="var(--accent-light)" />
@@ -100,6 +102,7 @@ export default function About() {
                   viewBox="0 0 48 48"
                   fill="none"
                   xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
                 >
                   {/* Camera icon - pixel art style */}
                   <rect x="16" y="12" width="8" height="4" fill="var(--accent)" />
@@ -118,7 +121,7 @@ export default function About() {
             </div>
 
             <div class="about-workflow__arrow">
-              <svg width="32" height="16" viewBox="0 0 32 16" fill="none">
+              <svg width="32" height="16" viewBox="0 0 32 16" fill="none" aria-hidden="true">
                 <rect x="0" y="6" width="4" height="4" fill="var(--accent-light)" />
                 <rect x="8" y="6" width="4" height="4" fill="var(--accent-light)" />
                 <rect x="16" y="6" width="4" height="4" fill="var(--accent-light)" />
@@ -136,6 +139,7 @@ export default function About() {
                   viewBox="0 0 48 48"
                   fill="none"
                   xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
                 >
                   {/* Font/document icon - pixel art style */}
                   <rect x="12" y="8" width="20" height="4" fill="var(--accent)" />
@@ -196,6 +200,7 @@ export default function About() {
                   viewBox="0 0 40 40"
                   fill="none"
                   xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
                 >
                   {/* Browser icon */}
                   <rect x="4" y="8" width="32" height="4" fill="var(--accent)" />
@@ -219,6 +224,7 @@ export default function About() {
                   viewBox="0 0 40 40"
                   fill="none"
                   xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
                 >
                   {/* Shield/lock icon */}
                   <rect x="16" y="4" width="8" height="4" fill="var(--accent)" />
@@ -244,6 +250,7 @@ export default function About() {
                   viewBox="0 0 40 40"
                   fill="none"
                   xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
                 >
                   {/* Person/no-register icon */}
                   <rect x="16" y="4" width="8" height="4" fill="var(--accent)" />
@@ -270,6 +277,7 @@ export default function About() {
                   viewBox="0 0 40 40"
                   fill="none"
                   xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
                 >
                   {/* Free/gift icon */}
                   <rect x="8" y="16" width="24" height="4" fill="var(--accent)" />
