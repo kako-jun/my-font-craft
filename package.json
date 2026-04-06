@@ -10,7 +10,13 @@
     "deploy": "wrangler pages deploy dist",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:generate-fixtures": "npx tsx tests/fixtures/generate-mock-scans.ts"
+    "test:generate-fixtures": "npx tsx tests/fixtures/generate-mock-scans.ts",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"*.md\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"*.md\"",
+    "check": "eslint src && prettier --check \"src/**/*.{ts,tsx,css}\" \"*.md\"",
+    "prepare": "husky"
   },
   "dependencies": {
     "jsqr": "^1.4.0",
@@ -21,15 +27,34 @@
     "solid-js": "^1.9.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/opentype.js": "^1.3.0",
     "@types/qrcode": "^1.5.0",
+    "@typescript-eslint/eslint-plugin": "^8.58.0",
+    "@typescript-eslint/parser": "^8.58.0",
     "@vitest/coverage-v8": "^4.1.2",
     "canvas": "^3.2.3",
+    "eslint": "^10.2.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.8.1",
     "typescript": "^5.7.0",
     "vite": "^6.0.0",
     "vite-plugin-solid": "^2.11.0",
     "vitest": "^4.1.2",
     "wrangler": "^3.0.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.css": [
+      "prettier --write"
+    ],
+    "*.md": [
+      "prettier --write"
+    ]
+  }
 }
