@@ -372,6 +372,10 @@ body {
 }
 
 /* About page */
+.about-page {
+  margin: -2rem -1rem;
+}
+
 .about-page h2 {
   margin-bottom: 1rem;
   color: var(--accent);
@@ -386,13 +390,156 @@ body {
   margin-bottom: 0.5rem;
 }
 
-.about-list {
-  list-style: disc;
-  padding-left: 1.5rem;
+.about-section {
+  padding: 3rem 1rem;
 }
 
-.about-list li {
-  margin-bottom: 0.25rem;
+.about-section:nth-child(even) {
+  background: var(--card-bg);
+}
+
+.about-section:nth-child(odd) {
+  background: var(--bg);
+}
+
+.about-section__inner {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+/* Hero */
+.about-hero {
+  padding: 4rem 1rem 3rem;
+}
+
+.about-separator {
+  height: 4px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--accent) 0px,
+    var(--accent) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+  margin: 1.5rem auto 0;
+  max-width: 200px;
+}
+
+/* Workflow */
+.about-workflow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.about-workflow__step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 100px;
+}
+
+.about-workflow__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  background: var(--card-bg);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 2px 4px var(--card-shadow);
+}
+
+.about-workflow__label {
+  font-weight: bold;
+  color: var(--accent);
+  font-size: 0.95rem;
+  margin-top: 0.25rem;
+}
+
+.about-workflow__desc {
+  font-size: 0.8rem;
+  color: var(--accent-light);
+}
+
+.about-workflow__arrow {
+  display: flex;
+  align-items: center;
+  padding: 0 0.25rem;
+  margin-top: -1.5rem;
+}
+
+/* Characters */
+.about-chars {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.about-chars__group {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 2px 4px var(--card-shadow);
+}
+
+.about-chars__title {
+  font-weight: bold;
+  color: var(--accent);
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.about-chars__sample {
+  font-size: 1.1rem;
+  color: var(--text);
+  line-height: 1.8;
+  letter-spacing: 0.1em;
+  font-family: cursive, serif;
+}
+
+/* Features */
+.about-features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.about-feature-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Author card */
+.about-author-card {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  max-width: 400px;
+  margin: 0 auto;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 8px var(--card-shadow);
+}
+
+.about-author-card__avatar {
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  flex-shrink: 0;
+}
+
+.about-author-card__info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 
 .about-author {
@@ -599,5 +746,20 @@ body {
 
   .step__arrow {
     transform: rotate(90deg);
+  }
+
+  .about-page {
+    margin: -1rem -0.75rem;
+  }
+
+  .about-workflow {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .about-workflow__arrow {
+    transform: rotate(90deg);
+    margin-top: 0;
+    padding: 0.25rem 0;
   }
 }
