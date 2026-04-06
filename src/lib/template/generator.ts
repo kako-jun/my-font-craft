@@ -243,7 +243,7 @@ function drawStarMarker(
   x: number, y: number, size: number, filled: boolean,
 ) {
   const unit = size / 5;
-  const c = filled ? rgb(0, 0, 0) : rgb(0, 0, 0);
+  const c = rgb(0, 0, 0);
 
   if (filled) {
     // 塗りつぶし十字

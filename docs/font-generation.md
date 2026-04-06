@@ -2,8 +2,8 @@
 
 ## 出力形式
 
-- TrueType (.ttf)
-- OpenType (.otf)
+- TrueType (.ttf) — Phase 1 で対応
+- OpenType (.otf) — 将来対応予定
 
 ---
 

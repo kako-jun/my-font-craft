@@ -277,7 +277,6 @@ my-font-craft/
 │   ├── components/          # 共通コンポーネント
 │   │   ├── Header.tsx
 │   │   ├── Footer.tsx
-│   │   ├── Button.tsx
 │   │   └── ProgressBar.tsx
 │   ├── lib/
 │   │   ├── template/        # テンプレートPDF生成
@@ -288,8 +287,7 @@ my-font-craft/
 │   │   │   ├── qr-reader.ts
 │   │   │   └── marker-detector.ts
 │   │   ├── vectorizer/      # ベクター化
-│   │   │   ├── contour.ts
-│   │   │   └── bezier.ts
+│   │   │   └── contour.ts
 │   │   └── font/            # フォント生成
 │   │       ├── builder.ts
 │   │       └── calt.ts
@@ -299,8 +297,6 @@ my-font-craft/
 │   └── styles/
 │       └── global.css
 ├── public/                  # 静的ファイル
-│   ├── favicon.ico
-│   └── logo.png
 ├── README.md
 ├── CLAUDE.md
 ├── package.json

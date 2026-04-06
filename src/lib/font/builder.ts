@@ -1,6 +1,5 @@
 import opentype from 'opentype.js';
 import type { PathCommand } from '../vectorizer/contour';
-import { generateCaltFeature } from './calt';
 
 export interface VectorGlyph {
   name: string;

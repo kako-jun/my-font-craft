@@ -162,6 +162,7 @@ export async function processImages(
       const zip = await JSZip.loadAsync(file);
       for (const [name, entry] of Object.entries(zip.files)) {
         if (entry.dir) continue;
+        if (name.startsWith('__MACOSX') || name.includes('/._')) continue;
         const ext = name.toLowerCase().split('.').pop();
         if (['jpg', 'jpeg', 'png', 'webp'].includes(ext || '')) {
           const blob = await entry.async('blob');
@@ -184,7 +185,16 @@ export async function processImages(
   for (let fi = 0; fi < imageFiles.length; fi++) {
     callbacks.onPageStart(fi + 1, imageFiles.length);
 
-    const canvas = await loadImageToCanvas(imageFiles[fi]);
+    let canvas: HTMLCanvasElement;
+    try {
+      canvas = await loadImageToCanvas(imageFiles[fi]);
+    } catch {
+      callbacks.onMessage({
+        type: 'error',
+        text: `ファイル "${imageFiles[fi].name}" を画像として読み込めませんでした。スキップします。`,
+      });
+      continue;
+    }
 
     // QRコード読み取り
     const qr = readQRFromCanvas(canvas);
