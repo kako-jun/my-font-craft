@@ -1,0 +1,12 @@
+{
+  "name": "MyFontCraft",
+  "short_name": "MyFontCraft",
+  "description": "手書きテンプレートからオリジナルフォントを作成",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f0e8",
+  "theme_color": "#4a3728",
+  "icons": [
+    { "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any" }
+  ]
+}

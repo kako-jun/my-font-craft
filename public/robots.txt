@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://my-font-craft.pages.dev/sitemap.xml
