@@ -140,6 +140,15 @@ npm run test:watch
 # 模擬スキャン画像の再生成
 npm run test:generate-fixtures
 
+# リント（ESLint）
+npm run lint
+
+# フォーマット（Prettier）
+npm run format
+
+# リント + フォーマットチェック
+npm run check
+
 # デプロイ
 npm run deploy
 ```
