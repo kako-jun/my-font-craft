@@ -33,7 +33,16 @@ export function detectMarkers(canvas: HTMLCanvasElement): Corners | null {
   const topLeft = findMarkerInRegion(data, w, h, 0, qrAvoidY, margin, margin - qrAvoidY, threshold);
   const topRight = findMarkerInRegion(data, w, h, w - margin, 0, margin, margin, threshold);
   const bottomLeft = findMarkerInRegion(data, w, h, 0, h - margin, margin, margin, threshold);
-  const bottomRight = findMarkerInRegion(data, w, h, w - margin, h - margin, margin, margin, threshold);
+  const bottomRight = findMarkerInRegion(
+    data,
+    w,
+    h,
+    w - margin,
+    h - margin,
+    margin,
+    margin,
+    threshold,
+  );
 
   if (!topLeft || !topRight || !bottomLeft || !bottomRight) return null;
 
@@ -42,11 +51,17 @@ export function detectMarkers(canvas: HTMLCanvasElement): Corners | null {
 
 function findMarkerInRegion(
   data: Uint8ClampedArray,
-  imgW: number, imgH: number,
-  rx: number, ry: number, rw: number, rh: number,
+  imgW: number,
+  imgH: number,
+  rx: number,
+  ry: number,
+  rw: number,
+  rh: number,
   threshold: number,
 ): Point | null {
-  let sumX = 0, sumY = 0, count = 0;
+  let sumX = 0,
+    sumY = 0,
+    count = 0;
 
   for (let y = ry; y < Math.min(ry + rh, imgH); y++) {
     for (let x = rx; x < Math.min(rx + rw, imgW); x++) {
@@ -76,8 +91,10 @@ function computeOtsuThreshold(data: Uint8ClampedArray, pixelCount: number): numb
   let sumAll = 0;
   for (let i = 0; i < 256; i++) sumAll += i * histogram[i];
 
-  let sumB = 0, wB = 0;
-  let maxVariance = 0, bestThreshold = 128;
+  let sumB = 0,
+    wB = 0;
+  let maxVariance = 0,
+    bestThreshold = 128;
 
   for (let t = 0; t < 256; t++) {
     wB += histogram[t];
@@ -194,13 +211,18 @@ export function detectOrientation(corners: Corners, canvas: HTMLCanvasElement): 
     { corner: 'bottomRight', val: avgBrightness(corners.bottomRight) },
   ];
 
-  const darkest = brightnesses.reduce((a, b) => a.val < b.val ? a : b);
+  const darkest = brightnesses.reduce((a, b) => (a.val < b.val ? a : b));
 
   switch (darkest.corner) {
-    case 'topLeft': return 0;
-    case 'topRight': return 90;
-    case 'bottomRight': return 180;
-    case 'bottomLeft': return 270;
-    default: return 0;
+    case 'topLeft':
+      return 0;
+    case 'topRight':
+      return 90;
+    case 'bottomRight':
+      return 180;
+    case 'bottomLeft':
+      return 270;
+    default:
+      return 0;
   }
 }

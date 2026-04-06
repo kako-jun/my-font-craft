@@ -1,17 +1,39 @@
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import QRCode from 'qrcode';
 import {
-  mm, PAGE_WIDTH, PAGE_HEIGHT, MARGIN,
-  COLS, ROWS, CELL_SIZE, INNER_SIZE, CHECK_HEIGHT, CELL_GAP,
-  QR_X, QR_Y, QR_SIZE,
-  GRAY_BAR_X, GRAY_BAR_Y, GRAY_BAR_STEP_W, GRAY_BAR_STEP_H, GRAY_BAR_STEPS,
-  CYAN_SAMPLE_X, CYAN_SAMPLE_Y, CYAN_SAMPLE_SIZE,
-  MARKERS, MARKER_SIZE, SAMPLE_WIDTH,
+  mm,
+  PAGE_WIDTH,
+  PAGE_HEIGHT,
+  COLS,
+  CELL_SIZE,
+  INNER_SIZE,
+  CHECK_HEIGHT,
+  QR_X,
+  QR_Y,
+  QR_SIZE,
+  GRAY_BAR_X,
+  GRAY_BAR_Y,
+  GRAY_BAR_STEP_W,
+  GRAY_BAR_STEP_H,
+  GRAY_BAR_STEPS,
+  CYAN_SAMPLE_X,
+  CYAN_SAMPLE_Y,
+  CYAN_SAMPLE_SIZE,
+  MARKERS,
+  MARKER_SIZE,
+  SAMPLE_WIDTH,
   COLOR_CYAN,
-  getCellPosition, getSamplePosition,
+  getCellPosition,
+  getSamplePosition,
 } from './layout';
 import {
-  HIRAGANA, KATAKANA, UPPERCASE, LOWERCASE, DIGITS, ASCII_SYMBOLS, JP_SYMBOLS,
+  HIRAGANA,
+  KATAKANA,
+  UPPERCASE,
+  LOWERCASE,
+  DIGITS,
+  ASCII_SYMBOLS,
+  JP_SYMBOLS,
   CHARS_PER_PAGE,
 } from '../../data/characters';
 import { JOYO_KANJI } from '../../data/joyo-kanji';
@@ -28,7 +50,8 @@ function buildCharList(opts: TemplateOptions): string[] {
   const chars: string[] = [];
   if (opts.includeHiragana) chars.push(...HIRAGANA);
   if (opts.includeKatakana) chars.push(...KATAKANA);
-  if (opts.includeAlphaNum) chars.push(...UPPERCASE, ...LOWERCASE, ...DIGITS, ...ASCII_SYMBOLS, ...JP_SYMBOLS);
+  if (opts.includeAlphaNum)
+    chars.push(...UPPERCASE, ...LOWERCASE, ...DIGITS, ...ASCII_SYMBOLS, ...JP_SYMBOLS);
   if (opts.includeKanji) chars.push(...JOYO_KANJI);
   return chars;
 }
@@ -68,15 +91,19 @@ async function generateTemplatePDFFromChars(
     // --- ヘッダー ---
     // タイトル
     page.drawText(`MyFontCraft`, {
-      x: mm(25), y: toY(14),
-      size: 10, font: helvetica,
+      x: mm(25),
+      y: toY(14),
+      size: 10,
+      font: helvetica,
       color: rgb(0, 0, 0),
     });
 
     // ページ番号
     page.drawText(`Page ${pageIdx + 1}/${totalPages}`, {
-      x: mm(80), y: toY(14),
-      size: 9, font: helvetica,
+      x: mm(80),
+      y: toY(14),
+      size: 9,
+      font: helvetica,
       color: rgb(0, 0, 0),
     });
 
@@ -99,11 +126,13 @@ async function generateTemplatePDFFromChars(
         margin: 0,
         width: 128,
       });
-      const qrImageBytes = Uint8Array.from(atob(qrDataUrl.split(',')[1]), c => c.charCodeAt(0));
+      const qrImageBytes = Uint8Array.from(atob(qrDataUrl.split(',')[1]), (c) => c.charCodeAt(0));
       const qrImage = await pdfDoc.embedPng(qrImageBytes);
       page.drawImage(qrImage, {
-        x: mm(QR_X), y: toY(QR_Y + QR_SIZE),
-        width: mm(QR_SIZE), height: mm(QR_SIZE),
+        x: mm(QR_X),
+        y: toY(QR_Y + QR_SIZE),
+        width: mm(QR_SIZE),
+        height: mm(QR_SIZE),
       });
     } catch {
       // QRコード生成失敗時はスキップ（データが大きすぎる場合など）
@@ -256,24 +285,47 @@ async function renderCharToImage(char: string): Promise<Uint8Array | null> {
 
   const dataUrl = canvas.toDataURL('image/png');
   const base64 = dataUrl.split(',')[1];
-  return Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+  return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
 }
 
 // ドット絵風の星マーカー（簡易版：四角+十字で星っぽく）
 function drawStarMarker(
   page: ReturnType<PDFDocument['addPage']>,
-  x: number, y: number, size: number, filled: boolean,
+  x: number,
+  y: number,
+  size: number,
+  filled: boolean,
 ) {
   const unit = size / 5;
   const c = rgb(0, 0, 0);
 
   if (filled) {
     // 塗りつぶし十字
-    page.drawRectangle({ x: x + unit, y: y - size + unit, width: unit * 3, height: size, color: c });
+    page.drawRectangle({
+      x: x + unit,
+      y: y - size + unit,
+      width: unit * 3,
+      height: size,
+      color: c,
+    });
     page.drawRectangle({ x, y: y - unit * 3, width: size, height: unit * 3, color: c });
   } else {
     // 枠線のみ十字
-    page.drawRectangle({ x: x + unit, y: y - size + unit, width: unit * 3, height: size, borderColor: c, borderWidth: 0.5 });
-    page.drawRectangle({ x, y: y - unit * 3, width: size, height: unit * 3, borderColor: c, borderWidth: 0.5 });
+    page.drawRectangle({
+      x: x + unit,
+      y: y - size + unit,
+      width: unit * 3,
+      height: size,
+      borderColor: c,
+      borderWidth: 0.5,
+    });
+    page.drawRectangle({
+      x,
+      y: y - unit * 3,
+      width: size,
+      height: unit * 3,
+      borderColor: c,
+      borderWidth: 0.5,
+    });
   }
 }

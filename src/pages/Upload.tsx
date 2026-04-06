@@ -1,8 +1,13 @@
 import { createSignal, createMemo, Show, For } from 'solid-js';
 import ProgressBar from '../components/ProgressBar';
 import ScanResultGrid from '../components/ScanResultGrid';
-import { processImages, type ProcessResult, type ProcessMessage, type GlyphStatus } from '../lib/scanner/processor';
-import { buildFont, type VectorGlyph } from '../lib/font/builder';
+import {
+  processImages,
+  type ProcessResult,
+  type ProcessMessage,
+  type GlyphStatus,
+} from '../lib/scanner/processor';
+import { buildFont } from '../lib/font/builder';
 import { generateRetryTemplatePDF } from '../lib/template/generator';
 
 interface Props {
@@ -19,12 +24,16 @@ export default function Upload(props: Props) {
   const [messages, setMessages] = createSignal<ProcessMessage[]>([]);
   const [fontBlob, setFontBlob] = createSignal<Blob | null>(null);
   const [glyphStatuses, setGlyphStatuses] = createSignal<GlyphStatus[]>([]);
-  const [correctedPages, setCorrectedPages] = createSignal<{ pageIndex: number; dataUrl: string }[]>([]);
+  const [correctedPages, setCorrectedPages] = createSignal<
+    { pageIndex: number; dataUrl: string }[]
+  >([]);
   const [scanResult, setScanResult] = createSignal<ProcessResult | null>(null);
 
   // 未検出文字のリスト
   const missingChars = createMemo(() =>
-    glyphStatuses().filter(g => g.status === 'empty').map(g => g.char)
+    glyphStatuses()
+      .filter((g) => g.status === 'empty')
+      .map((g) => g.char),
   );
 
   function addMessage(msg: ProcessMessage) {
@@ -64,14 +73,19 @@ export default function Upload(props: Props) {
             thumb.width = 300;
             thumb.height = Math.round(canvas.height * scale);
             thumb.getContext('2d')!.drawImage(canvas, 0, 0, thumb.width, thumb.height);
-            setCorrectedPages(prev => [...prev, { pageIndex, dataUrl: thumb.toDataURL('image/png') }]);
-          } catch { /* ignore */ }
+            setCorrectedPages((prev) => [
+              ...prev,
+              { pageIndex, dataUrl: thumb.toDataURL('image/png') },
+            ]);
+          } catch {
+            /* ignore */
+          }
         },
         onGlyphStatus: (status) => {
           newGlyphStatuses.push(status);
           // リアルタイムにグリッドを更新
           if (!merge) {
-            setGlyphStatuses(prev => [...prev, status]);
+            setGlyphStatuses((prev) => [...prev, status]);
           }
         },
       });
@@ -83,7 +97,7 @@ export default function Upload(props: Props) {
           if (gs.status === 'found') newFound.set(gs.unicode, gs);
         }
 
-        const mergedStatuses = prevStatuses.map(gs => {
+        const mergedStatuses = prevStatuses.map((gs) => {
           if (gs.status === 'empty' && newFound.has(gs.unicode)) {
             return newFound.get(gs.unicode)!;
           }
@@ -92,14 +106,16 @@ export default function Upload(props: Props) {
         setGlyphStatuses(mergedStatuses);
 
         // グリフもマージ（既存 + 新規で未検出だったもの）
-        const existingUnicodes = new Set(prevResult.glyphs.map(g => g.unicode));
-        const newGlyphs = result.glyphs.filter(g => g.unicode && !existingUnicodes.has(g.unicode));
+        const existingUnicodes = new Set(prevResult.glyphs.map((g) => g.unicode));
+        const newGlyphs = result.glyphs.filter(
+          (g) => g.unicode && !existingUnicodes.has(g.unicode),
+        );
         const mergedGlyphs = [...prevResult.glyphs, ...newGlyphs];
         setScanResult({ glyphs: mergedGlyphs });
 
         const added = newGlyphs.length;
         const total = mergedStatuses.length;
-        const found = mergedStatuses.filter(g => g.status === 'found').length;
+        const found = mergedStatuses.filter((g) => g.status === 'found').length;
         addMessage({
           type: 'info',
           text: `追加スキャン完了: ${added} 文字を追加しました（合計 ${found}/${total} 文字）`,
@@ -117,7 +133,10 @@ export default function Upload(props: Props) {
       }
       setPhase('review');
     } catch (err) {
-      addMessage({ type: 'error', text: `処理に失敗しました: ${err instanceof Error ? err.message : String(err)}` });
+      addMessage({
+        type: 'error',
+        text: `処理に失敗しました: ${err instanceof Error ? err.message : String(err)}`,
+      });
       setPhase(prevResult ? 'review' : 'idle');
     }
   }
@@ -141,7 +160,10 @@ export default function Upload(props: Props) {
       addMessage({ type: 'success', text: 'フォント生成が完了しました!' });
       setPhase('done');
     } catch (err) {
-      addMessage({ type: 'error', text: `フォント生成に失敗しました: ${err instanceof Error ? err.message : String(err)}` });
+      addMessage({
+        type: 'error',
+        text: `フォント生成に失敗しました: ${err instanceof Error ? err.message : String(err)}`,
+      });
       setPhase('review');
     }
   }
@@ -172,7 +194,10 @@ export default function Upload(props: Props) {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      addMessage({ type: 'error', text: `テンプレート生成に失敗しました: ${err instanceof Error ? err.message : String(err)}` });
+      addMessage({
+        type: 'error',
+        text: `テンプレート生成に失敗しました: ${err instanceof Error ? err.message : String(err)}`,
+      });
     }
   }
 
@@ -223,7 +248,10 @@ export default function Upload(props: Props) {
         <div
           class="drop-zone"
           classList={{ 'drop-zone--active': dragActive() }}
-          onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragActive(true);
+          }}
           onDragLeave={() => setDragActive(false)}
           onDrop={handleDrop}
         >
@@ -235,10 +263,22 @@ export default function Upload(props: Props) {
           <p class="drop-zone__hint">JPEG, PNG, WebP に対応</p>
           <p>または</p>
           <div style="display:flex;gap:0.5rem;justify-content:center;flex-wrap:wrap">
-            <button class="btn" onClick={(e) => { e.stopPropagation(); document.getElementById('folder-input')?.click(); }}>
+            <button
+              class="btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                document.getElementById('folder-input')?.click();
+              }}
+            >
               フォルダを選択
             </button>
-            <button class="btn" onClick={(e) => { e.stopPropagation(); document.getElementById('file-input')?.click(); }}>
+            <button
+              class="btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                document.getElementById('file-input')?.click();
+              }}
+            >
               ZIPを選択
             </button>
           </div>
@@ -253,7 +293,7 @@ export default function Upload(props: Props) {
           <input
             id="folder-input"
             type="file"
-            // @ts-ignore webkitdirectory
+            // @ts-expect-error webkitdirectory is a non-standard attribute
             webkitdirectory
             style="display:none"
             onChange={handleFileInput}
@@ -284,11 +324,7 @@ export default function Upload(props: Props) {
       <Show when={messages().length > 0}>
         <div class="messages" style="margin-top:1rem">
           <For each={messages()}>
-            {(msg) => (
-              <div class={`message message--${msg.type}`}>
-                {msg.text}
-              </div>
-            )}
+            {(msg) => <div class={`message message--${msg.type}`}>{msg.text}</div>}
           </For>
         </div>
       </Show>
@@ -296,10 +332,7 @@ export default function Upload(props: Props) {
       {/* スキャン結果確認グリッド */}
       <Show when={glyphStatuses().length > 0}>
         <div class="card" style="margin-top:1rem">
-          <ScanResultGrid
-            glyphStatuses={glyphStatuses()}
-            correctedPages={correctedPages()}
-          />
+          <ScanResultGrid glyphStatuses={glyphStatuses()} correctedPages={correctedPages()} />
         </div>
       </Show>
 
@@ -317,7 +350,8 @@ export default function Upload(props: Props) {
                 そのまま生成すると、未検出の文字は端末のフォントで代替表示されます。
               </p>
               <button class="btn" onClick={handleDownloadRetryTemplate}>
-                未検出文字のテンプレートをダウンロード ({Math.ceil(missingChars().length / 30)} ページ)
+                未検出文字のテンプレートをダウンロード ({Math.ceil(missingChars().length / 30)}{' '}
+                ページ)
               </button>
             </div>
           </Show>

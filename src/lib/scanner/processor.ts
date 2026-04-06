@@ -1,10 +1,22 @@
 import JSZip from 'jszip';
-import { readQRFromCanvas, type QRPayload } from './qr-reader';
-import { detectMarkers, perspectiveTransform, detectOrientation, rotateCanvas } from './marker-detector';
+import { readQRFromCanvas } from './qr-reader';
 import {
-  mm, PAGE_WIDTH, PAGE_HEIGHT,
-  COLS, ROWS, CELL_SIZE, CHECK_HEIGHT, CELL_GAP, INNER_SIZE,
-  CYAN_SAMPLE_X, CYAN_SAMPLE_Y, CYAN_SAMPLE_SIZE,
+  detectMarkers,
+  perspectiveTransform,
+  detectOrientation,
+  rotateCanvas,
+} from './marker-detector';
+import {
+  mm,
+  PAGE_WIDTH,
+  PAGE_HEIGHT,
+  COLS,
+  CELL_SIZE,
+  CHECK_HEIGHT,
+  INNER_SIZE,
+  CYAN_SAMPLE_X,
+  CYAN_SAMPLE_Y,
+  CYAN_SAMPLE_SIZE,
   getCellPosition,
 } from '../template/layout';
 import { getCharactersForPage } from '../../data/characters';
@@ -23,7 +35,7 @@ export interface GlyphStatus {
   row: number;
   col: number;
   status: 'found' | 'empty';
-  cellImageDataUrl?: string;  // セル切り出し画像のData URL
+  cellImageDataUrl?: string; // セル切り出し画像のData URL
 }
 
 export interface ProcessCallbacks {
@@ -82,10 +94,14 @@ function readCyanSample(canvas: HTMLCanvasElement): [number, number, number] {
   const sh = Math.round(mm(CYAN_SAMPLE_SIZE) * scaleY);
 
   const data = ctx.getImageData(sx, sy, Math.max(1, sw), Math.max(1, sh)).data;
-  let r = 0, g = 0, b = 0;
+  let r = 0,
+    g = 0,
+    b = 0;
   const count = data.length / 4;
   for (let i = 0; i < data.length; i += 4) {
-    r += data[i]; g += data[i + 1]; b += data[i + 2];
+    r += data[i];
+    g += data[i + 1];
+    b += data[i + 2];
   }
   return [Math.round(r / count), Math.round(g / count), Math.round(b / count)];
 }
@@ -93,7 +109,9 @@ function readCyanSample(canvas: HTMLCanvasElement): [number, number, number] {
 // マスを切り出して二値化
 function extractCell(
   canvas: HTMLCanvasElement,
-  row: number, col: number, cellIndex: number,
+  row: number,
+  col: number,
+  cellIndex: number,
 ): ImageData | null {
   const ctx = canvas.getContext('2d')!;
   const scaleX = canvas.width / mm(PAGE_WIDTH);
@@ -129,7 +147,9 @@ function isEmpty(imageData: ImageData): boolean {
 // チェック欄解析（簡易版: 黒ピクセル密度で✓/×/空欄を推定）
 function analyzeCheckMark(
   canvas: HTMLCanvasElement,
-  row: number, col: number, cellIndex: number,
+  row: number,
+  col: number,
+  cellIndex: number,
 ): 'check' | 'cross' | 'empty' {
   const ctx = canvas.getContext('2d')!;
   const scaleX = canvas.width / mm(PAGE_WIDTH);
@@ -257,7 +277,11 @@ export async function processImages(
       const unicode = char.codePointAt(0)!;
 
       // 2つのマスを評価
-      const cells: { imageData: ImageData; checkMark: 'check' | 'cross' | 'empty'; index: number }[] = [];
+      const cells: {
+        imageData: ImageData;
+        checkMark: 'check' | 'cross' | 'empty';
+        index: number;
+      }[] = [];
 
       for (let cellIdx = 0; cellIdx < 2; cellIdx++) {
         const cellData = extractCell(corrected, row, col, cellIdx);
@@ -271,13 +295,18 @@ export async function processImages(
 
       if (cells.length === 0) {
         callbacks.onGlyphStatus?.({
-          char, unicode, pageIndex: qr.pg, row, col, status: 'empty',
+          char,
+          unicode,
+          pageIndex: qr.pg,
+          row,
+          col,
+          status: 'empty',
         });
         continue;
       }
 
       // 採用判定
-      const checked = cells.filter(c => c.checkMark === 'check');
+      const checked = cells.filter((c) => c.checkMark === 'check');
       const adopted = checked.length > 0 ? checked : [cells[cells.length - 1]];
 
       // セル画像のData URLを生成（UI表示用）
@@ -289,10 +318,16 @@ export async function processImages(
         cellCanvas.height = adoptedCell.imageData.height;
         cellCanvas.getContext('2d')!.putImageData(adoptedCell.imageData, 0, 0);
         cellImageDataUrl = cellCanvas.toDataURL('image/png');
-      } catch { /* Node.js環境ではスキップ */ }
+      } catch {
+        /* Node.js環境ではスキップ */
+      }
 
       callbacks.onGlyphStatus?.({
-        char, unicode, pageIndex: qr.pg, row, col,
+        char,
+        unicode,
+        pageIndex: qr.pg,
+        row,
+        col,
         status: 'found',
         cellImageDataUrl,
       });
@@ -301,9 +336,10 @@ export async function processImages(
         const cell = adopted[ai];
         const paths = vectorizeGlyph(cell.imageData);
 
-        const name = ai === 0
-          ? `uni${unicode.toString(16).toUpperCase().padStart(4, '0')}`
-          : `uni${unicode.toString(16).toUpperCase().padStart(4, '0')}.alt${ai}`;
+        const name =
+          ai === 0
+            ? `uni${unicode.toString(16).toUpperCase().padStart(4, '0')}`
+            : `uni${unicode.toString(16).toUpperCase().padStart(4, '0')}.alt${ai}`;
 
         glyphs.push({
           name,

@@ -33,11 +33,11 @@
 
 ### フレームワーク
 
-| 技術 | 用途 |
-|------|------|
+| 技術         | 用途             |
+| ------------ | ---------------- |
 | **Solid.js** | UIフレームワーク |
-| Vite | ビルドツール |
-| TypeScript | 型安全な開発 |
+| Vite         | ビルドツール     |
+| TypeScript   | 型安全な開発     |
 
 ### なぜSolid.jsか
 
@@ -79,13 +79,13 @@ function Counter() {
 
 ### 補足: 他フレームワークとの比較
 
-| フレームワーク | 不採用理由 |
-|--------------|-----------|
-| React | バンドルサイズが大きい、仮想DOM のオーバーヘッド |
-| Preact | Solid.jsの方がパフォーマンス面で優位 |
-| Svelte | 良い選択肢だが、Solid.jsの学習目的で不採用 |
-| Astro | MPAベースでSPAとしての操作感に不向き |
-| Hono | サーバーサイド/エッジ向け、ブラウザ完結方針と不適合 |
+| フレームワーク | 不採用理由                                          |
+| -------------- | --------------------------------------------------- |
+| React          | バンドルサイズが大きい、仮想DOM のオーバーヘッド    |
+| Preact         | Solid.jsの方がパフォーマンス面で優位                |
+| Svelte         | 良い選択肢だが、Solid.jsの学習目的で不採用          |
+| Astro          | MPAベースでSPAとしての操作感に不向き                |
+| Hono           | サーバーサイド/エッジ向け、ブラウザ完結方針と不適合 |
 
 ---
 
@@ -93,8 +93,8 @@ function Counter() {
 
 ### PDF生成
 
-| ライブラリ | 用途 |
-|-----------|------|
+| ライブラリ  | 用途                |
+| ----------- | ------------------- |
 | **pdf-lib** | テンプレートPDF生成 |
 
 ```typescript
@@ -106,10 +106,10 @@ const page = pdfDoc.addPage([595.28, 841.89]); // A4サイズ（ポイント）
 
 ### QRコード
 
-| ライブラリ | 用途 |
-|-----------|------|
-| **qrcode** | QRコード生成（テンプレート用） |
-| **jsQR** | QRコード読み取り（スキャン画像から） |
+| ライブラリ | 用途                                 |
+| ---------- | ------------------------------------ |
+| **qrcode** | QRコード生成（テンプレート用）       |
+| **jsQR**   | QRコード読み取り（スキャン画像から） |
 
 ```typescript
 // 生成
@@ -123,10 +123,10 @@ const code = jsQR(imageData, width, height);
 
 ### 画像処理
 
-| ライブラリ | 用途 |
-|-----------|------|
-| **Canvas API** | 基本的な画像処理 |
-| **OpenCV.js** | 高度な画像処理（必要に応じて） |
+| ライブラリ     | 用途                           |
+| -------------- | ------------------------------ |
+| **Canvas API** | 基本的な画像処理               |
+| **OpenCV.js**  | 高度な画像処理（必要に応じて） |
 
 ```typescript
 // Canvas APIでの基本処理
@@ -138,8 +138,8 @@ const imageData = ctx.getImageData(0, 0, width, height);
 
 ### フォント生成
 
-| ライブラリ | 用途 |
-|-----------|------|
+| ライブラリ      | 用途        |
+| --------------- | ----------- |
 | **opentype.js** | TTF/OTF生成 |
 
 ```typescript
@@ -150,7 +150,7 @@ const font = new opentype.Font({
   styleName: 'Regular',
   unitsPerEm: 1000,
   ascender: 800,
-  descender: -200
+  descender: -200,
 });
 ```
 
@@ -160,12 +160,12 @@ const font = new opentype.Font({
 
 ### Cloudflare Pages
 
-| 項目 | 内容 |
-|------|------|
-| 無料枠 | 500ビルド/月、無制限帯域 |
-| CDN | グローバルエッジネットワーク |
-| HTTPS | 自動 |
-| カスタムドメイン | 対応 |
+| 項目             | 内容                         |
+| ---------------- | ---------------------------- |
+| 無料枠           | 500ビルド/月、無制限帯域     |
+| CDN              | グローバルエッジネットワーク |
+| HTTPS            | 自動                         |
+| カスタムドメイン | 対応                         |
 
 ### デプロイフロー
 
@@ -224,11 +224,11 @@ npx wrangler pages dev dist
 
 ### 必要なツール
 
-| ツール | バージョン |
-|--------|-----------|
-| Node.js | 18.x 以上 |
-| npm | 9.x 以上 |
-| Git | 最新 |
+| ツール  | バージョン |
+| ------- | ---------- |
+| Node.js | 18.x 以上  |
+| npm     | 9.x 以上   |
+| Git     | 最新       |
 
 ### セットアップ
 
@@ -245,6 +245,18 @@ npm run dev
 
 # ビルド
 npm run build
+
+# リント
+npm run lint
+
+# フォーマット
+npm run format
+
+# リント + フォーマットチェック
+npm run check
+
+# テスト
+npm test
 
 # デプロイ
 npm run deploy
@@ -266,6 +278,10 @@ my-font-craft/
 │   ├── ui-design.md
 │   ├── tech-stack.md
 │   └── future-plans.md
+├── .husky/
+│   └── pre-commit           # lint-staged 実行
+├── eslint.config.js         # ESLint v9 flat config
+├── .prettierrc              # Prettier 設定
 ├── src/
 │   ├── index.tsx            # Solid.jsエントリーポイント
 │   ├── App.tsx              # ルートコンポーネント
@@ -277,7 +293,8 @@ my-font-craft/
 │   ├── components/          # 共通コンポーネント
 │   │   ├── Header.tsx
 │   │   ├── Footer.tsx
-│   │   └── ProgressBar.tsx
+│   │   ├── ProgressBar.tsx
+│   │   └── ScanResultGrid.tsx
 │   ├── lib/
 │   │   ├── template/        # テンプレートPDF生成
 │   │   │   ├── generator.ts
@@ -325,10 +342,21 @@ my-font-craft/
 
 ```json
 {
-  "vite": "^5.0.0",
-  "vite-plugin-solid": "^2.8.0",
-  "typescript": "^5.0.0",
-  "@types/node": "^20.0.0"
+  "vite": "^6.0.0",
+  "vite-plugin-solid": "^2.11.0",
+  "typescript": "^5.7.0",
+  "eslint": "^10.2.0",
+  "@eslint/js": "^10.0.1",
+  "@typescript-eslint/eslint-plugin": "^8.58.0",
+  "@typescript-eslint/parser": "^8.58.0",
+  "globals": "^16.0.0",
+  "prettier": "^3.8.1",
+  "husky": "^9.1.7",
+  "lint-staged": "^16.4.0",
+  "vitest": "^4.1.2",
+  "@vitest/coverage-v8": "^4.1.2",
+  "canvas": "^3.2.3",
+  "wrangler": "^3.0.0"
 }
 ```
 
@@ -338,9 +366,9 @@ my-font-craft/
 
 ### 将来の改善案
 
-| 項目 | 手法 |
-|------|------|
-| 画像処理高速化 | WebAssembly (Rust) |
-| 並列処理 | Web Worker |
-| オフライン対応 | Service Worker |
+| 項目               | 手法                         |
+| ------------------ | ---------------------------- |
+| 画像処理高速化     | WebAssembly (Rust)           |
+| 並列処理           | Web Worker                   |
+| オフライン対応     | Service Worker               |
 | バンドルサイズ削減 | Tree shaking, Code splitting |

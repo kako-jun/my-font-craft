@@ -29,8 +29,7 @@ export default function About() {
       <div class="card">
         <h3>作成したフォントの利用</h3>
         <p>
-          作成したフォントはあなたのものです。
-          個人利用・商用利用ともに自由にお使いいただけます。
+          作成したフォントはあなたのものです。 個人利用・商用利用ともに自由にお使いいただけます。
         </p>
       </div>
 
@@ -41,7 +40,11 @@ export default function About() {
           <a href="https://llll-ll.com" target="_blank" rel="noopener noreferrer">
             llll-ll.com
           </a>
-          <a href="https://github.com/kako-jun/my-font-craft" target="_blank" rel="noopener noreferrer">
+          <a
+            href="https://github.com/kako-jun/my-font-craft"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             GitHub
           </a>
         </div>
@@ -59,12 +62,7 @@ export default function About() {
           >
             GitHub Sponsors
           </a>
-          <a
-            class="btn"
-            href="https://amzn.to/41dkZF1"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
+          <a class="btn" href="https://amzn.to/41dkZF1" target="_blank" rel="noopener noreferrer">
             Amazon で応援
           </a>
         </div>
