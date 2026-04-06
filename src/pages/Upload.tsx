@@ -1,8 +1,9 @@
-import { createSignal, Show, For } from 'solid-js';
+import { createSignal, createMemo, Show, For } from 'solid-js';
 import ProgressBar from '../components/ProgressBar';
 import ScanResultGrid from '../components/ScanResultGrid';
 import { processImages, type ProcessResult, type ProcessMessage, type GlyphStatus } from '../lib/scanner/processor';
 import { buildFont, type VectorGlyph } from '../lib/font/builder';
+import { generateRetryTemplatePDF } from '../lib/template/generator';
 
 interface Props {
   fontName: string;
@@ -21,23 +22,35 @@ export default function Upload(props: Props) {
   const [correctedPages, setCorrectedPages] = createSignal<{ pageIndex: number; dataUrl: string }[]>([]);
   const [scanResult, setScanResult] = createSignal<ProcessResult | null>(null);
 
+  // 未検出文字のリスト
+  const missingChars = createMemo(() =>
+    glyphStatuses().filter(g => g.status === 'empty').map(g => g.char)
+  );
+
   function addMessage(msg: ProcessMessage) {
     setMessages((prev) => [...prev, msg]);
   }
 
   // Phase 1: スキャン（画像処理のみ。フォント生成はしない）
-  async function handleFiles(files: FileList | File[]) {
+  // merge=true なら既存結果にマージ
+  async function handleFiles(files: FileList | File[], merge = false) {
     const fileArray = Array.from(files);
     if (fileArray.length === 0) return;
+
+    const prevResult = merge ? scanResult() : null;
+    const prevStatuses = merge ? glyphStatuses() : [];
 
     setPhase('scanning');
     setMessages([]);
     setFontBlob(null);
-    setGlyphStatuses([]);
-    setCorrectedPages([]);
-    setScanResult(null);
+    if (!merge) {
+      setGlyphStatuses([]);
+      setCorrectedPages([]);
+      setScanResult(null);
+    }
 
     try {
+      const newGlyphStatuses: GlyphStatus[] = [];
       const result: ProcessResult = await processImages(fileArray, {
         onPageStart: (page, total) => {
           setCurrentPage(page);
@@ -55,21 +68,53 @@ export default function Upload(props: Props) {
           } catch { /* ignore */ }
         },
         onGlyphStatus: (status) => {
-          setGlyphStatuses(prev => [...prev, status]);
+          newGlyphStatuses.push(status);
         },
       });
 
-      setScanResult(result);
-      const found = result.glyphs.length;
-      const total = glyphStatuses().length;
-      addMessage({
-        type: 'info',
-        text: `スキャン完了: ${found}/${total} 文字を取得しました。結果を確認してください。`,
-      });
+      if (merge && prevResult) {
+        // マージ: 新しく取得できた文字で既存の empty を上書き
+        const newFound = new Map<number, GlyphStatus>();
+        for (const gs of newGlyphStatuses) {
+          if (gs.status === 'found') newFound.set(gs.unicode, gs);
+        }
+
+        const mergedStatuses = prevStatuses.map(gs => {
+          if (gs.status === 'empty' && newFound.has(gs.unicode)) {
+            return newFound.get(gs.unicode)!;
+          }
+          return gs;
+        });
+        setGlyphStatuses(mergedStatuses);
+
+        // グリフもマージ（既存 + 新規で未検出だったもの）
+        const existingUnicodes = new Set(prevResult.glyphs.map(g => g.unicode));
+        const newGlyphs = result.glyphs.filter(g => g.unicode && !existingUnicodes.has(g.unicode));
+        const mergedGlyphs = [...prevResult.glyphs, ...newGlyphs];
+        setScanResult({ glyphs: mergedGlyphs });
+
+        const added = newGlyphs.length;
+        const total = mergedStatuses.length;
+        const found = mergedStatuses.filter(g => g.status === 'found').length;
+        addMessage({
+          type: 'info',
+          text: `追加スキャン完了: ${added} 文字を追加しました（合計 ${found}/${total} 文字）`,
+        });
+      } else {
+        // 新規スキャン
+        setGlyphStatuses(newGlyphStatuses);
+        setScanResult(result);
+        const found = result.glyphs.length;
+        const total = newGlyphStatuses.length;
+        addMessage({
+          type: 'info',
+          text: `スキャン完了: ${found}/${total} 文字を取得しました。結果を確認してください。`,
+        });
+      }
       setPhase('review');
     } catch (err) {
       addMessage({ type: 'error', text: `処理に失敗しました: ${err instanceof Error ? err.message : String(err)}` });
-      setPhase('idle');
+      setPhase(prevResult ? 'review' : 'idle');
     }
   }
 
@@ -108,22 +153,54 @@ export default function Upload(props: Props) {
     URL.revokeObjectURL(url);
   }
 
+  // 未検出文字のリトライ用テンプレートPDFをダウンロード
+  async function handleDownloadRetryTemplate() {
+    const chars = missingChars();
+    if (chars.length === 0) return;
+
+    try {
+      const pdfBytes = await generateRetryTemplatePDF(chars, props.fontName || 'MyHandwriting');
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `MyFontCraft-retry-${chars.length}chars.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      addMessage({ type: 'error', text: `テンプレート生成に失敗しました: ${err instanceof Error ? err.message : String(err)}` });
+    }
+  }
+
+  // 追加スキャン用のファイルハンドラ（マージモード）
+  function handleMergeFiles(files: FileList | File[]) {
+    handleFiles(files, true);
+  }
+
   function handleDrop(e: DragEvent) {
     e.preventDefault();
     setDragActive(false);
     if (e.dataTransfer?.files) {
-      handleFiles(e.dataTransfer.files);
+      // review 中はマージモード
+      if (phase() === 'review') {
+        handleMergeFiles(e.dataTransfer.files);
+      } else {
+        handleFiles(e.dataTransfer.files);
+      }
     }
   }
 
   function handleFileInput(e: Event) {
     const input = e.currentTarget as HTMLInputElement;
     if (input.files) {
-      handleFiles(input.files);
+      if (phase() === 'review') {
+        handleMergeFiles(input.files);
+      } else {
+        handleFiles(input.files);
+      }
     }
   }
 
-  // やり直し
   function handleReset() {
     setPhase('idle');
     setMessages([]);
@@ -148,7 +225,7 @@ export default function Upload(props: Props) {
         >
           <p>
             {phase() === 'review'
-              ? '別の画像を追加でアップロード（現在の結果に上書き）'
+              ? '追加の画像をアップロード（既存の結果にマージします）'
               : 'スキャンした画像のフォルダまたはZIPをドラッグ&ドロップ'}
           </p>
           <p class="drop-zone__hint">JPEG, PNG, WebP に対応</p>
@@ -222,15 +299,35 @@ export default function Upload(props: Props) {
         </div>
       </Show>
 
-      {/* レビューフェーズ: フォント生成ボタン */}
+      {/* レビューフェーズ */}
       <Show when={phase() === 'review'}>
         <div class="card" style="margin-top:1rem;text-align:center">
+          {/* 未検出文字がある場合のリトライ案内 */}
+          <Show when={missingChars().length > 0}>
+            <div style="margin-bottom:1rem;padding:1rem;background:#FFF3CD;border-radius:4px;text-align:left">
+              <p style="color:#856404;font-weight:bold;margin-bottom:0.5rem">
+                {missingChars().length} 文字が未検出です
+              </p>
+              <p style="color:#856404;font-size:0.9rem;margin-bottom:0.75rem">
+                未検出の文字だけを集めたテンプレートを印刷し、書き直してスキャンすると追加できます。
+                そのまま生成すると、未検出の文字は端末のフォントで代替表示されます。
+              </p>
+              <button class="btn" onClick={handleDownloadRetryTemplate}>
+                未検出文字のテンプレートをダウンロード ({Math.ceil(missingChars().length / 30)} ページ)
+              </button>
+            </div>
+          </Show>
+
           <p style="margin-bottom:1rem;color:var(--accent)">
-            結果を確認して、問題なければフォントを生成してください。
+            {missingChars().length === 0
+              ? '全文字を取得しました! フォントを生成できます。'
+              : '結果を確認して、このまま生成するか、追加スキャンしてください。'}
           </p>
           <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap">
             <button class="btn btn--primary" onClick={handleBuildFont}>
-              フォントを生成する
+              {missingChars().length > 0
+                ? `このまま生成する（${glyphStatuses().length - missingChars().length} 文字）`
+                : 'フォントを生成する'}
             </button>
             <button class="btn" onClick={handleReset}>
               やり直す

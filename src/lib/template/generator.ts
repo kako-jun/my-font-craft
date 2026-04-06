@@ -33,8 +33,20 @@ function buildCharList(opts: TemplateOptions): string[] {
   return chars;
 }
 
+// 任意の文字リストからリトライ用テンプレートPDFを生成
+export async function generateRetryTemplatePDF(
+  chars: string[],
+  fontName: string,
+): Promise<Uint8Array> {
+  return generateTemplatePDFFromChars(chars, fontName);
+}
+
 export async function generateTemplatePDF(opts: TemplateOptions): Promise<Uint8Array> {
   const chars = buildCharList(opts);
+  return generateTemplatePDFFromChars(chars, opts.fontName);
+}
+
+async function generateTemplatePDFFromChars(chars: string[], fontName: string): Promise<Uint8Array> {
   const totalPages = Math.ceil(chars.length / CHARS_PER_PAGE);
   const pdfDoc = await PDFDocument.create();
 
