@@ -1,3 +1,5 @@
+import { IconHeart, IconGift } from '../components/icons';
+
 export default function About() {
   return (
     <div class="about-page">
@@ -347,10 +349,10 @@ export default function About() {
               target="_blank"
               rel="noopener noreferrer"
             >
-              GitHub Sponsors
+              <IconHeart /> GitHub Sponsors
             </a>
             <a class="btn" href="https://amzn.to/41dkZF1" target="_blank" rel="noopener noreferrer">
-              Amazon で応援
+              <IconGift /> Amazon で応援
             </a>
           </div>
         </div>

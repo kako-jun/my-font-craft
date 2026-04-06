@@ -1,4 +1,5 @@
 import type { Page } from '../App';
+import { IconPrinter, IconPen } from '../components/icons';
 
 interface Props {
   onNavigate: (page: Page) => void;
@@ -14,10 +15,10 @@ export default function Home(props: Props) {
         </p>
         <div class="hero__actions">
           <button class="btn btn--primary" onClick={() => props.onNavigate('template')}>
-            1. テンプレートを印刷する
+            <IconPrinter /> 1. テンプレートを印刷する
           </button>
           <button class="btn" onClick={() => props.onNavigate('upload')}>
-            2. フォントを作成する
+            <IconPen /> 2. フォントを作成する
           </button>
         </div>
       </section>
