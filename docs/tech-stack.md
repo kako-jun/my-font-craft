@@ -313,7 +313,15 @@ my-font-craft/
 │   │   └── joyo-kanji.ts    # 常用漢字リスト
 │   └── styles/
 │       └── global.css
+├── tests/
+│   ├── e2e/                 # E2Eテスト（Playwright）
+│   │   └── full-flow.spec.ts
+│   ├── unit/                # ユニットテスト（Vitest）
+│   ├── integration/         # 結合テスト（Vitest）
+│   ├── fixtures/            # テスト用フィクスチャ
+│   └── helpers/             # テストヘルパー
 ├── public/                  # 静的ファイル
+├── playwright.config.ts     # Playwright設定
 ├── README.md
 ├── CLAUDE.md
 ├── package.json
