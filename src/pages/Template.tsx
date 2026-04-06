@@ -11,6 +11,7 @@ import {
 } from '../data/characters';
 import { JOYO_KANJI } from '../data/joyo-kanji';
 import { generateTemplatePDF } from '../lib/template/generator';
+import { IconDownload } from '../components/icons';
 
 interface Props {
   fontName: string;
@@ -125,7 +126,7 @@ export default function Template(props: Props) {
         {error() && <div class="message message--error">{error()}</div>}
 
         <button class="btn btn--primary" onClick={handleDownload} disabled={generating()}>
-          {generating() ? 'PDF生成中...' : 'PDFをダウンロード'}
+          <IconDownload /> {generating() ? 'PDF生成中...' : 'PDFをダウンロード'}
         </button>
       </div>
     </div>

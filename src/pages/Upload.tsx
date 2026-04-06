@@ -9,6 +9,7 @@ import {
 } from '../lib/scanner/processor';
 import { buildFont } from '../lib/font/builder';
 import { generateRetryTemplatePDF } from '../lib/template/generator';
+import { IconFolder, IconZip, IconDownload, IconFont } from '../components/icons';
 
 interface Props {
   fontName: string;
@@ -270,7 +271,7 @@ export default function Upload(props: Props) {
                 document.getElementById('folder-input')?.click();
               }}
             >
-              フォルダを選択
+              <IconFolder /> フォルダを選択
             </button>
             <button
               class="btn"
@@ -279,7 +280,7 @@ export default function Upload(props: Props) {
                 document.getElementById('file-input')?.click();
               }}
             >
-              ZIPを選択
+              <IconZip /> ZIPを選択
             </button>
           </div>
           <input
@@ -363,6 +364,7 @@ export default function Upload(props: Props) {
           </p>
           <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap">
             <button class="btn btn--primary" onClick={handleBuildFont}>
+              <IconFont />{' '}
               {missingChars().length > 0
                 ? `このまま生成する（${glyphStatuses().length - missingChars().length} 文字）`
                 : 'フォントを生成する'}
@@ -387,7 +389,7 @@ export default function Upload(props: Props) {
           <h3>フォントが完成しました!</h3>
           <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;margin-top:1rem">
             <button class="btn btn--primary" onClick={handleDownloadFont}>
-              フォントをダウンロード (.ttf)
+              <IconDownload /> フォントをダウンロード (.ttf)
             </button>
             <button class="btn" onClick={handleReset}>
               最初からやり直す
