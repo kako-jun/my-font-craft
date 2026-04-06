@@ -84,7 +84,7 @@ export default function Upload(props: Props) {
 
   return (
     <div class="upload-page">
-      <h2>画像をアップロード</h2>
+      <h2>2. フォントを作成する</h2>
 
       <div
         class="drop-zone"
@@ -92,16 +92,30 @@ export default function Upload(props: Props) {
         onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
         onDragLeave={() => setDragActive(false)}
         onDrop={handleDrop}
-        onClick={() => document.getElementById('file-input')?.click()}
       >
         <p>ここにドラッグ&ドロップ</p>
         <p>または</p>
-        <button class="btn">ファイルを選択</button>
+        <div style="display:flex;gap:0.5rem;justify-content:center;flex-wrap:wrap">
+          <button class="btn" onClick={(e) => { e.stopPropagation(); document.getElementById('file-input')?.click(); }}>
+            ZIPまたは画像を選択
+          </button>
+          <button class="btn" onClick={(e) => { e.stopPropagation(); document.getElementById('folder-input')?.click(); }}>
+            フォルダを選択
+          </button>
+        </div>
         <input
           id="file-input"
           type="file"
           multiple
-          accept="image/*"
+          accept="image/*,.zip"
+          style="display:none"
+          onChange={handleFileInput}
+        />
+        <input
+          id="folder-input"
+          type="file"
+          // @ts-ignore webkitdirectory
+          webkitdirectory
           style="display:none"
           onChange={handleFileInput}
         />

@@ -1,3 +1,4 @@
+import JSZip from 'jszip';
 import { readQRFromCanvas, type QRPayload } from './qr-reader';
 import { detectMarkers, perspectiveTransform, detectOrientation, rotateCanvas } from './marker-detector';
 import {
@@ -153,9 +154,30 @@ export async function processImages(
   callbacks: ProcessCallbacks,
 ): Promise<ProcessResult> {
   const glyphs: VectorGlyph[] = [];
-  const imageFiles = files.filter(f => f.type.startsWith('image/'));
 
-  // TODO: ZIP対応
+  // ZIP展開 + 画像ファイル収集
+  let imageFiles: File[] = [];
+  for (const file of files) {
+    if (file.name.endsWith('.zip') || file.type === 'application/zip') {
+      const zip = await JSZip.loadAsync(file);
+      for (const [name, entry] of Object.entries(zip.files)) {
+        if (entry.dir) continue;
+        const ext = name.toLowerCase().split('.').pop();
+        if (['jpg', 'jpeg', 'png', 'webp'].includes(ext || '')) {
+          const blob = await entry.async('blob');
+          const imgFile = new File([blob], name, { type: `image/${ext === 'jpg' ? 'jpeg' : ext}` });
+          imageFiles.push(imgFile);
+        }
+      }
+    } else if (file.type.startsWith('image/')) {
+      imageFiles.push(file);
+    }
+  }
+
+  if (imageFiles.length === 0) {
+    callbacks.onMessage({ type: 'error', text: '画像ファイルが見つかりませんでした。' });
+    return { glyphs };
+  }
 
   callbacks.onPageStart(0, imageFiles.length);
 

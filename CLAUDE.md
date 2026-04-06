@@ -29,6 +29,7 @@
 - **画像処理**: Canvas API
 - **フォント生成**: opentype.js
 - **QRコード**: jsQR, qrcode
+- **ZIP展開**: JSZip
 
 ## ディレクトリ構成（予定）
 

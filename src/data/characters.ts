@@ -80,12 +80,12 @@ export const JP_SYMBOLS = ['。','、','・','「','」','（','）'];
 export const ALL_CHARACTERS = [
   ...HIRAGANA,
   ...KATAKANA,
-  ...JOYO_KANJI,
   ...UPPERCASE,
   ...LOWERCASE,
   ...DIGITS,
   ...ASCII_SYMBOLS,
   ...JP_SYMBOLS,
+  ...JOYO_KANJI,
 ];
 
 // 1ページあたりの文字数

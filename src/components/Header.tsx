@@ -18,14 +18,14 @@ export default function Header(props: Props) {
             classList={{ 'header__link--active': props.currentPage === 'template' }}
             onClick={() => props.onNavigate('template')}
           >
-            テンプレート生成
+            1. テンプレート
           </button>
           <button
             class="header__link"
             classList={{ 'header__link--active': props.currentPage === 'upload' }}
             onClick={() => props.onNavigate('upload')}
           >
-            フォント作成
+            2. フォント作成
           </button>
         </nav>
       </div>

@@ -52,7 +52,7 @@ export default function Template(props: Props) {
 
   return (
     <div class="template-page">
-      <h2>テンプレート生成</h2>
+      <h2>1. テンプレートを印刷する</h2>
 
       <div class="card">
         <div class="form-group">

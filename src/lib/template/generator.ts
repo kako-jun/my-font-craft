@@ -6,7 +6,7 @@ import {
   QR_X, QR_Y, QR_SIZE,
   GRAY_BAR_X, GRAY_BAR_Y, GRAY_BAR_STEP_W, GRAY_BAR_STEP_H, GRAY_BAR_STEPS,
   CYAN_SAMPLE_X, CYAN_SAMPLE_Y, CYAN_SAMPLE_SIZE,
-  MARKERS, MARKER_SIZE,
+  MARKERS, MARKER_SIZE, SAMPLE_WIDTH,
   COLOR_CYAN,
   getCellPosition, getSamplePosition,
 } from './layout';
@@ -28,8 +28,8 @@ function buildCharList(opts: TemplateOptions): string[] {
   const chars: string[] = [];
   if (opts.includeHiragana) chars.push(...HIRAGANA);
   if (opts.includeKatakana) chars.push(...KATAKANA);
-  if (opts.includeKanji) chars.push(...JOYO_KANJI);
   if (opts.includeAlphaNum) chars.push(...UPPERCASE, ...LOWERCASE, ...DIGITS, ...ASCII_SYMBOLS, ...JP_SYMBOLS);
+  if (opts.includeKanji) chars.push(...JOYO_KANJI);
   return chars;
 }
 
@@ -50,7 +50,7 @@ export async function generateTemplatePDF(opts: TemplateOptions): Promise<Uint8A
 
     // --- ヘッダー ---
     // タイトル
-    page.drawText(`MyFontCraft v1`, {
+    page.drawText(`MyFontCraft`, {
       x: mm(25), y: toY(14),
       size: 10, font: helvetica,
       color: rgb(0, 0, 0),
@@ -136,11 +136,13 @@ export async function generateTemplatePDF(opts: TemplateOptions): Promise<Uint8A
         const charImage = await renderCharToImage(char);
         if (charImage) {
           const pngImage = await pdfDoc.embedPng(charImage);
+          const charSize = SAMPLE_WIDTH;
+          const charY = sample.y + (CELL_SIZE - charSize) / 2;
           page.drawImage(pngImage, {
             x: mm(sample.x),
-            y: toY(sample.y + CELL_SIZE - 2),
-            width: mm(SAMPLE_WIDTH),
-            height: mm(CELL_SIZE - 4),
+            y: toY(charY + charSize),
+            width: mm(charSize),
+            height: mm(charSize),
           });
         }
       }
@@ -186,6 +188,24 @@ export async function generateTemplatePDF(opts: TemplateOptions): Promise<Uint8A
           height: mm(CHECK_HEIGHT),
           borderColor: rgb(0, 0, 0),
           borderWidth: 0.5,
+        });
+
+        // チェック欄にシアンで✓サンプル（スキャン時に除去される）
+        const checkY = pos.y + CELL_SIZE;
+        const cx = pos.x + 3;
+        const cy = checkY + CHECK_HEIGHT / 2;
+        // ✓ を2本の線で描画
+        page.drawLine({
+          start: { x: mm(cx), y: toY(cy) },
+          end: { x: mm(cx + 2), y: toY(cy + 1.2) },
+          color: rgb(COLOR_CYAN.r, COLOR_CYAN.g, COLOR_CYAN.b),
+          thickness: 0.8,
+        });
+        page.drawLine({
+          start: { x: mm(cx + 2), y: toY(cy + 1.2) },
+          end: { x: mm(cx + 5), y: toY(cy - 1) },
+          color: rgb(COLOR_CYAN.r, COLOR_CYAN.g, COLOR_CYAN.b),
+          thickness: 0.8,
         });
       }
     }

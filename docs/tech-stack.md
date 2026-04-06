@@ -272,7 +272,8 @@ my-font-craft/
 │   ├── pages/               # ページコンポーネント
 │   │   ├── Home.tsx
 │   │   ├── Template.tsx
-│   │   └── Upload.tsx
+│   │   ├── Upload.tsx
+│   │   └── About.tsx
 │   ├── components/          # 共通コンポーネント
 │   │   ├── Header.tsx
 │   │   ├── Footer.tsx
@@ -315,11 +316,12 @@ my-font-craft/
 
 ```json
 {
-  "solid-js": "^1.8.0",
-  "pdf-lib": "^1.17.0",
-  "opentype.js": "^1.3.0",
+  "solid-js": "^1.9.0",
+  "pdf-lib": "^1.17.1",
+  "opentype.js": "^1.3.4",
   "jsqr": "^1.4.0",
-  "qrcode": "^1.5.0"
+  "jszip": "^3.10.1",
+  "qrcode": "^1.5.4"
 }
 ```
 
