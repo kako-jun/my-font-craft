@@ -5,7 +5,6 @@ export interface QRPayload {
   v: number;   // version
   pg: number;  // page number
   t: number;   // total pages
-  c: string[]; // chars on this page
   m: number;   // cells per char
 }
 
@@ -14,9 +13,11 @@ export function readQRFromImageData(data: ImageData): QRPayload | null {
   if (!code) return null;
 
   try {
-    const payload = JSON.parse(code.data) as QRPayload;
+    const payload = JSON.parse(code.data);
+    if (typeof payload !== 'object' || payload === null) return null;
     if (payload.p !== 'mfc') return null;
-    return payload;
+    if (typeof payload.v !== 'number' || typeof payload.pg !== 'number' || typeof payload.t !== 'number') return null;
+    return payload as QRPayload;
   } catch {
     return null;
   }

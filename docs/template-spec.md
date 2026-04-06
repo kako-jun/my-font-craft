@@ -180,7 +180,6 @@
   "v": 1,
   "pg": 3,
   "t": 81,
-  "c": ["あ", "い", "う", "...（30文字）"],
   "m": 2
 }
 ```
@@ -190,9 +189,10 @@
 | p | project識別子（"mfc" = MyFontCraft） |
 | v | version |
 | pg | page番号 |
-| t | total pages（81ページ） |
-| c | chars（このページの文字リスト） |
+| t | total pages |
 | m | マス数/文字 |
+
+**NOTE**: 文字リスト（`c`）はQRに含めない。��ージ番号（`pg`）から `getCharactersForPage(pg - 1)` で導出する��漢字30文字のJSON化がQRの容量上限（約130バイト）を超えるため。
 
 ### 不採用とした要素
 

@@ -1,5 +1,6 @@
-import { createSignal } from 'solid-js';
-import { TOTAL_PAGES } from '../data/characters';
+import { createSignal, createMemo } from 'solid-js';
+import { HIRAGANA, KATAKANA, UPPERCASE, LOWERCASE, DIGITS, ASCII_SYMBOLS, JP_SYMBOLS, CHARS_PER_PAGE } from '../data/characters';
+import { JOYO_KANJI } from '../data/joyo-kanji';
 import { generateTemplatePDF } from '../lib/template/generator';
 
 interface Props {
@@ -13,9 +14,20 @@ export default function Template(props: Props) {
   const [includeKanji, setIncludeKanji] = createSignal(true);
   const [includeAlphaNum, setIncludeAlphaNum] = createSignal(true);
   const [generating, setGenerating] = createSignal(false);
+  const [error, setError] = createSignal('');
+
+  const estimatedPages = createMemo(() => {
+    let count = 0;
+    if (includeHiragana()) count += HIRAGANA.length;
+    if (includeKatakana()) count += KATAKANA.length;
+    if (includeKanji()) count += JOYO_KANJI.length;
+    if (includeAlphaNum()) count += UPPERCASE.length + LOWERCASE.length + DIGITS.length + ASCII_SYMBOLS.length + JP_SYMBOLS.length;
+    return Math.ceil(count / CHARS_PER_PAGE);
+  });
 
   async function handleDownload() {
     setGenerating(true);
+    setError('');
     try {
       const pdfBytes = await generateTemplatePDF({
         fontName: props.fontName,
@@ -31,6 +43,8 @@ export default function Template(props: Props) {
       a.download = 'MyFontCraft-template.pdf';
       a.click();
       URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(`PDF生成に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setGenerating(false);
     }
@@ -76,8 +90,10 @@ export default function Template(props: Props) {
         </div>
 
         <p class="template-page__info">
-          約{TOTAL_PAGES}ページのPDFが生成されます。
+          約{estimatedPages()}ページのPDFが生成されます。
         </p>
+
+        {error() && <div class="message message--error">{error()}</div>}
 
         <button
           class="btn btn--primary"

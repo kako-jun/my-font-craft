@@ -63,13 +63,12 @@ export async function generateTemplatePDF(opts: TemplateOptions): Promise<Uint8A
       color: rgb(0, 0, 0),
     });
 
-    // QRコード
+    // QRコード（文字リストは含めない — ページ番号から導出可能）
     const qrData = JSON.stringify({
       p: 'mfc',
       v: 1,
       pg: pageIdx + 1,
       t: totalPages,
-      c: pageChars,
       m: 2,
     });
     try {
@@ -88,9 +87,9 @@ export async function generateTemplatePDF(opts: TemplateOptions): Promise<Uint8A
       // QRコード生成失敗時はスキップ（データが大きすぎる場合など）
     }
 
-    // グレースケールバー
+    // グレースケールバー（左が100%黒→右が10%グレー）
     for (let i = 0; i < GRAY_BAR_STEPS; i++) {
-      const intensity = 1 - (i + 1) / GRAY_BAR_STEPS;
+      const intensity = i / GRAY_BAR_STEPS;
       page.drawRectangle({
         x: mm(GRAY_BAR_X + i * GRAY_BAR_STEP_W),
         y: toY(GRAY_BAR_Y + GRAY_BAR_STEP_H),
@@ -120,10 +119,11 @@ export async function generateTemplatePDF(opts: TemplateOptions): Promise<Uint8A
       const col = i % COLS;
       const char = pageChars[i];
 
-      // 見本文字（簡易：ASCIIのみフォントで描画、それ以外はスキップ）
+      // 見本文字（Canvas APIで描画→画像としてPDFに埋め込み）
       const sample = getSamplePosition(row, col);
       const charCode = char.charCodeAt(0);
       if (charCode < 128) {
+        // ASCII文字はフォントで直接描画
         page.drawText(char, {
           x: mm(sample.x + 2),
           y: toY(sample.y + 14),
@@ -131,6 +131,18 @@ export async function generateTemplatePDF(opts: TemplateOptions): Promise<Uint8A
           font: helvetica,
           color: rgb(0, 0, 0),
         });
+      } else {
+        // 日本語文字はCanvas→PNG→PDF埋め込み
+        const charImage = await renderCharToImage(char);
+        if (charImage) {
+          const pngImage = await pdfDoc.embedPng(charImage);
+          page.drawImage(pngImage, {
+            x: mm(sample.x),
+            y: toY(sample.y + CELL_SIZE - 2),
+            width: mm(SAMPLE_WIDTH),
+            height: mm(CELL_SIZE - 4),
+          });
+        }
       }
 
       // 2つのマス
@@ -180,6 +192,29 @@ export async function generateTemplatePDF(opts: TemplateOptions): Promise<Uint8A
   }
 
   return pdfDoc.save();
+}
+
+// 日本語文字をCanvas APIで描画してPNG画像のバイト列を返す
+async function renderCharToImage(char: string): Promise<Uint8Array | null> {
+  if (typeof document === 'undefined') return null;
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = '#000000';
+  ctx.font = `${size * 0.75}px serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(char, size / 2, size / 2);
+
+  const dataUrl = canvas.toDataURL('image/png');
+  const base64 = dataUrl.split(',')[1];
+  return Uint8Array.from(atob(base64), c => c.charCodeAt(0));
 }
 
 // ドット絵風の星マーカー（簡易版：四角+十字で星っぽく）

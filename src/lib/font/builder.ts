@@ -32,7 +32,6 @@ export async function buildFont(opts: FontOptions): Promise<ArrayBuffer> {
 
   const notdefGlyph = new opentype.Glyph({
     name: '.notdef',
-    unicode: 0,
     advanceWidth: 700,
     path: notdefPath,
   });
@@ -69,20 +68,11 @@ export async function buildFont(opts: FontOptions): Promise<ArrayBuffer> {
   });
 
   // calt（Contextual Alternates）設定
-  const altGlyphs = opts.glyphs.filter(g => g.name.includes('.alt'));
-  if (altGlyphs.length > 0) {
-    const caltRules = generateCaltFeature(opts.glyphs);
-    // opentype.js の substitution テーブルに追加
-    // NOTE: opentype.js の calt サポートは限定的。
-    // 将来的により高度な実装が必要になる可能性がある。
-    if (caltRules.length > 0 && font.substitution) {
-      try {
-        font.substitution.add('calt', { sub: caltRules });
-      } catch {
-        // calt追加に失敗してもフォント生成は続行
-      }
-    }
-  }
+  // NOTE: opentype.js v1.x の substitution API は限定的。
+  // バリエーショングリフはフォントに含まれるが、calt ルールの自動適用は
+  // 将来的に opentype.js v2 または別ライブラリへの移行で対応予定。
+  // 現時点ではバリエーショングリフを .alt 名で登録し、
+  // 対応アプリから手動でアクセスできる状態にする。
 
   return font.toArrayBuffer();
 }

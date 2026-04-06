@@ -101,7 +101,7 @@ export default function Upload(props: Props) {
           id="file-input"
           type="file"
           multiple
-          accept="image/*,.zip"
+          accept="image/*"
           style="display:none"
           onChange={handleFileInput}
         />
@@ -117,7 +117,7 @@ export default function Upload(props: Props) {
         <div class="messages" style="margin-top:1rem">
           <For each={messages()}>
             {(msg) => (
-              <div class={`message message--${msg.type === 'info' ? 'warning' : msg.type}`}>
+              <div class={`message message--${msg.type}`}>
                 {msg.text}
               </div>
             )}

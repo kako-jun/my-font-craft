@@ -213,6 +213,12 @@ body {
   color: #721C24;
 }
 
+.message--info {
+  background: #D1ECF1;
+  border: 1px solid #17A2B8;
+  color: #0C5460;
+}
+
 .message--success {
   background: #D4EDDA;
   border: 1px solid var(--success);

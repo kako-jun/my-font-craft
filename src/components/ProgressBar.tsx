@@ -5,7 +5,7 @@ interface Props {
 }
 
 export default function ProgressBar(props: Props) {
-  const pct = () => Math.round((props.current / props.total) * 100);
+  const pct = () => props.total === 0 ? 0 : Math.round((props.current / props.total) * 100);
 
   return (
     <div class="progress-wrapper">

@@ -1,11 +1,12 @@
 import { readQRFromCanvas, type QRPayload } from './qr-reader';
-import { detectMarkers, perspectiveTransform, detectOrientation } from './marker-detector';
+import { detectMarkers, perspectiveTransform, detectOrientation, rotateCanvas } from './marker-detector';
 import {
   mm, PAGE_WIDTH, PAGE_HEIGHT,
   COLS, ROWS, CELL_SIZE, CHECK_HEIGHT, CELL_GAP, INNER_SIZE,
   CYAN_SAMPLE_X, CYAN_SAMPLE_Y, CYAN_SAMPLE_SIZE,
   getCellPosition,
 } from '../template/layout';
+import { getCharactersForPage } from '../../data/characters';
 import type { VectorGlyph } from '../font/builder';
 import { vectorizeGlyph } from '../vectorizer/contour';
 
@@ -60,11 +61,12 @@ function removeCyan(canvas: HTMLCanvasElement, cyanR: number, cyanG: number, cya
 // シアンサンプルの平均色を読み取る
 function readCyanSample(canvas: HTMLCanvasElement): [number, number, number] {
   const ctx = canvas.getContext('2d')!;
-  const scale = canvas.width / mm(PAGE_WIDTH);
-  const sx = Math.round(mm(CYAN_SAMPLE_X) * scale / mm(PAGE_WIDTH) * canvas.width);
-  const sy = Math.round(mm(CYAN_SAMPLE_Y) * scale / mm(PAGE_HEIGHT) * canvas.height);
-  const sw = Math.round(mm(CYAN_SAMPLE_SIZE) * scale / mm(PAGE_WIDTH) * canvas.width);
-  const sh = Math.round(mm(CYAN_SAMPLE_SIZE) * scale / mm(PAGE_HEIGHT) * canvas.height);
+  const scaleX = canvas.width / mm(PAGE_WIDTH);
+  const scaleY = canvas.height / mm(PAGE_HEIGHT);
+  const sx = Math.round(mm(CYAN_SAMPLE_X) * scaleX);
+  const sy = Math.round(mm(CYAN_SAMPLE_Y) * scaleY);
+  const sw = Math.round(mm(CYAN_SAMPLE_SIZE) * scaleX);
+  const sh = Math.round(mm(CYAN_SAMPLE_SIZE) * scaleY);
 
   const data = ctx.getImageData(sx, sy, Math.max(1, sw), Math.max(1, sh)).data;
   let r = 0, g = 0, b = 0;
@@ -177,12 +179,16 @@ export async function processImages(
     let corrected: HTMLCanvasElement;
 
     if (corners) {
-      // 向き検出
+      // 向き検出・回転補正
       const rotation = detectOrientation(corners, canvas);
-      // 台形補正
+      const rotated = rotation === 0 ? canvas : rotateCanvas(canvas, rotation);
+      // 回転後にマー��ーを再検出して台形補正
+      const rotatedCorners = rotation === 0 ? corners : detectMarkers(rotated);
       const targetW = Math.round(mm(PAGE_WIDTH) * 4); // 約300dpi相当
       const targetH = Math.round(mm(PAGE_HEIGHT) * 4);
-      corrected = perspectiveTransform(canvas, corners, targetW, targetH);
+      corrected = rotatedCorners
+        ? perspectiveTransform(rotated, rotatedCorners, targetW, targetH)
+        : rotated;
     } else {
       callbacks.onMessage({
         type: 'warning',
@@ -195,8 +201,8 @@ export async function processImages(
     const [cr, cg, cb] = readCyanSample(corrected);
     removeCyan(corrected, cr, cg, cb);
 
-    // 各文字を処理
-    const pageChars = qr.c;
+    // 各文字を処理（ページ番号から文字リストを導出）
+    const pageChars = getCharactersForPage(qr.pg - 1);
     for (let ci = 0; ci < pageChars.length; ci++) {
       const row = Math.floor(ci / COLS);
       const col = ci % COLS;

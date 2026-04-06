@@ -27,8 +27,10 @@ export function detectMarkers(canvas: HTMLCanvasElement): Corners | null {
 
   // 四隅の領域で黒い塊の重心を見つける
   const margin = Math.floor(Math.min(w, h) * 0.15);
+  // 左上はQRコード（上部5%領域��との干渉を避けるため、Y方向を少しオフセット
+  const qrAvoidY = Math.floor(h * 0.05);
 
-  const topLeft = findMarkerInRegion(data, w, h, 0, 0, margin, margin, threshold);
+  const topLeft = findMarkerInRegion(data, w, h, 0, qrAvoidY, margin, margin - qrAvoidY, threshold);
   const topRight = findMarkerInRegion(data, w, h, w - margin, 0, margin, margin, threshold);
   const bottomLeft = findMarkerInRegion(data, w, h, 0, h - margin, margin, margin, threshold);
   const bottomRight = findMarkerInRegion(data, w, h, w - margin, h - margin, margin, margin, threshold);
@@ -97,7 +99,20 @@ function computeOtsuThreshold(data: Uint8ClampedArray, pixelCount: number): numb
   return bestThreshold;
 }
 
-// 射影変換（4点→長方形）
+// ���ャンバスを指定角度（90/180/270）で回転
+export function rotateCanvas(canvas: HTMLCanvasElement, degrees: number): HTMLCanvasElement {
+  const dst = document.createElement('canvas');
+  const swap = degrees === 90 || degrees === 270;
+  dst.width = swap ? canvas.height : canvas.width;
+  dst.height = swap ? canvas.width : canvas.height;
+  const ctx = dst.getContext('2d')!;
+  ctx.translate(dst.width / 2, dst.height / 2);
+  ctx.rotate((degrees * Math.PI) / 180);
+  ctx.drawImage(canvas, -canvas.width / 2, -canvas.height / 2);
+  return dst;
+}
+
+// 射影変換（4点→長方形）— 最近傍法による逆変換
 export function perspectiveTransform(
   srcCanvas: HTMLCanvasElement,
   corners: Corners,
@@ -113,13 +128,13 @@ export function perspectiveTransform(
   const srcData = srcCtx.getImageData(0, 0, srcCanvas.width, srcCanvas.height);
   const dstData = dstCtx.createImageData(targetWidth, targetHeight);
 
-  // 双線形補間による逆変換
+  // 逆変換（最近傍法）
   for (let dy = 0; dy < targetHeight; dy++) {
     for (let dx = 0; dx < targetWidth; dx++) {
       const u = dx / targetWidth;
       const v = dy / targetHeight;
 
-      // 双線形補間で元画像の座標を算出
+      // 双線形マッピングで元画像の座標を算出
       const srcX =
         (1 - u) * (1 - v) * corners.topLeft.x +
         u * (1 - v) * corners.topRight.x +
