@@ -20,33 +20,27 @@ export default function ScanResultGrid(props: Props) {
 
   const stats = createMemo(() => {
     const total = props.glyphStatuses.length;
-    const found = props.glyphStatuses.filter(g => g.status === 'found').length;
+    const found = props.glyphStatuses.filter((g) => g.status === 'found').length;
     return { total, found, pct: total > 0 ? Math.round((found / total) * 100) : 0 };
   });
 
   const pageThumb = (pageIndex: number) =>
-    props.correctedPages.find(p => p.pageIndex === pageIndex);
+    props.correctedPages.find((p) => p.pageIndex === pageIndex);
 
   return (
     <div class="scan-grid">
       {/* サマリー */}
       <div class="scan-grid__summary">
-        <span class="scan-grid__stat scan-grid__stat--found">
-          取得: {stats().found}
-        </span>
-        <span class="scan-grid__stat scan-grid__stat--total">
-          / {stats().total} 文字
-        </span>
-        <span class="scan-grid__stat">
-          ({stats().pct}%)
-        </span>
+        <span class="scan-grid__stat scan-grid__stat--found">取得: {stats().found}</span>
+        <span class="scan-grid__stat scan-grid__stat--total">/ {stats().total} 文字</span>
+        <span class="scan-grid__stat">({stats().pct}%)</span>
       </div>
 
       {/* ページごとのセクション */}
       <For each={pageGroups()}>
         {([pageIndex, glyphs]) => {
           const thumb = pageThumb(pageIndex);
-          const pageFound = glyphs.filter(g => g.status === 'found').length;
+          const pageFound = glyphs.filter((g) => g.status === 'found').length;
           return (
             <div class="scan-grid__page" id={`scan-page-${pageIndex}`}>
               {/* ページヘッダー: サムネイル + ステータス */}

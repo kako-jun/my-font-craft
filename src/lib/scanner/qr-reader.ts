@@ -1,12 +1,12 @@
 import jsQR from 'jsqr';
 
 export interface QRPayload {
-  p: string;   // project ("mfc")
-  v: number;   // version
-  pg: number;  // page number
-  t: number;   // total pages
-  m: number;   // cells per char
-  chars?: string[];  // 明示的な文字リスト（リトライテンプレート用）
+  p: string; // project ("mfc")
+  v: number; // version
+  pg: number; // page number
+  t: number; // total pages
+  m: number; // cells per char
+  chars?: string[]; // 明示的な文字リスト（リトライテンプレート用）
 }
 
 export function readQRFromImageData(data: ImageData): QRPayload | null {
@@ -17,7 +17,12 @@ export function readQRFromImageData(data: ImageData): QRPayload | null {
     const payload = JSON.parse(code.data);
     if (typeof payload !== 'object' || payload === null) return null;
     if (payload.p !== 'mfc') return null;
-    if (typeof payload.v !== 'number' || typeof payload.pg !== 'number' || typeof payload.t !== 'number') return null;
+    if (
+      typeof payload.v !== 'number' ||
+      typeof payload.pg !== 'number' ||
+      typeof payload.t !== 'number'
+    )
+      return null;
     return payload as QRPayload;
   } catch {
     return null;

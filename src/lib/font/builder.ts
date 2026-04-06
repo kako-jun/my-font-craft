@@ -89,11 +89,7 @@ function convertToOpentypePath(pathGroups: PathCommand[][]): opentype.Path {
           path.lineTo(cmd.x, cmd.y);
           break;
         case 'C':
-          path.bezierCurveTo(
-            cmd.cp1x!, cmd.cp1y!,
-            cmd.cp2x!, cmd.cp2y!,
-            cmd.x, cmd.y,
-          );
+          path.bezierCurveTo(cmd.cp1x!, cmd.cp1y!, cmd.cp2x!, cmd.cp2y!, cmd.x, cmd.y);
           break;
         case 'Z':
           path.closePath();

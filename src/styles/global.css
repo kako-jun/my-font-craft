@@ -1,22 +1,22 @@
 /* MyFontCraft — スキューモーフィズム + ドット絵風 */
 
 :root {
-  --bg: #FFF8E7;
-  --card-bg: #FFFFFF;
+  --bg: #fff8e7;
+  --card-bg: #ffffff;
   --card-shadow: rgba(0, 0, 0, 0.08);
   --text: #333333;
-  --accent: #5D4E37;
-  --accent-light: #8B7355;
-  --accent-highlight: #A89070;
-  --link: #2C3E50;
-  --success: #27AE60;
-  --error: #E74C3C;
-  --warning: #F39C12;
-  --border: #E0D8C8;
-  --btn-gradient-from: #F5F0E6;
-  --btn-gradient-to: #E8E0D0;
-  --btn-border: #C4B8A8;
-  --progress-bg: #E8E0D0;
+  --accent: #5d4e37;
+  --accent-light: #8b7355;
+  --accent-highlight: #a89070;
+  --link: #2c3e50;
+  --success: #27ae60;
+  --error: #e74c3c;
+  --warning: #f39c12;
+  --border: #e0d8c8;
+  --btn-gradient-from: #f5f0e6;
+  --btn-gradient-to: #e8e0d0;
+  --btn-border: #c4b8a8;
+  --progress-bg: #e8e0d0;
 }
 
 *,
@@ -77,11 +77,13 @@ body {
   font-size: 1rem;
   color: var(--accent);
   cursor: pointer;
-  transition: background 0.15s, box-shadow 0.15s;
+  transition:
+    background 0.15s,
+    box-shadow 0.15s;
 }
 
 .btn:hover {
-  background: linear-gradient(180deg, #FFF8E7 0%, var(--btn-gradient-from) 100%);
+  background: linear-gradient(180deg, #fff8e7 0%, var(--btn-gradient-from) 100%);
 }
 
 .btn:active {
@@ -91,7 +93,7 @@ body {
 .btn--primary {
   background: linear-gradient(180deg, var(--accent-light) 0%, var(--accent) 100%);
   border-color: var(--accent);
-  color: #FFFFFF;
+  color: #ffffff;
 }
 
 .btn--primary:hover {
@@ -143,7 +145,7 @@ body {
   cursor: pointer;
 }
 
-.checkbox-group input[type="checkbox"] {
+.checkbox-group input[type='checkbox'] {
   width: 1.2rem;
   height: 1.2rem;
   flex-shrink: 0;
@@ -160,7 +162,9 @@ body {
   padding: 3rem 2rem;
   text-align: center;
   cursor: pointer;
-  transition: border-color 0.2s, background 0.2s;
+  transition:
+    border-color 0.2s,
+    background 0.2s;
 }
 
 .drop-zone--active {
@@ -221,7 +225,7 @@ body {
   height: 2rem;
   border-radius: 50%;
   background: var(--accent);
-  color: #FFFFFF;
+  color: #ffffff;
   font-weight: bold;
   font-size: 0.85rem;
   font-family: system-ui, sans-serif;
@@ -242,25 +246,25 @@ body {
 }
 
 .message--warning {
-  background: #FFF3CD;
+  background: #fff3cd;
   border: 1px solid var(--warning);
   color: #856404;
 }
 
 .message--error {
-  background: #F8D7DA;
+  background: #f8d7da;
   border: 1px solid var(--error);
-  color: #721C24;
+  color: #721c24;
 }
 
 .message--info {
-  background: #D1ECF1;
-  border: 1px solid #17A2B8;
-  color: #0C5460;
+  background: #d1ecf1;
+  border: 1px solid #17a2b8;
+  color: #0c5460;
 }
 
 .message--success {
-  background: #D4EDDA;
+  background: #d4edda;
   border: 1px solid var(--success);
   color: #155724;
 }

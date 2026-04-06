@@ -7,18 +7,18 @@
 
 ## ドキュメント
 
-| ファイル | 内容 |
-|----------|------|
-| [README.md](./README.md) | エンドユーザー向け説明 |
-| [docs/README.md](./docs/README.md) | ドキュメント目次 |
-| [docs/overview.md](./docs/overview.md) | プロジェクト概要・設計方針 |
-| [docs/characters.md](./docs/characters.md) | 対象文字リスト |
-| [docs/template-spec.md](./docs/template-spec.md) | テンプレート仕様 |
-| [docs/image-processing.md](./docs/image-processing.md) | 画像処理仕様 |
-| [docs/font-generation.md](./docs/font-generation.md) | フォント生成仕様 |
-| [docs/ui-design.md](./docs/ui-design.md) | UI/UXデザイン |
-| [docs/tech-stack.md](./docs/tech-stack.md) | 技術スタック |
-| [docs/future-plans.md](./docs/future-plans.md) | 将来の拡張・改良ネタ |
+| ファイル                                               | 内容                       |
+| ------------------------------------------------------ | -------------------------- |
+| [README.md](./README.md)                               | エンドユーザー向け説明     |
+| [docs/README.md](./docs/README.md)                     | ドキュメント目次           |
+| [docs/overview.md](./docs/overview.md)                 | プロジェクト概要・設計方針 |
+| [docs/characters.md](./docs/characters.md)             | 対象文字リスト             |
+| [docs/template-spec.md](./docs/template-spec.md)       | テンプレート仕様           |
+| [docs/image-processing.md](./docs/image-processing.md) | 画像処理仕様               |
+| [docs/font-generation.md](./docs/font-generation.md)   | フォント生成仕様           |
+| [docs/ui-design.md](./docs/ui-design.md)               | UI/UXデザイン              |
+| [docs/tech-stack.md](./docs/tech-stack.md)             | 技術スタック               |
+| [docs/future-plans.md](./docs/future-plans.md)         | 将来の拡張・改良ネタ       |
 
 ## 技術スタック
 

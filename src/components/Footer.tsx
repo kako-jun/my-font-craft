@@ -8,7 +8,12 @@ export default function Footer(props: Props) {
   return (
     <footer class="footer">
       <div class="footer__inner">
-        <a href="https://llll-ll.com" target="_blank" rel="noopener noreferrer" class="footer__link">
+        <a
+          href="https://llll-ll.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="footer__link"
+        >
           llll-ll.com
         </a>
         <span class="footer__sep">|</span>

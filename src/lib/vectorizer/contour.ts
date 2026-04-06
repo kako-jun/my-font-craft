@@ -24,10 +24,10 @@ export function vectorizeGlyph(imageData: ImageData): PathCommand[][] {
   // 3. Douglas-Peucker簡略化
   // epsilonは画像サイズに応じてスケール（高解像度画像で点が多くなりすぎないよう）
   const epsilon = Math.max(1.0, Math.min(imageData.width, imageData.height) / 80);
-  const simplified = contours.map(c => douglasPeucker(c, epsilon));
+  const simplified = contours.map((c) => douglasPeucker(c, epsilon));
 
   // 4. 正規化（画像座標→フォント座標系）
-  const normalized = simplified.map(c => normalizeContour(c, imageData.width, imageData.height));
+  const normalized = simplified.map((c) => normalizeContour(c, imageData.width, imageData.height));
 
   // 5. ベジェ曲線変換
   return normalized.map(contourToPath);
@@ -51,7 +51,10 @@ function binarize(imageData: ImageData): Uint8Array {
   let sumAll = 0;
   for (let i = 0; i < 256; i++) sumAll += i * histogram[i];
 
-  let sumB = 0, wB = 0, maxVar = 0, threshold = 128;
+  let sumB = 0,
+    wB = 0,
+    maxVar = 0,
+    threshold = 128;
   for (let t = 0; t < 256; t++) {
     wB += histogram[t];
     if (wB === 0) continue;
@@ -61,7 +64,10 @@ function binarize(imageData: ImageData): Uint8Array {
     const meanB = sumB / wB;
     const meanF = (sumAll - sumB) / wF;
     const v = wB * wF * (meanB - meanF) ** 2;
-    if (v > maxVar) { maxVar = v; threshold = t; }
+    if (v > maxVar) {
+      maxVar = v;
+      threshold = t;
+    }
   }
 
   const result = new Uint8Array(width * height);
@@ -71,7 +77,10 @@ function binarize(imageData: ImageData): Uint8Array {
   return result;
 }
 
-interface Pt { x: number; y: number }
+interface Pt {
+  x: number;
+  y: number;
+}
 
 // 簡易輪郭抽出（境界追跡）
 function extractContours(binary: Uint8Array, w: number, h: number): Pt[][] {
@@ -92,15 +101,20 @@ function extractContours(binary: Uint8Array, w: number, h: number): Pt[][] {
       for (let d = 0; d < 8; d++) {
         const nx = x + dx[d];
         const ny = y + dy[d];
-        if (binary[ny * w + nx] === 0) { isBorder = true; break; }
+        if (binary[ny * w + nx] === 0) {
+          isBorder = true;
+          break;
+        }
       }
       if (!isBorder) continue;
 
       // 境界追跡
       const contour: Pt[] = [];
-      let cx = x, cy = y;
+      let cx = x,
+        cy = y;
       let dir = 0;
-      const startX = x, startY = y;
+      const startX = x,
+        startY = y;
       let steps = 0;
       const maxSteps = w * h;
 
@@ -120,11 +134,14 @@ function extractContours(binary: Uint8Array, w: number, h: number): Pt[][] {
               const nnx = nx + dx[d2];
               const nny = ny + dy[d2];
               if (nnx >= 0 && nnx < w && nny >= 0 && nny < h && binary[nny * w + nnx] === 0) {
-                nb = true; break;
+                nb = true;
+                break;
               }
             }
             if (nb) {
-              cx = nx; cy = ny; dir = nd;
+              cx = nx;
+              cy = ny;
+              dir = nd;
               found = true;
               break;
             }
@@ -163,7 +180,10 @@ function douglasPeucker(points: Pt[], epsilon: number): Pt[] {
 
     for (let i = start + 1; i < end; i++) {
       const d = perpendicularDist(points[i], points[start], points[end]);
-      if (d > maxDist) { maxDist = d; maxIdx = i; }
+      if (d > maxDist) {
+        maxDist = d;
+        maxIdx = i;
+      }
     }
 
     if (maxDist > epsilon) {
@@ -190,7 +210,7 @@ function normalizeContour(points: Pt[], imgW: number, imgH: number): Pt[] {
   const scale = GLYPH_HEIGHT / imgH;
   const offsetX = (UNITS_PER_EM - imgW * scale) / 2;
 
-  return points.map(p => ({
+  return points.map((p) => ({
     x: Math.round(p.x * scale + offsetX),
     y: Math.round(GLYPH_HEIGHT - p.y * scale), // Y反転
   }));

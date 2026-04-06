@@ -7,7 +7,7 @@ export function mm(value: number): number {
 }
 
 // 用紙
-export const PAGE_WIDTH = 210;  // A4
+export const PAGE_WIDTH = 210; // A4
 export const PAGE_HEIGHT = 297;
 export const MARGIN = 10;
 
@@ -51,9 +51,9 @@ export const CYAN_SAMPLE_SIZE = 5;
 // 四隅マーカー
 export const MARKER_SIZE = 5;
 export const MARKERS = {
-  topLeft:     { x: 10,  y: 25,  filled: true },
-  topRight:    { x: 195, y: 25,  filled: false },
-  bottomLeft:  { x: 10,  y: 287, filled: false },
+  topLeft: { x: 10, y: 25, filled: true },
+  topRight: { x: 195, y: 25, filled: false },
+  bottomLeft: { x: 10, y: 287, filled: false },
   bottomRight: { x: 195, y: 287, filled: false },
 } as const;
 
@@ -64,7 +64,8 @@ export const COLOR_WHITE = { r: 1, g: 1, b: 1 };
 
 // 1文字セルの配置座標を計算
 export function getCellPosition(row: number, col: number, cellIndex: number) {
-  const x = BODY_START_X + col * COL_WIDTH + SAMPLE_WIDTH + CELL_GAP + cellIndex * (CELL_SIZE + CELL_GAP);
+  const x =
+    BODY_START_X + col * COL_WIDTH + SAMPLE_WIDTH + CELL_GAP + cellIndex * (CELL_SIZE + CELL_GAP);
   const y = BODY_START_Y + row * ROW_HEIGHT;
   return { x, y };
 }
