@@ -146,6 +146,12 @@ npm run lint
 # フォーマット（Prettier）
 npm run format
 
+# E2Eテスト（Playwright）
+npm run test:e2e
+
+# E2Eテスト（UIモード）
+npm run test:e2e:ui
+
 # リント + フォーマットチェック
 npm run check
 
