@@ -20,6 +20,7 @@ import {
   CYAN_SAMPLE_Y,
   CYAN_SAMPLE_SIZE,
   MARKERS,
+  MARGIN,
   MARKER_SIZE,
   SAMPLE_WIDTH,
   COLOR_CYAN,
@@ -37,6 +38,7 @@ import {
   CHARS_PER_PAGE,
 } from '../../data/characters';
 import { JOYO_KANJI } from '../../data/joyo-kanji';
+import { getTriviaForPage } from '../../data/trivia';
 
 export interface TemplateOptions {
   fontName: string;
@@ -98,14 +100,33 @@ async function generateTemplatePDFFromChars(
       color: rgb(0, 0, 0),
     });
 
-    // ページ番号
-    page.drawText(`Page ${pageIdx + 1}/${totalPages}`, {
-      x: mm(80),
+    // ページ番号（右寄せ）
+    const pageNumText = `Page ${pageIdx + 1} / ${totalPages}`;
+    const pageNumWidth = helvetica.widthOfTextAtSize(pageNumText, 9);
+    const rightEdge = mm(PAGE_WIDTH - MARGIN); // 右余白の内側
+    page.drawText(pageNumText, {
+      x: rightEdge - pageNumWidth,
       y: toY(14),
       size: 9,
       font: helvetica,
       color: rgb(0, 0, 0),
     });
+
+    // 雑学コメント（ヘッダー2行目、Canvas→PNG→PDF埋め込み）
+    const triviaText = getTriviaForPage(pageIdx, pageChars, totalPages);
+    const triviaImage = await renderTextToImage(triviaText, 7);
+    if (triviaImage) {
+      const triviaEmbed = await pdfDoc.embedPng(triviaImage.data);
+      // 右寄せ: テキスト画像の右端をページ番号の右端に揃える
+      const triviaWidthMm = triviaImage.widthPx * (7 / triviaImage.heightPx) * 0.8;
+      const triviaHeightMm = 7 * 0.8;
+      page.drawImage(triviaEmbed, {
+        x: rightEdge - mm(triviaWidthMm),
+        y: toY(18.5),
+        width: mm(triviaWidthMm),
+        height: mm(triviaHeightMm),
+      });
+    }
 
     // QRコード
     const qrPayload: Record<string, unknown> = {
@@ -286,6 +307,48 @@ async function renderCharToImage(char: string): Promise<Uint8Array | null> {
   const dataUrl = canvas.toDataURL('image/png');
   const base64 = dataUrl.split(',')[1];
   return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+}
+
+// テキスト（日本語対応）をCanvas APIで描画してPNG画像のバイト列を返す
+async function renderTextToImage(
+  text: string,
+  fontSizePt: number,
+): Promise<{ data: Uint8Array; widthPx: number; heightPx: number } | null> {
+  if (typeof document === 'undefined') return null;
+
+  // 仮canvasでテキスト幅を測定
+  const measureCanvas = document.createElement('canvas');
+  measureCanvas.width = 1;
+  measureCanvas.height = 1;
+  const measureCtx = measureCanvas.getContext('2d');
+  if (!measureCtx) return null;
+
+  const fontSizePx = fontSizePt * 4; // 高解像度化
+  measureCtx.font = `${fontSizePx}px sans-serif`;
+  const metrics = measureCtx.measureText(text);
+  const width = Math.ceil(metrics.width) + 4;
+  const height = Math.ceil(fontSizePx * 1.4);
+
+  // 本描画
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  // 透明背景ではなく白背景（PDF埋め込み時に背景が見えないように）
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = '#666666'; // グレーで控えめに
+  ctx.font = `${fontSizePx}px sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 2, height / 2);
+
+  const dataUrl = canvas.toDataURL('image/png');
+  const base64 = dataUrl.split(',')[1];
+  const data = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  return { data, widthPx: width, heightPx: height };
 }
 
 // ドット絵風の星マーカー（簡易版：四角+十字で星っぽく）
