@@ -3,3 +3,7 @@ dist/
 .wrangler/
 *.local
 .DS_Store
+
+# Test fixtures (generated at test time)
+tests/fixtures/mock-scans/
+tests/fixtures/test-output.ttf

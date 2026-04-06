@@ -122,7 +122,7 @@ my-font-craft/
 
 詳細: [docs/ui-design.md](./docs/ui-design.md)
 
-## 開発コマンド（予定）
+## 開発コマンド
 
 ```bash
 # 開発サーバー起動
@@ -130,6 +130,15 @@ npm run dev
 
 # ビルド
 npm run build
+
+# テスト実行
+npm test
+
+# テスト（ウォッチモード）
+npm run test:watch
+
+# 模擬スキャン画像の再生成
+npm run test:generate-fixtures
 
 # デプロイ
 npm run deploy

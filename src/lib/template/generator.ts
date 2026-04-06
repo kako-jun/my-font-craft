@@ -33,8 +33,25 @@ function buildCharList(opts: TemplateOptions): string[] {
   return chars;
 }
 
+// 任意の文字リストからリトライ用テンプレートPDFを生成
+// QRコードに文字リストを埋め込み、スキャン時にページ番号ではなく文字リストで識別
+export async function generateRetryTemplatePDF(
+  chars: string[],
+  fontName: string,
+): Promise<Uint8Array> {
+  return generateTemplatePDFFromChars(chars, fontName, true);
+}
+
 export async function generateTemplatePDF(opts: TemplateOptions): Promise<Uint8Array> {
   const chars = buildCharList(opts);
+  return generateTemplatePDFFromChars(chars, opts.fontName, false);
+}
+
+async function generateTemplatePDFFromChars(
+  chars: string[],
+  fontName: string,
+  includeCharsInQR = false,
+): Promise<Uint8Array> {
   const totalPages = Math.ceil(chars.length / CHARS_PER_PAGE);
   const pdfDoc = await PDFDocument.create();
 
@@ -63,14 +80,19 @@ export async function generateTemplatePDF(opts: TemplateOptions): Promise<Uint8A
       color: rgb(0, 0, 0),
     });
 
-    // QRコード（文字リストは含めない — ページ番号から導出可能）
-    const qrData = JSON.stringify({
+    // QRコード
+    const qrPayload: Record<string, unknown> = {
       p: 'mfc',
       v: 1,
       pg: pageIdx + 1,
       t: totalPages,
       m: 2,
-    });
+    };
+    // リトライ用テンプレートでは文字リストをQRに埋め込む
+    if (includeCharsInQR) {
+      qrPayload.chars = pageChars;
+    }
+    const qrData = JSON.stringify(qrPayload);
     try {
       const qrDataUrl = await QRCode.toDataURL(qrData, {
         errorCorrectionLevel: 'M',
