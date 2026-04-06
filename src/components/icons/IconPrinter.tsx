@@ -7,7 +7,7 @@ export default function IconPrinter(props: { size?: number; class?: string }) {
       {/* 用紙トレイ上部 */}
       <rect x="4" y="2" width="8" height="3" fill="currentColor" />
       {/* 排出口 */}
-      <rect x="3" y="7" width="10" height="1" fill="currentColor" opacity="0.3" />
+      <rect x="3" y="7" width="10" height="1" fill="currentColor" />
       {/* 排出される用紙 */}
       <rect x="5" y="10" width="6" height="4" stroke="currentColor" stroke-width="1" fill="none" />
       {/* 用紙の文字行 */}
