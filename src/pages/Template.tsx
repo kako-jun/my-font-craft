@@ -1,4 +1,4 @@
-import { createSignal, createMemo } from 'solid-js';
+import { createSignal, createMemo, Show } from 'solid-js';
 import {
   HIRAGANA,
   KATAKANA,
@@ -126,7 +126,10 @@ export default function Template(props: Props) {
         {error() && <div class="message message--error">{error()}</div>}
 
         <button class="btn btn--primary" onClick={handleDownload} disabled={generating()}>
-          <IconDownload /> {generating() ? 'PDF生成中...' : 'PDFをダウンロード'}
+          <Show when={!generating()}>
+            <IconDownload />
+          </Show>{' '}
+          {generating() ? 'PDF生成中...' : 'PDFをダウンロード'}
         </button>
       </div>
     </div>

@@ -1,5 +1,16 @@
 import { IconHeart, IconGift } from '../components/icons';
 
+const ArrowIcon = () => (
+  <svg width="32" height="16" viewBox="0 0 32 16" fill="none" aria-hidden="true">
+    <rect x="0" y="6" width="4" height="4" fill="var(--accent-light)" />
+    <rect x="8" y="6" width="4" height="4" fill="var(--accent-light)" />
+    <rect x="16" y="6" width="4" height="4" fill="var(--accent-light)" />
+    <rect x="24" y="2" width="4" height="4" fill="var(--accent-light)" />
+    <rect x="24" y="10" width="4" height="4" fill="var(--accent-light)" />
+    <rect x="28" y="6" width="4" height="4" fill="var(--accent-light)" />
+  </svg>
+);
+
 export default function About() {
   return (
     <div class="about-page">
@@ -19,9 +30,7 @@ export default function About() {
       {/* Workflow */}
       <section class="about-section">
         <div class="about-section__inner">
-          <h3 style="text-align:center; color:var(--accent); margin-bottom:1.5rem">
-            フォント作成の流れ
-          </h3>
+          <h3 class="about-section__title">フォント作成の流れ</h3>
           <div class="about-workflow">
             <div class="about-workflow__step">
               <div class="about-workflow__icon">
@@ -49,14 +58,7 @@ export default function About() {
             </div>
 
             <div class="about-workflow__arrow">
-              <svg width="32" height="16" viewBox="0 0 32 16" fill="none" aria-hidden="true">
-                <rect x="0" y="6" width="4" height="4" fill="var(--accent-light)" />
-                <rect x="8" y="6" width="4" height="4" fill="var(--accent-light)" />
-                <rect x="16" y="6" width="4" height="4" fill="var(--accent-light)" />
-                <rect x="24" y="2" width="4" height="4" fill="var(--accent-light)" />
-                <rect x="24" y="10" width="4" height="4" fill="var(--accent-light)" />
-                <rect x="28" y="6" width="4" height="4" fill="var(--accent-light)" />
-              </svg>
+              <ArrowIcon />
             </div>
 
             <div class="about-workflow__step">
@@ -86,14 +88,7 @@ export default function About() {
             </div>
 
             <div class="about-workflow__arrow">
-              <svg width="32" height="16" viewBox="0 0 32 16" fill="none" aria-hidden="true">
-                <rect x="0" y="6" width="4" height="4" fill="var(--accent-light)" />
-                <rect x="8" y="6" width="4" height="4" fill="var(--accent-light)" />
-                <rect x="16" y="6" width="4" height="4" fill="var(--accent-light)" />
-                <rect x="24" y="2" width="4" height="4" fill="var(--accent-light)" />
-                <rect x="24" y="10" width="4" height="4" fill="var(--accent-light)" />
-                <rect x="28" y="6" width="4" height="4" fill="var(--accent-light)" />
-              </svg>
+              <ArrowIcon />
             </div>
 
             <div class="about-workflow__step">
@@ -123,14 +118,7 @@ export default function About() {
             </div>
 
             <div class="about-workflow__arrow">
-              <svg width="32" height="16" viewBox="0 0 32 16" fill="none" aria-hidden="true">
-                <rect x="0" y="6" width="4" height="4" fill="var(--accent-light)" />
-                <rect x="8" y="6" width="4" height="4" fill="var(--accent-light)" />
-                <rect x="16" y="6" width="4" height="4" fill="var(--accent-light)" />
-                <rect x="24" y="2" width="4" height="4" fill="var(--accent-light)" />
-                <rect x="24" y="10" width="4" height="4" fill="var(--accent-light)" />
-                <rect x="28" y="6" width="4" height="4" fill="var(--accent-light)" />
-              </svg>
+              <ArrowIcon />
             </div>
 
             <div class="about-workflow__step">
@@ -165,7 +153,7 @@ export default function About() {
       {/* Characters */}
       <section class="about-section">
         <div class="about-section__inner">
-          <h3 style="text-align:center; color:var(--accent); margin-bottom:1.5rem">対応文字</h3>
+          <h3 class="about-section__title">対応文字</h3>
           <div class="about-chars">
             <div class="about-chars__group">
               <div class="about-chars__title">ひらがな（83文字）</div>
@@ -190,9 +178,7 @@ export default function About() {
       {/* Features */}
       <section class="about-section">
         <div class="about-section__inner">
-          <h3 style="text-align:center; color:var(--accent); margin-bottom:1.5rem">
-            サービスの特長
-          </h3>
+          <h3 class="about-section__title">サービスの特長</h3>
           <div class="about-features">
             <div class="card" style="text-align:center">
               <div class="about-feature-icon">
@@ -307,7 +293,7 @@ export default function About() {
       {/* Author */}
       <section class="about-section">
         <div class="about-section__inner">
-          <h3 style="text-align:center; color:var(--accent); margin-bottom:1.5rem">作者</h3>
+          <h3 class="about-section__title">作者</h3>
           <div class="about-author-card">
             <img
               src="https://github.com/kako-jun.png"

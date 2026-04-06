@@ -42,11 +42,11 @@
 
 ### ロゴ配色
 
-| 要素 | 色 | 用途 |
-|------|-----|------|
-| メイン | #8B7355 | 茶色（紙・クラフト感） |
-| 影 | #5D4E37 | 濃い茶色（立体感） |
-| ハイライト | #A89070 | 明るい茶色 |
+| 要素       | 色      | 用途                   |
+| ---------- | ------- | ---------------------- |
+| メイン     | #8B7355 | 茶色（紙・クラフト感） |
+| 影         | #5D4E37 | 濃い茶色（立体感）     |
+| ハイライト | #A89070 | 明るい茶色             |
 
 ---
 
@@ -54,17 +54,17 @@
 
 ### カラーパレット
 
-| 要素 | 色 | HEX |
-|------|-----|-----|
-| 背景 | クリーム | #FFF8E7 |
-| カード背景 | 白 | #FFFFFF |
-| カード影 | グレー | rgba(0,0,0,0.1) |
-| テキスト | 濃いグレー | #333333 |
-| アクセント | 濃い茶色 | #5D4E37 |
-| リンク | 紺色 | #2C3E50 |
-| 成功 | 緑 | #27AE60 |
-| エラー | 赤 | #E74C3C |
-| 警告 | オレンジ | #F39C12 |
+| 要素       | 色         | HEX             |
+| ---------- | ---------- | --------------- |
+| 背景       | クリーム   | #FFF8E7         |
+| カード背景 | 白         | #FFFFFF         |
+| カード影   | グレー     | rgba(0,0,0,0.1) |
+| テキスト   | 濃いグレー | #333333         |
+| アクセント | 濃い茶色   | #5D4E37         |
+| リンク     | 紺色       | #2C3E50         |
+| 成功       | 緑         | #27AE60         |
+| エラー     | 赤         | #E74C3C         |
+| 警告       | オレンジ   | #F39C12         |
 
 ---
 
@@ -144,14 +144,26 @@
 
 ### 4. Aboutページ
 
-フッターの「About」リンクから遷移。
+フッターの「About」リンクから遷移。ランディングページ風の縦長レイアウト。
 
-- サービス説明（ブラウザ完結、プライバシー）
-- 対応文字一覧
-- フォント利用条件（個人・商用自由）
-- 作者情報（kako-jun、llll-ll.com、GitHub）
-- 応援（GitHub Sponsors）
-- ライセンス（MIT）
+#### セクション構成
+
+1. **Hero** — タイトル + キャッチコピー + ドット絵セパレーター
+2. **ワークフロー** — 4ステップ（印刷→手書き→スキャン→完成）をドット絵アイコン+矢印で図示。矢印SVGは `ArrowIcon` ローカルコンポーネントで共通化
+3. **対応文字** — ひらがな・カタカナ・英数字記号・常用漢字の4グループをカード表示
+4. **サービスの特長** — ブラウザ完結・サーバー送信なし・ユーザー登録不要・無料の4カード
+5. **作者** — アバター付きプロフィールカード（kako-jun、llll-ll.com、GitHub）
+6. **応援** — GitHub Sponsors + Amazon（IconHeart / IconGift アイコン付きボタン）
+
+#### スタイル
+
+- 各 `<h3>` は `.about-section__title` クラス（`text-align:center; color:var(--accent); margin-bottom:1.5rem`）
+- セクションは偶数/奇数で背景色を交互に切り替え
+
+#### ボタンアイコン
+
+全ボタンアイコンは 16x16 の `fill="currentColor"` ベースの rect で統一（stroke・opacity・transform 不使用）。
+使用アイコン: IconDownload, IconFolder, IconZip, IconFont, IconPen, IconPrinter, IconHeart, IconGift
 
 ### フッター
 
@@ -170,21 +182,21 @@
 
 ```css
 .button {
-  background: linear-gradient(180deg, #F5F0E6 0%, #E8E0D0 100%);
-  border: 2px solid #C4B8A8;
+  background: linear-gradient(180deg, #f5f0e6 0%, #e8e0d0 100%);
+  border: 2px solid #c4b8a8;
   border-radius: 4px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   padding: 12px 24px;
   font-family: serif;
-  color: #5D4E37;
+  color: #5d4e37;
 }
 
 .button:hover {
-  background: linear-gradient(180deg, #FFF8E7 0%, #F5F0E6 100%);
+  background: linear-gradient(180deg, #fff8e7 0%, #f5f0e6 100%);
 }
 
 .button:active {
-  box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 ```
 
@@ -192,10 +204,10 @@
 
 ```css
 .card {
-  background: #FFFFFF;
-  border: 1px solid #E0D8C8;
+  background: #ffffff;
+  border: 1px solid #e0d8c8;
   border-radius: 8px;
-  box-shadow: 0 4px 8px rgba(0,0,0,0.08);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
   padding: 24px;
 }
 ```
@@ -204,13 +216,13 @@
 
 ```css
 .progress-bar {
-  background: #E8E0D0;
+  background: #e8e0d0;
   border-radius: 4px;
   height: 20px;
 }
 
 .progress-bar-fill {
-  background: linear-gradient(90deg, #8B7355 0%, #A89070 100%);
+  background: linear-gradient(90deg, #8b7355 0%, #a89070 100%);
   border-radius: 4px;
   height: 100%;
 }
@@ -220,11 +232,11 @@
 
 ## レスポンシブ対応
 
-| 画面幅 | 対応 |
-|--------|------|
-| デスクトップ (>1024px) | 2カラムレイアウト |
-| タブレット (768-1024px) | 1カラム、余白調整 |
-| モバイル (<768px) | 1カラム、フルスクリーン |
+| 画面幅                  | 対応                    |
+| ----------------------- | ----------------------- |
+| デスクトップ (>1024px)  | 2カラムレイアウト       |
+| タブレット (768-1024px) | 1カラム、余白調整       |
+| モバイル (<768px)       | 1カラム、フルスクリーン |
 
 ---
 

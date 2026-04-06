@@ -407,6 +407,12 @@ body {
   margin: 0 auto;
 }
 
+.about-section__title {
+  text-align: center;
+  color: var(--accent);
+  margin-bottom: 1.5rem;
+}
+
 /* Hero */
 .about-hero {
   padding: 4rem 1rem 3rem;

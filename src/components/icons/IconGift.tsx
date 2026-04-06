@@ -8,15 +8,10 @@ export default function IconGift(props: { size?: number; class?: string }) {
       {/* リボン中央 */}
       <rect x="1" y="4" width="14" height="3" fill="currentColor" />
       {/* 箱本体 */}
-      <rect
-        x="2"
-        y="7"
-        width="12"
-        height="7"
-        stroke="currentColor"
-        stroke-width="1.5"
-        fill="none"
-      />
+      <rect x="2" y="7" width="12" height="2" fill="currentColor" />
+      <rect x="2" y="7" width="2" height="7" fill="currentColor" />
+      <rect x="12" y="7" width="2" height="7" fill="currentColor" />
+      <rect x="2" y="12" width="12" height="2" fill="currentColor" />
       {/* 縦リボン */}
       <rect x="7" y="7" width="2" height="7" fill="currentColor" />
     </svg>
