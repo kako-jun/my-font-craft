@@ -1,5 +1,9 @@
 name: CI
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -8,6 +12,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
       - run: npm ci
       - run: npm run check
       - run: npm test
@@ -18,9 +23,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
       - run: npm ci
       - run: npx playwright install chromium --with-deps
-      - run: npm run test:generate-fixtures
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
