@@ -20,6 +20,7 @@ import {
   CYAN_SAMPLE_Y,
   CYAN_SAMPLE_SIZE,
   MARKERS,
+  MARGIN,
   MARKER_SIZE,
   SAMPLE_WIDTH,
   COLOR_CYAN,
@@ -98,9 +99,12 @@ async function generateTemplatePDFFromChars(
       color: rgb(0, 0, 0),
     });
 
-    // ページ番号
-    page.drawText(`Page ${pageIdx + 1}/${totalPages}`, {
-      x: mm(80),
+    // ページ番号（右寄せ）
+    const pageNumText = `Page ${pageIdx + 1} / ${totalPages}`;
+    const pageNumWidth = helvetica.widthOfTextAtSize(pageNumText, 9);
+    const rightEdge = mm(PAGE_WIDTH - MARGIN); // 右余白の内側
+    page.drawText(pageNumText, {
+      x: rightEdge - pageNumWidth,
       y: toY(14),
       size: 9,
       font: helvetica,
