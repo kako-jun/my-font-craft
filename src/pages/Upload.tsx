@@ -93,21 +93,22 @@ export default function Upload(props: Props) {
         onDragLeave={() => setDragActive(false)}
         onDrop={handleDrop}
       >
-        <p>ここにドラッグ&ドロップ</p>
+        <p>スキャンした画像のフォルダまたはZIPをドラッグ&ドロップ</p>
+        <p class="drop-zone__hint">JPEG, PNG, WebP に対応</p>
         <p>または</p>
         <div style="display:flex;gap:0.5rem;justify-content:center;flex-wrap:wrap">
-          <button class="btn" onClick={(e) => { e.stopPropagation(); document.getElementById('file-input')?.click(); }}>
-            ZIPまたは画像を選択
-          </button>
           <button class="btn" onClick={(e) => { e.stopPropagation(); document.getElementById('folder-input')?.click(); }}>
             フォルダを選択
+          </button>
+          <button class="btn" onClick={(e) => { e.stopPropagation(); document.getElementById('file-input')?.click(); }}>
+            ZIPを選択
           </button>
         </div>
         <input
           id="file-input"
           type="file"
           multiple
-          accept="image/*,.zip"
+          accept=".zip"
           style="display:none"
           onChange={handleFileInput}
         />
@@ -119,6 +120,16 @@ export default function Upload(props: Props) {
           style="display:none"
           onChange={handleFileInput}
         />
+      </div>
+
+      <div class="card upload-hint" style="margin-top:1rem">
+        <h4>アップロードについて</h4>
+        <ul class="upload-hint__list">
+          <li>スキャンした画像をフォルダごと、またはZIPにまとめてアップロード</li>
+          <li>ファイル名やフォルダ階層は自由（中に画像が含まれていればOK）</li>
+          <li>ページの識別はテンプレートのQRコードで自動的に行います</li>
+          <li>斜めに撮っても自動補正されます</li>
+        </ul>
       </div>
 
       <Show when={processing()}>

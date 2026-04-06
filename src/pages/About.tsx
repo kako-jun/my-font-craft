@@ -59,6 +59,14 @@ export default function About() {
           >
             GitHub Sponsors
           </a>
+          <a
+            class="btn"
+            href="https://amzn.to/41dkZF1"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Amazon で応援
+          </a>
         </div>
       </div>
 

@@ -79,12 +79,12 @@ export default function Template(props: Props) {
               カタカナ（87文字）
             </label>
             <label>
-              <input type="checkbox" checked={includeKanji()} onChange={(e) => setIncludeKanji(e.currentTarget.checked)} />
-              常用漢字（2,136文字）
-            </label>
-            <label>
               <input type="checkbox" checked={includeAlphaNum()} onChange={(e) => setIncludeAlphaNum(e.currentTarget.checked)} />
               英数字・記号（102文字）
+            </label>
+            <label>
+              <input type="checkbox" checked={includeKanji()} onChange={(e) => setIncludeKanji(e.currentTarget.checked)} />
+              常用漢字（2,136文字）
             </label>
           </div>
         </div>
