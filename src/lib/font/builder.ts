@@ -1,0 +1,117 @@
+import opentype from 'opentype.js';
+import type { PathCommand } from '../vectorizer/contour';
+import { generateCaltFeature } from './calt';
+
+export interface VectorGlyph {
+  name: string;
+  unicode?: number;
+  paths: PathCommand[][];
+  advanceWidth: number;
+}
+
+export interface FontOptions {
+  familyName: string;
+  glyphs: VectorGlyph[];
+  styleName?: string;
+  version?: string;
+  description?: string;
+}
+
+export async function buildFont(opts: FontOptions): Promise<ArrayBuffer> {
+  const notdefPath = new opentype.Path();
+  notdefPath.moveTo(100, 0);
+  notdefPath.lineTo(100, 700);
+  notdefPath.lineTo(600, 700);
+  notdefPath.lineTo(600, 0);
+  notdefPath.closePath();
+  notdefPath.moveTo(150, 50);
+  notdefPath.lineTo(550, 50);
+  notdefPath.lineTo(550, 650);
+  notdefPath.lineTo(150, 650);
+  notdefPath.closePath();
+
+  const notdefGlyph = new opentype.Glyph({
+    name: '.notdef',
+    unicode: 0,
+    advanceWidth: 700,
+    path: notdefPath,
+  });
+
+  // スペースグリフ
+  const spacePath = new opentype.Path();
+  const spaceGlyph = new opentype.Glyph({
+    name: 'space',
+    unicode: 32,
+    advanceWidth: 500,
+    path: spacePath,
+  });
+
+  const glyphs: opentype.Glyph[] = [notdefGlyph, spaceGlyph];
+
+  for (const vg of opts.glyphs) {
+    const path = convertToOpentypePath(vg.paths);
+    const glyph = new opentype.Glyph({
+      name: vg.name,
+      unicode: vg.unicode,
+      advanceWidth: vg.advanceWidth,
+      path,
+    });
+    glyphs.push(glyph);
+  }
+
+  const font = new opentype.Font({
+    familyName: opts.familyName,
+    styleName: opts.styleName || 'Regular',
+    unitsPerEm: 1000,
+    ascender: 800,
+    descender: -200,
+    glyphs,
+  });
+
+  // calt（Contextual Alternates）設定
+  const altGlyphs = opts.glyphs.filter(g => g.name.includes('.alt'));
+  if (altGlyphs.length > 0) {
+    const caltRules = generateCaltFeature(opts.glyphs);
+    // opentype.js の substitution テーブルに追加
+    // NOTE: opentype.js の calt サポートは限定的。
+    // 将来的により高度な実装が必要になる可能性がある。
+    if (caltRules.length > 0 && font.substitution) {
+      try {
+        font.substitution.add('calt', { sub: caltRules });
+      } catch {
+        // calt追加に失敗してもフォント生成は続行
+      }
+    }
+  }
+
+  return font.toArrayBuffer();
+}
+
+function convertToOpentypePath(pathGroups: PathCommand[][]): opentype.Path {
+  const path = new opentype.Path();
+
+  for (const commands of pathGroups) {
+    for (const cmd of commands) {
+      switch (cmd.type) {
+        case 'M':
+          path.moveTo(cmd.x, cmd.y);
+          break;
+        case 'L':
+          path.lineTo(cmd.x, cmd.y);
+          break;
+        case 'C':
+          path.bezierCurveTo(
+            cmd.cp1x!, cmd.cp1y!,
+            cmd.cp2x!, cmd.cp2y!,
+            cmd.x, cmd.y,
+          );
+          break;
+        case 'Z':
+          path.closePath();
+          break;
+      }
+    }
+  }
+
+  return path;
+}
