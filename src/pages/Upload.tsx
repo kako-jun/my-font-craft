@@ -1,6 +1,7 @@
 import { createSignal, Show, For } from 'solid-js';
 import ProgressBar from '../components/ProgressBar';
-import { processImages, type ProcessResult, type ProcessMessage } from '../lib/scanner/processor';
+import ScanResultGrid from '../components/ScanResultGrid';
+import { processImages, type ProcessResult, type ProcessMessage, type GlyphStatus } from '../lib/scanner/processor';
 import { buildFont } from '../lib/font/builder';
 
 interface Props {
@@ -15,6 +16,8 @@ export default function Upload(props: Props) {
   const [messages, setMessages] = createSignal<ProcessMessage[]>([]);
   const [fontReady, setFontReady] = createSignal(false);
   const [fontBlob, setFontBlob] = createSignal<Blob | null>(null);
+  const [glyphStatuses, setGlyphStatuses] = createSignal<GlyphStatus[]>([]);
+  const [correctedPages, setCorrectedPages] = createSignal<{ pageIndex: number; dataUrl: string }[]>([]);
 
   function addMessage(msg: ProcessMessage) {
     setMessages((prev) => [...prev, msg]);
@@ -28,6 +31,8 @@ export default function Upload(props: Props) {
     setMessages([]);
     setFontReady(false);
     setFontBlob(null);
+    setGlyphStatuses([]);
+    setCorrectedPages([]);
 
     try {
       const result: ProcessResult = await processImages(fileArray, {
@@ -36,6 +41,20 @@ export default function Upload(props: Props) {
           setTotalPages(total);
         },
         onMessage: addMessage,
+        onPageCorrected: (pageIndex, canvas) => {
+          try {
+            // 台形補正後のページ画像をサムネイルとして保存
+            const thumb = document.createElement('canvas');
+            const scale = 300 / canvas.width;
+            thumb.width = 300;
+            thumb.height = Math.round(canvas.height * scale);
+            thumb.getContext('2d')!.drawImage(canvas, 0, 0, thumb.width, thumb.height);
+            setCorrectedPages(prev => [...prev, { pageIndex, dataUrl: thumb.toDataURL('image/png') }]);
+          } catch { /* ignore */ }
+        },
+        onGlyphStatus: (status) => {
+          setGlyphStatuses(prev => [...prev, status]);
+        },
       });
 
       addMessage({ type: 'info', text: `${result.glyphs.length} 文字を処理しました。フォントを生成中...` });
@@ -147,6 +166,16 @@ export default function Upload(props: Props) {
               </div>
             )}
           </For>
+        </div>
+      </Show>
+
+      {/* スキャン結果確認グリッド（ページサムネイル + 文字グリッド統合） */}
+      <Show when={glyphStatuses().length > 0}>
+        <div class="card" style="margin-top:1rem">
+          <ScanResultGrid
+            glyphStatuses={glyphStatuses()}
+            correctedPages={correctedPages()}
+          />
         </div>
       </Show>
 

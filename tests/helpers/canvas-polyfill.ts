@@ -44,7 +44,8 @@ const originalCreateElement = (globalThis as any).document.createElement;
 };
 
 // CanvasRenderingContext2D.drawImage が polyfilled ImageBitmap を処理できるようパッチ
-const { CanvasRenderingContext2D } = require('canvas');
+import canvas_module from 'canvas';
+const { CanvasRenderingContext2D } = canvas_module as any;
 const origDrawImage = CanvasRenderingContext2D.prototype.drawImage;
 CanvasRenderingContext2D.prototype.drawImage = function (img: any, ...args: any[]) {
   // polyfilled createImageBitmap の結果は _img プロパティを持つ

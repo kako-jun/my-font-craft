@@ -16,9 +16,21 @@ export interface ProcessMessage {
   text: string;
 }
 
+export interface GlyphStatus {
+  char: string;
+  unicode: number;
+  pageIndex: number;
+  row: number;
+  col: number;
+  status: 'found' | 'empty' | 'skipped';
+  cellImageDataUrl?: string;  // セル切り出し画像のData URL
+}
+
 export interface ProcessCallbacks {
   onPageStart: (page: number, total: number) => void;
   onMessage: (msg: ProcessMessage) => void;
+  onPageCorrected?: (pageIndex: number, canvas: HTMLCanvasElement) => void;
+  onGlyphStatus?: (status: GlyphStatus) => void;
 }
 
 export interface ProcessResult {
@@ -233,6 +245,9 @@ export async function processImages(
     const [cr, cg, cb] = readCyanSample(corrected);
     removeCyan(corrected, cr, cg, cb);
 
+    // 補正後キャンバスをコールバックで通知
+    callbacks.onPageCorrected?.(qr.pg, corrected);
+
     // 各文字を処理（ページ番号から文字リストを導出）
     const pageChars = getCharactersForPage(qr.pg - 1);
     for (let ci = 0; ci < pageChars.length; ci++) {
@@ -254,11 +269,33 @@ export async function processImages(
         cells.push({ imageData: cellData, checkMark: check, index: cellIdx });
       }
 
-      if (cells.length === 0) continue;
+      if (cells.length === 0) {
+        callbacks.onGlyphStatus?.({
+          char, unicode, pageIndex: qr.pg, row, col, status: 'empty',
+        });
+        continue;
+      }
 
       // 採用判定
       const checked = cells.filter(c => c.checkMark === 'check');
       const adopted = checked.length > 0 ? checked : [cells[cells.length - 1]];
+
+      // セル画像のData URLを生成（UI表示用）
+      const adoptedCell = adopted[0];
+      let cellImageDataUrl: string | undefined;
+      try {
+        const cellCanvas = document.createElement('canvas');
+        cellCanvas.width = adoptedCell.imageData.width;
+        cellCanvas.height = adoptedCell.imageData.height;
+        cellCanvas.getContext('2d')!.putImageData(adoptedCell.imageData, 0, 0);
+        cellImageDataUrl = cellCanvas.toDataURL('image/png');
+      } catch { /* Node.js環境ではスキップ */ }
+
+      callbacks.onGlyphStatus?.({
+        char, unicode, pageIndex: qr.pg, row, col,
+        status: 'found',
+        cellImageDataUrl,
+      });
 
       for (let ai = 0; ai < adopted.length; ai++) {
         const cell = adopted[ai];

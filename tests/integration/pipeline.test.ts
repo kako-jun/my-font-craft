@@ -152,7 +152,12 @@ describe('Full Pipeline: Mock Scans → Font', () => {
       }
     }
 
-    // 少なくとも一部のひらがなが抽出されたことを確認
+    // 抽出されなかった文字を特定
+    const extractedUnicodes = new Set(glyphs.map(g => g.unicode));
+    const missing = HIRAGANA.filter(ch => !extractedUnicodes.has(ch.codePointAt(0)!));
+    if (missing.length > 0) {
+      console.log(`Missing ${missing.length} chars: ${missing.join(' ')}`);
+    }
     console.log(`Extracted ${glyphs.length} glyphs out of ${HIRAGANA.length} hiragana`);
     expect(glyphs.length).toBeGreaterThan(0);
 
