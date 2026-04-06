@@ -22,7 +22,9 @@ export function vectorizeGlyph(imageData: ImageData): PathCommand[][] {
   const contours = extractContours(binary, imageData.width, imageData.height);
 
   // 3. Douglas-Peucker簡略化
-  const simplified = contours.map(c => douglasPeucker(c, 1.0));
+  // epsilonは画像サイズに応じてスケール（高解像度画像で点が多くなりすぎないよう）
+  const epsilon = Math.max(1.0, Math.min(imageData.width, imageData.height) / 80);
+  const simplified = contours.map(c => douglasPeucker(c, epsilon));
 
   // 4. 正規化（画像座標→フォント座標系）
   const normalized = simplified.map(c => normalizeContour(c, imageData.width, imageData.height));
@@ -143,27 +145,35 @@ function extractContours(binary: Uint8Array, w: number, h: number): Pt[][] {
   return contours;
 }
 
-// Douglas-Peucker アルゴリズム
+// Douglas-Peucker アルゴリズム（反復版 — 大きな輪郭でもスタックオーバーフローしない）
 function douglasPeucker(points: Pt[], epsilon: number): Pt[] {
   if (points.length <= 2) return points;
 
-  let maxDist = 0;
-  let maxIdx = 0;
-  const start = points[0];
-  const end = points[points.length - 1];
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
 
-  for (let i = 1; i < points.length - 1; i++) {
-    const d = perpendicularDist(points[i], start, end);
-    if (d > maxDist) { maxDist = d; maxIdx = i; }
+  // 明示的スタックで再帰を模倣
+  const stack: [number, number][] = [[0, points.length - 1]];
+
+  while (stack.length > 0) {
+    const [start, end] = stack.pop()!;
+    let maxDist = 0;
+    let maxIdx = start;
+
+    for (let i = start + 1; i < end; i++) {
+      const d = perpendicularDist(points[i], points[start], points[end]);
+      if (d > maxDist) { maxDist = d; maxIdx = i; }
+    }
+
+    if (maxDist > epsilon) {
+      keep[maxIdx] = 1;
+      if (maxIdx - start > 1) stack.push([start, maxIdx]);
+      if (end - maxIdx > 1) stack.push([maxIdx, end]);
+    }
   }
 
-  if (maxDist > epsilon) {
-    const left = douglasPeucker(points.slice(0, maxIdx + 1), epsilon);
-    const right = douglasPeucker(points.slice(maxIdx), epsilon);
-    return [...left.slice(0, -1), ...right];
-  }
-
-  return [start, end];
+  return points.filter((_, i) => keep[i]);
 }
 
 function perpendicularDist(p: Pt, a: Pt, b: Pt): number {
