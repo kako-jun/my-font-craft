@@ -69,6 +69,10 @@ export default function Upload(props: Props) {
         },
         onGlyphStatus: (status) => {
           newGlyphStatuses.push(status);
+          // リアルタイムにグリッドを更新
+          if (!merge) {
+            setGlyphStatuses(prev => [...prev, status]);
+          }
         },
       });
 
@@ -290,7 +294,7 @@ export default function Upload(props: Props) {
       </Show>
 
       {/* スキャン結果確認グリッド */}
-      <Show when={glyphStatuses().length > 0 && phase() !== 'scanning'}>
+      <Show when={glyphStatuses().length > 0}>
         <div class="card" style="margin-top:1rem">
           <ScanResultGrid
             glyphStatuses={glyphStatuses()}

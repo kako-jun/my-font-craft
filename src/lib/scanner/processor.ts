@@ -22,7 +22,7 @@ export interface GlyphStatus {
   pageIndex: number;
   row: number;
   col: number;
-  status: 'found' | 'empty' | 'skipped';
+  status: 'found' | 'empty';
   cellImageDataUrl?: string;  // セル切り出し画像のData URL
 }
 
@@ -248,8 +248,8 @@ export async function processImages(
     // 補正後キャンバスをコールバックで通知
     callbacks.onPageCorrected?.(qr.pg, corrected);
 
-    // 各文字を処理（ページ番号から文字リストを導出）
-    const pageChars = getCharactersForPage(qr.pg - 1);
+    // 各文字を処理（QRに文字リストがあればそれを使用、なければページ番号から導出）
+    const pageChars = qr.chars ?? getCharactersForPage(qr.pg - 1);
     for (let ci = 0; ci < pageChars.length; ci++) {
       const row = Math.floor(ci / COLS);
       const col = ci % COLS;

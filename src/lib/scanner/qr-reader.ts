@@ -6,6 +6,7 @@ export interface QRPayload {
   pg: number;  // page number
   t: number;   // total pages
   m: number;   // cells per char
+  chars?: string[];  // 明示的な文字リスト（リトライテンプレート用）
 }
 
 export function readQRFromImageData(data: ImageData): QRPayload | null {
