@@ -1,11 +1,6 @@
 // 四隅マーカー検出と台形補正
 
-import {
-  PAGE_WIDTH,
-  PAGE_HEIGHT,
-  MARKERS,
-  MARKER_SIZE,
-} from '../template/layout';
+import { PAGE_WIDTH, PAGE_HEIGHT, MARKERS, MARKER_SIZE } from '../template/layout';
 
 export interface Point {
   x: number;
@@ -231,12 +226,38 @@ export function perspectiveTransform(
   return dst;
 }
 
-// 向き検出: 左上マーカーが一番暗い（塗りつぶし）
+// 向き検出: 塗りつぶしマーカー（黒ピクセル密度が最も高い）を左上と判定
 export function detectOrientation(corners: Corners, canvas: HTMLCanvasElement): number {
   const ctx = canvas.getContext('2d')!;
   const w = canvas.width;
   const h = canvas.height;
 
+  // 二値化閾値を算出（固定閾値128をフォールバックに使用）
+  const fullData = ctx.getImageData(0, 0, w, h).data;
+  const threshold = computeOtsuThreshold(fullData, w * h);
+
+  // マーカー周辺の黒ピクセル密度を計測（塗りつぶし vs 枠線のみ を区別）
+  function blackPixelDensity(point: Point): number {
+    const r = 10;
+    const px = Math.max(0, Math.min(Math.round(point.x), w - 1));
+    const py = Math.max(0, Math.min(Math.round(point.y), h - 1));
+    const x0 = Math.max(0, px - r);
+    const y0 = Math.max(0, py - r);
+    const x1 = Math.min(w, px + r);
+    const y1 = Math.min(h, py + r);
+    const data = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data;
+    let blackCount = 0;
+    const totalPixels = data.length / 4;
+    for (let i = 0; i < data.length; i += 4) {
+      const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      if (gray < threshold) {
+        blackCount++;
+      }
+    }
+    return totalPixels > 0 ? blackCount / totalPixels : 0;
+  }
+
+  // 補助: 平均輝度（従来方式、ダブルチェック用）
   function avgBrightness(point: Point): number {
     const r = 10;
     const px = Math.max(0, Math.min(Math.round(point.x), w - 1));
@@ -251,28 +272,41 @@ export function detectOrientation(corners: Corners, canvas: HTMLCanvasElement): 
     for (let i = 0; i < data.length; i += 4) {
       sum += (data[i] + data[i + 1] + data[i + 2]) / 3;
     }
-    return sum / count;
+    return count > 0 ? sum / count : 255;
   }
 
-  const brightnesses = [
-    { corner: 'topLeft', val: avgBrightness(corners.topLeft) },
-    { corner: 'topRight', val: avgBrightness(corners.topRight) },
-    { corner: 'bottomLeft', val: avgBrightness(corners.bottomLeft) },
-    { corner: 'bottomRight', val: avgBrightness(corners.bottomRight) },
-  ];
+  const corners_ = [
+    { corner: 'topLeft', point: corners.topLeft },
+    { corner: 'topRight', point: corners.topRight },
+    { corner: 'bottomLeft', point: corners.bottomLeft },
+    { corner: 'bottomRight', point: corners.bottomRight },
+  ] as const;
 
+  // 密度方式: 黒ピクセル密度が最も高いマーカーを topLeft と判定
+  const densities = corners_.map((c) => ({ corner: c.corner, val: blackPixelDensity(c.point) }));
+  const densest = densities.reduce((a, b) => (a.val > b.val ? a : b));
+
+  // 明暗方式: 最も暗いマーカーを topLeft と判定（従来方式）
+  const brightnesses = corners_.map((c) => ({ corner: c.corner, val: avgBrightness(c.point) }));
   const darkest = brightnesses.reduce((a, b) => (a.val < b.val ? a : b));
 
-  switch (darkest.corner) {
-    case 'topLeft':
-      return 0;
-    case 'topRight':
-      return 90;
-    case 'bottomRight':
-      return 180;
-    case 'bottomLeft':
-      return 270;
-    default:
-      return 0;
+  // ダブルチェック: 一致なら確定、不一致なら密度方式を優先
+  const filledCorner = densest.corner === darkest.corner ? densest.corner : densest.corner;
+
+  function cornerToRotation(corner: string): number {
+    switch (corner) {
+      case 'topLeft':
+        return 0;
+      case 'topRight':
+        return 90;
+      case 'bottomRight':
+        return 180;
+      case 'bottomLeft':
+        return 270;
+      default:
+        return 0;
+    }
   }
+
+  return cornerToRotation(filledCorner);
 }
