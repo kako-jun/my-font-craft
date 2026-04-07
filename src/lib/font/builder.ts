@@ -95,7 +95,7 @@ export function importFont(buffer: ArrayBuffer): {
     if (glyph.name === '.notdef' || glyph.unicode === undefined || glyph.unicode === null) continue;
     if (glyph.unicode === 32) continue;
 
-    const paths = convertFromOpentypePath(glyph.path, font);
+    const paths = convertFromOpentypePath(glyph.path);
     const unicode = glyph.unicode;
     const char = String.fromCodePoint(unicode);
     const name = `uni${unicode.toString(16).toUpperCase().padStart(4, '0')}`;
@@ -107,7 +107,8 @@ export function importFont(buffer: ArrayBuffer): {
       const size = 80;
       canvas.width = size;
       canvas.height = size;
-      const ctx = canvas.getContext('2d')!;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('2d context unavailable');
 
       // グリフをキャンバスに描画
       const path = glyph.getPath(4, size - 8, size - 16);
@@ -129,7 +130,7 @@ export function importFont(buffer: ArrayBuffer): {
       name,
       unicode,
       paths,
-      advanceWidth: glyph.advanceWidth || 1000,
+      advanceWidth: glyph.advanceWidth ?? 1000,
     });
 
     statuses.push({
@@ -149,7 +150,7 @@ export function importFont(buffer: ArrayBuffer): {
 /**
  * opentype.js の path を内部の PathCommand[][] に逆変換する
  */
-function convertFromOpentypePath(otPath: opentype.Path, _font: opentype.Font): PathCommand[][] {
+function convertFromOpentypePath(otPath: opentype.Path): PathCommand[][] {
   const commands = otPath.commands;
   if (commands.length === 0) return [];
 
