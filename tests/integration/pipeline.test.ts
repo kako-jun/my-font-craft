@@ -127,7 +127,7 @@ describe('Full Pipeline: Mock Scans → Font', () => {
       // 5. 各文字を処理
       // テンプレートは「ひらがなのみ」だが、getCharactersForPage は
       // ALL_CHARACTERS（全文字リスト）から取得する。
-      // 模擬画像の QR は totalPages=3 でひらがなのみを想定しているので、
+      // 模擬画像の QR は totalPages=2 でひらがなのみを想定しているので、
       // ページ番号から直接ひらがなリストを使う。
       const start = (qr!.pg - 1) * 48;
       const pageChars = HIRAGANA.slice(start, start + 48);

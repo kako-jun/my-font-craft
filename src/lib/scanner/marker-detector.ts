@@ -1,5 +1,12 @@
 // 四隅マーカー検出と台形補正
 
+import {
+  PAGE_WIDTH,
+  PAGE_HEIGHT,
+  MARKERS,
+  MARKER_SIZE,
+} from '../template/layout';
+
 export interface Point {
   x: number;
   y: number;
@@ -131,12 +138,6 @@ export function rotateCanvas(canvas: HTMLCanvasElement, degrees: number): HTMLCa
 
 // マーカー位置からページ全体の四隅を外挿する
 // マーカーはページ内の既知位置にあるため、比率から外側のページ端を算出
-import {
-  PAGE_WIDTH,
-  PAGE_HEIGHT,
-  MARKERS,
-  MARKER_SIZE,
-} from '../template/layout';
 
 export function extrapolatePageCorners(markerCorners: Corners): Corners {
   // マーカー中心のページ内座標（mm）
