@@ -32,6 +32,8 @@ export const CELL_GAP = 2;
 export const SAMPLE_WIDTH = 10;
 
 // QRコード（マーカー内側、右下マーカーの左隣）
+// マーカーのバウンディングボックス: y=272〜280 (8mm)
+// QRも同じ範囲に配置（上端揃え）
 export const QR_X = 182; // bottomRight(192)の左、182+8=190
 export const QR_Y = 272; // bottomマーカーと同じY
 export const QR_SIZE = 8;

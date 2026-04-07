@@ -406,7 +406,7 @@ async function renderTextToImage(
   return { data, widthPx: width, heightPx: height };
 }
 
-// ドット絵風の星マーカー（簡易版：四角+十字で星っぽく）
+// ドット絵風の星マーカー（十字型、バウンディングボックス: x〜x+size, y-size〜y）
 function drawStarMarker(
   page: ReturnType<PDFDocument['addPage']>,
   x: number,
@@ -417,21 +417,28 @@ function drawStarMarker(
   const unit = size / 5;
   const c = rgb(0, 0, 0);
 
+  // 十字をバウンディングボックスの中央に配置
+  // 縦棒: x方向は中央3unit、y方向は全高(5unit)
+  // 横棒: x方向は全幅(5unit)、y方向は中央3unit
   if (filled) {
-    // 塗りつぶし十字
     page.drawRectangle({
       x: x + unit,
-      y: y - size + unit,
+      y: y - size,
       width: unit * 3,
       height: size,
       color: c,
     });
-    page.drawRectangle({ x, y: y - unit * 3, width: size, height: unit * 3, color: c });
+    page.drawRectangle({
+      x,
+      y: y - unit * 4,
+      width: size,
+      height: unit * 3,
+      color: c,
+    });
   } else {
-    // 枠線のみ十字
     page.drawRectangle({
       x: x + unit,
-      y: y - size + unit,
+      y: y - size,
       width: unit * 3,
       height: size,
       borderColor: c,
@@ -439,7 +446,7 @@ function drawStarMarker(
     });
     page.drawRectangle({
       x,
-      y: y - unit * 3,
+      y: y - unit * 4,
       width: size,
       height: unit * 3,
       borderColor: c,
