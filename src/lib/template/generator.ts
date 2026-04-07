@@ -114,17 +114,27 @@ async function generateTemplatePDFFromChars(
 
     // 雑学コメント（ヘッダー2行目、Canvas→PNG→PDF埋め込み）
     const triviaText = getTriviaForPage(pageIdx, pageChars, totalPages);
-    const triviaImage = await renderTextToImage(triviaText, 7);
+    const triviaImage = await renderTextToImage(triviaText, 6);
     if (triviaImage) {
       const triviaEmbed = await pdfDoc.embedPng(triviaImage.data);
-      // 右寄せ: テキスト画像の右端をページ番号の右端に揃える
-      const triviaWidthMm = triviaImage.widthPx * (7 / triviaImage.heightPx) * 0.8;
-      const triviaHeightMm = 7 * 0.8;
+      // アスペクト比を保って高さ4mmに収める
+      const triviaHeightMm = 4;
+      const triviaWidthMm = (triviaImage.widthPx / triviaImage.heightPx) * triviaHeightMm;
+      // 右寄せ: ページ番号の右端に揃える。幅が広すぎる場合はタイトル右端まで
+      const maxWidthMm = PAGE_WIDTH - MARGIN - 25; // タイトル "MyFontCraft" の右端(~50mm)まで余裕
+      const clampedWidthMm = Math.min(triviaWidthMm, maxWidthMm);
+      const clampedHeightMm =
+        clampedWidthMm < triviaWidthMm
+          ? triviaHeightMm * (clampedWidthMm / triviaWidthMm)
+          : triviaHeightMm;
+      // ページ番号(14mm)の下に配置。画像の上端が17mmになるよう下端を計算
+      const triviaTopMm = 17;
+      const triviaBottomMm = triviaTopMm + clampedHeightMm;
       page.drawImage(triviaEmbed, {
-        x: rightEdge - mm(triviaWidthMm),
-        y: toY(18.5),
-        width: mm(triviaWidthMm),
-        height: mm(triviaHeightMm),
+        x: rightEdge - mm(clampedWidthMm),
+        y: toY(triviaBottomMm),
+        width: mm(clampedWidthMm),
+        height: mm(clampedHeightMm),
       });
     }
 
@@ -264,7 +274,8 @@ async function generateTemplatePDFFromChars(
 
         // チェック欄にシアンで✓サンプル（スキャン時に除去される）
         const checkY = pos.y + CELL_SIZE;
-        const cx = pos.x + 3;
+        const checkMarkWidth = 5;
+        const cx = pos.x + (CELL_SIZE - checkMarkWidth) / 2;
         const cy = checkY + CHECK_HEIGHT / 2;
         // ✓ を2本の線で描画
         page.drawLine({
