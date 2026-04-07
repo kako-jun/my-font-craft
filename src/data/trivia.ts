@@ -153,8 +153,8 @@ export function getTriviaForPage(
     return PAGE_TRIVIA[pageNum];
   }
 
-  // 最終ページ（動的に判定）
-  if (pageNum === totalPages && !PAGE_TRIVIA[pageNum]) {
+  // 最終ページ（動的に判定。PAGE_TRIVIA にある場合は上で返り済み）
+  if (pageNum === totalPages) {
     return '最終ページ。完走おめでとう！';
   }
 

@@ -8,6 +8,7 @@ import {
   type GlyphStatus,
 } from '../lib/scanner/processor';
 import { buildFont, importFont } from '../lib/font/builder';
+import { mergeScanIntoExisting, mergeImportIntoExisting } from '../lib/merge';
 import { generateRetryTemplatePDF } from '../lib/template/generator';
 import { IconFolder, IconZip, IconDownload, IconFont, IconUpload } from '../components/icons';
 
@@ -93,41 +94,22 @@ export default function Upload(props: Props) {
 
       if (merge && prevResult) {
         // マージ: 新しく取得できた文字で既存の empty / imported を上書き（スキャンが優先）
-        const newFound = new Map<number, GlyphStatus>();
-        for (const gs of newGlyphStatuses) {
-          if (gs.status === 'found') newFound.set(gs.unicode, gs);
-        }
-
-        const mergedStatuses = prevStatuses.map((gs) => {
-          if ((gs.status === 'empty' || gs.status === 'imported') && newFound.has(gs.unicode)) {
-            return newFound.get(gs.unicode)!;
-          }
-          return gs;
-        });
-        setGlyphStatuses(mergedStatuses);
-
-        // グリフもマージ（スキャンで取得したものは imported を上書き）
-        const newFoundUnicodes = new Set(newFound.keys());
-        // 既存グリフのうち、新しいスキャンで上書きされるものを除外
-        const keptGlyphs = prevResult.glyphs.filter(
-          (g) => !g.unicode || !newFoundUnicodes.has(g.unicode),
+        const merged = mergeScanIntoExisting(
+          prevStatuses,
+          prevResult.glyphs,
+          newGlyphStatuses,
+          result.glyphs,
         );
-        // 新規グリフ（上書き分 + 純粋新規）
-        const existingKeptUnicodes = new Set(keptGlyphs.map((g) => g.unicode));
-        const newGlyphs = result.glyphs.filter(
-          (g) => g.unicode && !existingKeptUnicodes.has(g.unicode),
-        );
-        const mergedGlyphs = [...keptGlyphs, ...newGlyphs];
-        setScanResult({ glyphs: mergedGlyphs });
+        setGlyphStatuses(merged.statuses);
+        setScanResult({ glyphs: merged.glyphs });
 
-        const added = newGlyphs.length;
-        const total = mergedStatuses.length;
-        const found = mergedStatuses.filter((g) => g.status === 'found').length;
-        const imported = mergedStatuses.filter((g) => g.status === 'imported').length;
+        const total = merged.statuses.length;
+        const found = merged.statuses.filter((g) => g.status === 'found').length;
+        const imported = merged.statuses.filter((g) => g.status === 'imported').length;
         const acquired = found + imported;
         addMessage({
           type: 'info',
-          text: `追加スキャン完了: ${added} 文字を追加しました（合計 ${acquired}/${total} 文字）`,
+          text: `追加スキャン完了（合計 ${acquired}/${total} 文字）`,
         });
       } else {
         // 新規スキャン
@@ -230,37 +212,17 @@ export default function Upload(props: Props) {
       const prevResult = scanResult();
 
       if (prevStatuses.length > 0 && prevResult) {
-        // マージ: found は imported を上書きしない（スキャンが優先）
-        const importedMap = new Map<
-          number,
-          { glyph: (typeof result.glyphs)[0]; status: (typeof result.statuses)[0] }
-        >();
-        for (let i = 0; i < result.glyphs.length; i++) {
-          importedMap.set(result.statuses[i].unicode, {
-            glyph: result.glyphs[i],
-            status: result.statuses[i],
-          });
-        }
-
-        // 既存の empty を imported で埋める
-        const mergedStatuses = prevStatuses.map((gs) => {
-          if (gs.status === 'empty' && importedMap.has(gs.unicode)) {
-            return importedMap.get(gs.unicode)!.status;
-          }
-          return gs;
-        });
-
-        // グリフもマージ（既存にないものだけ追加）
-        const existingUnicodes = new Set(prevResult.glyphs.map((g) => g.unicode));
-        const newGlyphs = result.glyphs.filter(
-          (g) => g.unicode && !existingUnicodes.has(g.unicode),
+        // マージ: empty のみを imported で埋める（found は上書きしない）
+        const merged = mergeImportIntoExisting(
+          prevStatuses,
+          prevResult.glyphs,
+          result.statuses,
+          result.glyphs,
         );
-        const mergedGlyphs = [...prevResult.glyphs, ...newGlyphs];
+        setGlyphStatuses(merged.statuses);
+        setScanResult({ glyphs: merged.glyphs });
 
-        setGlyphStatuses(mergedStatuses);
-        setScanResult({ glyphs: mergedGlyphs });
-
-        const imported = mergedStatuses.filter((g) => g.status === 'imported').length;
+        const imported = merged.statuses.filter((g) => g.status === 'imported').length;
         addMessage({
           type: 'success',
           text: `フォントをインポートしました: ${imported} 文字をインポートとして追加`,

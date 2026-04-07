@@ -102,29 +102,30 @@ export function importFont(buffer: ArrayBuffer): {
 
     // サムネイル用 data URL を生成
     let cellImageDataUrl: string | undefined;
-    try {
-      const canvas = document.createElement('canvas');
-      const size = 80;
-      canvas.width = size;
-      canvas.height = size;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('2d context unavailable');
+    if (typeof document !== 'undefined')
+      try {
+        const canvas = document.createElement('canvas');
+        const size = 80;
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('2d context unavailable');
 
-      // グリフをキャンバスに描画
-      const path = glyph.getPath(4, size - 8, size - 16);
-      const pathData = path.toSVG(2); // undocumented decimal places param
-      // Path2D + SVG path data で描画
-      const match = /\bd="([^"]+)"/.exec(pathData);
-      if (match) {
-        const p2d = new Path2D(match[1]);
-        ctx.fillStyle = '#333';
-        ctx.fill(p2d);
+        // グリフをキャンバスに描画
+        const path = glyph.getPath(4, size - 8, size - 16);
+        const pathData = path.toSVG(2); // undocumented decimal places param
+        // Path2D + SVG path data で描画
+        const match = /\bd="([^"]+)"/.exec(pathData);
+        if (match) {
+          const p2d = new Path2D(match[1]);
+          ctx.fillStyle = '#333';
+          ctx.fill(p2d);
+        }
+
+        cellImageDataUrl = canvas.toDataURL('image/png');
+      } catch {
+        /* Canvas未対応環境ではスキップ */
       }
-
-      cellImageDataUrl = canvas.toDataURL('image/png');
-    } catch {
-      /* Canvas未対応環境ではスキップ */
-    }
 
     glyphs.push({
       name,
