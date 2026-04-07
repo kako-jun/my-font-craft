@@ -19,14 +19,14 @@ export const BODY_START_X = MARGIN;
 export const BODY_START_Y = MARGIN + HEADER_HEIGHT + 5; // マーカー下余白
 
 // グリッド
-export const COLS = 3;
-export const ROWS = 10;
-export const COL_WIDTH = 60;
-export const ROW_HEIGHT = 25;
+export const COLS = 4;
+export const ROWS = 12;
+export const COL_WIDTH = 47;
+export const ROW_HEIGHT = 20;
 
 // マス
-export const CELL_SIZE = 20;
-export const INNER_SIZE = 15;
+export const CELL_SIZE = 15;
+export const INNER_SIZE = 10;
 export const CHECK_HEIGHT = 3;
 export const CELL_GAP = 2;
 export const SAMPLE_WIDTH = 10;
@@ -59,7 +59,7 @@ export const MARKERS = {
 
 // 色
 export const COLOR_BLACK = { r: 0, g: 0, b: 0 };
-export const COLOR_CYAN = { r: 0, g: 1, b: 1 };
+export const COLOR_CYAN = { r: 0.6, g: 1, b: 1 };
 export const COLOR_WHITE = { r: 1, g: 1, b: 1 };
 
 // 1文字セルの配置座標を計算
