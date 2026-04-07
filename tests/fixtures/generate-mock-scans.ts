@@ -23,12 +23,12 @@ const MARGIN = 10;
 const HEADER_HEIGHT = 15;
 const BODY_START_X = MARGIN;
 const BODY_START_Y = MARGIN + HEADER_HEIGHT + 5;
-const COLS = 3;
-const ROWS = 10;
-const COL_WIDTH = 60;
-const ROW_HEIGHT = 25;
-const CELL_SIZE = 20;
-const INNER_SIZE = 15;
+const COLS = 4;
+const ROWS = 12;
+const COL_WIDTH = 47;
+const ROW_HEIGHT = 20;
+const CELL_SIZE = 15;
+const INNER_SIZE = 10;
 const CHECK_HEIGHT = 3;
 const CELL_GAP = 2;
 const SAMPLE_WIDTH = 10;
@@ -76,7 +76,7 @@ const HIRAGANA = [
   'ゐ','ゑ',
 ];
 
-const CHARS_PER_PAGE = 30;
+const CHARS_PER_PAGE = 48;
 
 function getCellPosition(row: number, col: number, cellIndex: number) {
   const x = BODY_START_X + col * COL_WIDTH + SAMPLE_WIDTH + CELL_GAP + cellIndex * (CELL_SIZE + CELL_GAP);
@@ -171,7 +171,7 @@ async function generatePage(pageIdx: number, chars: string[]): Promise<Buffer> {
   }
 
   // シアンサンプル
-  ctx.fillStyle = '#00FFFF';
+  ctx.fillStyle = '#99FFFF';
   ctx.fillRect(px(CYAN_SAMPLE_X), px(CYAN_SAMPLE_Y), px(CYAN_SAMPLE_SIZE), px(CYAN_SAMPLE_SIZE));
 
   // --- 四隅マーカー ---
@@ -196,7 +196,7 @@ async function generatePage(pageIdx: number, chars: string[]): Promise<Buffer> {
 
       // 内枠（シアン）
       const innerOffset = (CELL_SIZE - INNER_SIZE) / 2;
-      ctx.strokeStyle = '#00FFFF';
+      ctx.strokeStyle = '#99FFFF';
       ctx.lineWidth = 1;
       ctx.strokeRect(
         px(pos.x + innerOffset),
@@ -209,7 +209,7 @@ async function generatePage(pageIdx: number, chars: string[]): Promise<Buffer> {
       ctx.beginPath();
       ctx.moveTo(px(pos.x), px(pos.y + CELL_SIZE));
       ctx.lineTo(px(pos.x + CELL_SIZE), px(pos.y + CELL_SIZE));
-      ctx.strokeStyle = '#00FFFF';
+      ctx.strokeStyle = '#99FFFF';
       ctx.lineWidth = 1;
       ctx.stroke();
 
