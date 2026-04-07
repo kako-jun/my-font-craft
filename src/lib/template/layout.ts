@@ -31,11 +31,11 @@ export const CHECK_HEIGHT = 3;
 export const CELL_GAP = 2;
 export const SAMPLE_WIDTH = 10;
 
-// QRコード（マーカー内側、右下付近）
+// QRコード（マーカー内側、左下付近）
 // 本文最終行チェック欄下端: y=266、bottomマーカー: y=272〜280
-// QR 15mm: y=265〜280 でマーカー行をまたいで配置（にじみ耐性のため大きめ）
-export const QR_X = 175; // 右下マーカー(192)の左、175+15=190
-export const QR_Y = 266; // 最終行チェック欄下端(266)と重ならないよう揃える
+// 4列目セル(x=180〜195)と干渉しないよう1列目の下に配置
+export const QR_X = 20; // bottomLeftマーカー(x=10)の右隣、20+15=35
+export const QR_Y = 267; // チェック欄下端(266)の1mm下
 export const QR_SIZE = 15;
 
 // 左右縦グレースケールバー
