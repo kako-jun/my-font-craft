@@ -38,6 +38,11 @@ export default function Upload(props: Props) {
       .map((g) => g.char),
   );
 
+  // 取得済み文字が1件以上あるか
+  const hasAcquiredChars = createMemo(() =>
+    glyphStatuses().some((g) => g.status === 'found' || g.status === 'imported'),
+  );
+
   function addMessage(msg: ProcessMessage) {
     setMessages((prev) => [...prev, msg]);
   }
@@ -415,23 +420,27 @@ export default function Upload(props: Props) {
                 そのまま生成すると、未検出の文字は端末のフォントで代替表示されます。
               </p>
               <button class="btn" onClick={handleDownloadRetryTemplate}>
-                未検出文字のテンプレートをダウンロード ({Math.ceil(missingChars().length / 30)}{' '}
+                未検出文字のテンプレートをダウンロード ({Math.ceil(missingChars().length / 48)}{' '}
                 ページ)
               </button>
             </div>
           </Show>
 
           <p style="margin-bottom:1rem;color:var(--accent)">
-            {missingChars().length === 0
-              ? '全文字を取得しました! フォントを生成できます。'
-              : '結果を確認して、このまま生成するか、追加スキャンしてください。'}
+            {!hasAcquiredChars()
+              ? '文字を取得できませんでした。画像を確認してやり直してください。'
+              : missingChars().length === 0
+                ? '全文字を取得しました! フォントを生成できます。'
+                : '結果を確認して、このまま生成するか、追加スキャンしてください。'}
           </p>
           <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap">
-            <button class="btn btn--primary" onClick={handleBuildFont}>
+            <button class="btn btn--primary" onClick={handleBuildFont} disabled={!hasAcquiredChars()}>
               <IconFont />{' '}
-              {missingChars().length > 0
-                ? `このまま生成する（${glyphStatuses().filter((g) => g.status !== 'empty').length} 文字）`
-                : 'フォントを生成する'}
+              {!hasAcquiredChars()
+                ? 'フォントを生成できません'
+                : missingChars().length > 0
+                  ? `このまま生成する（${glyphStatuses().filter((g) => g.status !== 'empty').length} 文字）`
+                  : 'フォントを生成する'}
             </button>
             <button class="btn" onClick={handleReset}>
               やり直す
