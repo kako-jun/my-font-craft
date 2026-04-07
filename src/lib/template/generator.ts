@@ -240,7 +240,7 @@ async function generateTemplatePDFFromChars(
           width: mm(CELL_SIZE),
           height: mm(CELL_SIZE),
           borderColor: rgb(0, 0, 0),
-          borderWidth: 1,
+          borderWidth: 0.5,
         });
 
         // 内枠（シアン）
