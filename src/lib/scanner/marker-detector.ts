@@ -258,24 +258,7 @@ export function detectOrientation(corners: Corners, canvas: HTMLCanvasElement): 
     return totalPixels > 0 ? blackCount / totalPixels : 0;
   }
 
-  // 補助: 平均輝度（従来方式、ダブルチェック用）
-  function avgBrightness(point: Point): number {
-    const px = Math.max(0, Math.min(Math.round(point.x), w - 1));
-    const py = Math.max(0, Math.min(Math.round(point.y), h - 1));
-    const x0 = Math.max(0, px - r);
-    const y0 = Math.max(0, py - r);
-    const x1 = Math.min(w, px + r);
-    const y1 = Math.min(h, py + r);
-    const data = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data;
-    let sum = 0;
-    const count = data.length / 4;
-    for (let i = 0; i < data.length; i += 4) {
-      sum += (data[i] + data[i + 1] + data[i + 2]) / 3;
-    }
-    return count > 0 ? sum / count : 255;
-  }
-
-  const corners_ = [
+  const cornerEntries = [
     { corner: 'topLeft', point: corners.topLeft },
     { corner: 'topRight', point: corners.topRight },
     { corner: 'bottomLeft', point: corners.bottomLeft },
@@ -283,17 +266,13 @@ export function detectOrientation(corners: Corners, canvas: HTMLCanvasElement): 
   ] as const;
 
   // 密度方式: 黒ピクセル密度が最も高いマーカーを topLeft と判定
-  const densities = corners_.map((c) => ({ corner: c.corner, val: blackPixelDensity(c.point) }));
+  const densities = cornerEntries.map((c) => ({
+    corner: c.corner,
+    val: blackPixelDensity(c.point),
+  }));
   const densest = densities.reduce((a, b) => (a.val > b.val ? a : b));
 
-  // 明暗方式: 最も暗いマーカーを topLeft と判定（従来方式）
-  const brightnesses = corners_.map((c) => ({ corner: c.corner, val: avgBrightness(c.point) }));
-  const darkest = brightnesses.reduce((a, b) => (a.val < b.val ? a : b));
-
-  // ダブルチェック: 一致なら確定、不一致なら密度方式を優先
-  const filledCorner = densest.corner === darkest.corner ? densest.corner : densest.corner;
-
-  function cornerToRotation(corner: string): number {
+  function cornerToRotation(corner: 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight'): number {
     switch (corner) {
       case 'topLeft':
         return 0;
@@ -308,5 +287,5 @@ export function detectOrientation(corners: Corners, canvas: HTMLCanvasElement): 
     }
   }
 
-  return cornerToRotation(filledCorner);
+  return cornerToRotation(densest.corner);
 }

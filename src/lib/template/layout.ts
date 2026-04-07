@@ -12,7 +12,7 @@ export const PAGE_HEIGHT = 297;
 export const MARGIN = 10;
 
 // ヘッダー
-export const HEADER_HEIGHT = 7; // タイトル行のみ(10→17)
+export const HEADER_HEIGHT = 7; // タイトル行のみ
 
 // 本文領域
 export const BODY_START_X = MARGIN;
