@@ -31,12 +31,12 @@ export const CHECK_HEIGHT = 3;
 export const CELL_GAP = 2;
 export const SAMPLE_WIDTH = 10;
 
-// QRコード（マーカー内側、右下マーカーの左隣）
-// マーカーのバウンディングボックス: y=272〜280 (8mm)
-// QRも同じ範囲に配置（上端揃え）
-export const QR_X = 182; // bottomRight(192)の左、182+8=190
-export const QR_Y = 272; // bottomマーカーと同じY
-export const QR_SIZE = 8;
+// QRコード（マーカー内側、右下付近）
+// 本文最終行チェック欄下端: y=266、bottomマーカー: y=272〜280
+// QR 15mm: y=265〜280 でマーカー行をまたいで配置（にじみ耐性のため大きめ）
+export const QR_X = 175; // 右下マーカー(192)の左、175+15=190
+export const QR_Y = 265;
+export const QR_SIZE = 15;
 
 // 左右縦グレースケールバー
 export const GRAY_BAR_STEPS = 10;
