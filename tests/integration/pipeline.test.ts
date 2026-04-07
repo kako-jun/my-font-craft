@@ -11,8 +11,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import opentype from 'opentype.js';
 
-import { readQRFromImageData } from '../../src/lib/scanner/qr-reader';
-import { detectMarkers, perspectiveTransform, detectOrientation, rotateCanvas } from '../../src/lib/scanner/marker-detector';
+import { readQRFromImageData, readQRFromCanvas } from '../../src/lib/scanner/qr-reader';
+import { detectMarkers, extrapolatePageCorners, perspectiveTransform, detectOrientation, rotateCanvas } from '../../src/lib/scanner/marker-detector';
 import { getCharactersForPage, HIRAGANA } from '../../src/data/characters';
 import { vectorizeGlyph } from '../../src/lib/vectorizer/contour';
 import { buildFont, type VectorGlyph } from '../../src/lib/font/builder';
@@ -87,9 +87,9 @@ function isEmpty(imageData: any): boolean {
 }
 
 describe('Full Pipeline: Mock Scans → Font', () => {
-  it('should process 3 hiragana pages and produce a valid TTF', { timeout: 180_000 }, async () => {
+  it('should process 2 hiragana pages and produce a valid TTF', { timeout: 180_000 }, async () => {
     const glyphs: VectorGlyph[] = [];
-    const pageFiles = ['page-01.png', 'page-02.png', 'page-03.png'];
+    const pageFiles = ['page-01.png', 'page-02.png'];
 
     for (const file of pageFiles) {
       const filePath = path.join(MOCK_DIR, file);
@@ -100,18 +100,11 @@ describe('Full Pipeline: Mock Scans → Font', () => {
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0);
 
-      // 1. QR読み取り
-      const headerH = Math.floor(img.height * 0.2);
-      const headerData = ctx.getImageData(0, 0, img.width, headerH);
-      const qr = readQRFromImageData(headerData as any);
-      expect(qr).not.toBeNull();
-      expect(qr!.p).toBe('mfc');
-
-      // 2. マーカー検出
+      // 1. マーカー検出
       const corners = detectMarkers(canvas);
       expect(corners).not.toBeNull();
 
-      // 3. 向き検出 → 台形補正
+      // 2. 向き検出 → ページ全体を台形補正
       const rotation = detectOrientation(corners!, canvas);
       const rotated = rotation === 0 ? canvas : rotateCanvas(canvas, rotation);
       const rotatedCorners = rotation === 0 ? corners : detectMarkers(rotated);
@@ -119,8 +112,13 @@ describe('Full Pipeline: Mock Scans → Font', () => {
       const targetW = Math.round(mm(PAGE_WIDTH) * 4);
       const targetH = Math.round(mm(PAGE_HEIGHT) * 4);
       const corrected = rotatedCorners
-        ? perspectiveTransform(rotated, rotatedCorners, targetW, targetH)
+        ? perspectiveTransform(rotated, extrapolatePageCorners(rotatedCorners), targetW, targetH)
         : rotated;
+
+      // 3. QR読み取り（台形補正後のページ全体画像から）
+      const qr = readQRFromCanvas(corrected);
+      expect(qr).not.toBeNull();
+      expect(qr!.p).toBe('mfc');
 
       // 4. シアン除去
       const [cr, cg, cb] = readCyanSample(corrected);
@@ -129,10 +127,10 @@ describe('Full Pipeline: Mock Scans → Font', () => {
       // 5. 各文字を処理
       // テンプレートは「ひらがなのみ」だが、getCharactersForPage は
       // ALL_CHARACTERS（全文字リスト）から取得する。
-      // 模擬画像の QR は totalPages=3 でひらがなのみを想定しているので、
+      // 模擬画像の QR は totalPages=2 でひらがなのみを想定しているので、
       // ページ番号から直接ひらがなリストを使う。
-      const start = (qr!.pg - 1) * 30;
-      const pageChars = HIRAGANA.slice(start, start + 30);
+      const start = (qr!.pg - 1) * 48;
+      const pageChars = HIRAGANA.slice(start, start + 48);
 
       for (let ci = 0; ci < pageChars.length; ci++) {
         const row = Math.floor(ci / COLS);
