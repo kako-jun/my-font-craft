@@ -171,7 +171,7 @@ async function generatePage(pageIdx: number, chars: string[]): Promise<Buffer> {
   }
 
   // シアンサンプル
-  ctx.fillStyle = '#99FFFF';
+  ctx.fillStyle = '#CCFFFF';
   ctx.fillRect(px(CYAN_SAMPLE_X), px(CYAN_SAMPLE_Y), px(CYAN_SAMPLE_SIZE), px(CYAN_SAMPLE_SIZE));
 
   // --- 四隅マーカー ---
@@ -196,7 +196,7 @@ async function generatePage(pageIdx: number, chars: string[]): Promise<Buffer> {
 
       // 内枠（シアン）
       const innerOffset = (CELL_SIZE - INNER_SIZE) / 2;
-      ctx.strokeStyle = '#99FFFF';
+      ctx.strokeStyle = '#CCFFFF';
       ctx.lineWidth = 1;
       ctx.strokeRect(
         px(pos.x + innerOffset),
@@ -209,7 +209,7 @@ async function generatePage(pageIdx: number, chars: string[]): Promise<Buffer> {
       ctx.beginPath();
       ctx.moveTo(px(pos.x), px(pos.y + CELL_SIZE));
       ctx.lineTo(px(pos.x + CELL_SIZE), px(pos.y + CELL_SIZE));
-      ctx.strokeStyle = '#99FFFF';
+      ctx.strokeStyle = '#CCFFFF';
       ctx.lineWidth = 1;
       ctx.stroke();
 

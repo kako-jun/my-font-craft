@@ -59,7 +59,7 @@ export const MARKERS = {
 
 // 色
 export const COLOR_BLACK = { r: 0, g: 0, b: 0 };
-export const COLOR_CYAN = { r: 0.6, g: 1, b: 1 };
+export const COLOR_CYAN = { r: 0.8, g: 1, b: 1 };
 export const COLOR_WHITE = { r: 1, g: 1, b: 1 };
 
 // 1文字セルの配置座標を計算
