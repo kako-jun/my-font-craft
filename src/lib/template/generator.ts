@@ -11,11 +11,12 @@ import {
   QR_X,
   QR_Y,
   QR_SIZE,
-  GRAY_BAR_X,
-  GRAY_BAR_Y,
-  GRAY_BAR_STEP_W,
-  GRAY_BAR_STEP_H,
   GRAY_BAR_STEPS,
+  GRAY_BAR_STEP_SIZE,
+  GRAY_BAR_LEFT_X,
+  GRAY_BAR_RIGHT_X,
+  GRAY_BAR_TOP_Y,
+  GRAY_BAR_BOTTOM_Y,
   CYAN_SAMPLE_X,
   CYAN_SAMPLE_Y,
   CYAN_SAMPLE_SIZE,
@@ -100,6 +101,23 @@ async function generateTemplatePDFFromChars(
       color: rgb(0, 0, 0),
     });
 
+    // フォント名（日本語対応: Canvas→PNG→PDF）
+    if (fontName) {
+      const fontNameImage = await renderTextToImage(`— "${fontName}"`, 7);
+      if (fontNameImage) {
+        const fnEmbed = await pdfDoc.embedPng(fontNameImage.data);
+        const fnHeightMm = 4;
+        const fnWidthMm = (fontNameImage.widthPx / fontNameImage.heightPx) * fnHeightMm;
+        // タイトルの右隣に配置（約55mm地点）
+        page.drawImage(fnEmbed, {
+          x: mm(55),
+          y: toY(14),
+          width: mm(Math.min(fnWidthMm, 60)), // 最大60mmに制限
+          height: mm(fnHeightMm),
+        });
+      }
+    }
+
     // ページ番号（右寄せ）
     const pageNumText = `Page ${pageIdx + 1} / ${totalPages}`;
     const pageNumWidth = helvetica.widthOfTextAtSize(pageNumText, 9);
@@ -169,18 +187,6 @@ async function generateTemplatePDFFromChars(
       // QRコード生成失敗時はスキップ（データが大きすぎる場合など）
     }
 
-    // グレースケールバー（左が100%黒→右が10%グレー）
-    for (let i = 0; i < GRAY_BAR_STEPS; i++) {
-      const intensity = i / GRAY_BAR_STEPS;
-      page.drawRectangle({
-        x: mm(GRAY_BAR_X + i * GRAY_BAR_STEP_W),
-        y: toY(GRAY_BAR_Y + GRAY_BAR_STEP_H),
-        width: mm(GRAY_BAR_STEP_W),
-        height: mm(GRAY_BAR_STEP_H),
-        color: rgb(intensity, intensity, intensity),
-      });
-    }
-
     // シアンサンプル
     page.drawRectangle({
       x: mm(CYAN_SAMPLE_X),
@@ -193,6 +199,30 @@ async function generateTemplatePDFFromChars(
     // --- 四隅マーカー ---
     for (const [, marker] of Object.entries(MARKERS)) {
       drawStarMarker(page, mm(marker.x), toY(marker.y), mm(MARKER_SIZE), marker.filled);
+    }
+
+    // 左右縦グレースケールバー
+    const barHeight = GRAY_BAR_BOTTOM_Y - GRAY_BAR_TOP_Y;
+    const stepHeight = barHeight / GRAY_BAR_STEPS;
+    for (let i = 0; i < GRAY_BAR_STEPS; i++) {
+      const intensity = i / GRAY_BAR_STEPS; // 0=黒, 0.9=ほぼ白
+      const y = GRAY_BAR_TOP_Y + i * stepHeight;
+      // 左バー
+      page.drawRectangle({
+        x: mm(GRAY_BAR_LEFT_X),
+        y: toY(y + stepHeight),
+        width: mm(GRAY_BAR_STEP_SIZE),
+        height: mm(stepHeight),
+        color: rgb(intensity, intensity, intensity),
+      });
+      // 右バー
+      page.drawRectangle({
+        x: mm(GRAY_BAR_RIGHT_X),
+        y: toY(y + stepHeight),
+        width: mm(GRAY_BAR_STEP_SIZE),
+        height: mm(stepHeight),
+        color: rgb(intensity, intensity, intensity),
+      });
     }
 
     // --- 本文：文字マス ---

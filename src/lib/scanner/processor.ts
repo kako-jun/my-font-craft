@@ -18,6 +18,12 @@ import {
   CYAN_SAMPLE_X,
   CYAN_SAMPLE_Y,
   CYAN_SAMPLE_SIZE,
+  GRAY_BAR_STEPS,
+  GRAY_BAR_STEP_SIZE,
+  GRAY_BAR_LEFT_X,
+  GRAY_BAR_RIGHT_X,
+  GRAY_BAR_TOP_Y,
+  GRAY_BAR_BOTTOM_Y,
   getCellPosition,
 } from '../template/layout';
 import { getCharactersForPage } from '../../data/characters';
@@ -105,6 +111,105 @@ function readCyanSample(canvas: HTMLCanvasElement): [number, number, number] {
     b += data[i + 2];
   }
   return [Math.round(r / count), Math.round(g / count), Math.round(b / count)];
+}
+
+// グレースケールバー読み取り結果
+interface GrayBarReadings {
+  left: number[]; // 左バーの各ステップの平均輝度 (0-255)
+  right: number[]; // 右バーの各ステップの平均輝度 (0-255)
+}
+
+// 左右縦グレースケールバーを読み取る
+function readGrayBars(canvas: HTMLCanvasElement): GrayBarReadings {
+  const ctx = canvas.getContext('2d')!;
+  const scaleX = canvas.width / mm(PAGE_WIDTH);
+  const scaleY = canvas.height / mm(PAGE_HEIGHT);
+  const barHeight = GRAY_BAR_BOTTOM_Y - GRAY_BAR_TOP_Y;
+  const stepHeight = barHeight / GRAY_BAR_STEPS;
+
+  function readBar(barX: number): number[] {
+    const values: number[] = [];
+    for (let i = 0; i < GRAY_BAR_STEPS; i++) {
+      const y = GRAY_BAR_TOP_Y + i * stepHeight;
+      const px = Math.round(mm(barX) * scaleX);
+      const py = Math.round(mm(y) * scaleY);
+      const pw = Math.round(mm(GRAY_BAR_STEP_SIZE) * scaleX);
+      const ph = Math.round(mm(stepHeight) * scaleY);
+      // 中央部分のみサンプリング（端のにじみを避ける）
+      const marginPx = Math.max(1, Math.floor(Math.min(pw, ph) * 0.2));
+      const sx = Math.max(0, Math.min(px + marginPx, canvas.width - 1));
+      const sy = Math.max(0, Math.min(py + marginPx, canvas.height - 1));
+      const sw = Math.max(1, Math.min(pw - marginPx * 2, canvas.width - sx));
+      const sh = Math.max(1, Math.min(ph - marginPx * 2, canvas.height - sy));
+      const data = ctx.getImageData(sx, sy, sw, sh).data;
+      let sum = 0;
+      const count = data.length / 4;
+      for (let j = 0; j < data.length; j += 4) {
+        sum += (data[j] + data[j + 1] + data[j + 2]) / 3;
+      }
+      values.push(count > 0 ? sum / count : 128);
+    }
+    return values;
+  }
+
+  return {
+    left: readBar(GRAY_BAR_LEFT_X),
+    right: readBar(GRAY_BAR_RIGHT_X),
+  };
+}
+
+// 上下・左右の影勾配を補正
+function applyShadowCorrection(canvas: HTMLCanvasElement, bars: GrayBarReadings): void {
+  const ctx = canvas.getContext('2d')!;
+  const w = canvas.width;
+  const h = canvas.height;
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const data = imgData.data;
+
+  // 各ステップの期待値（0=黒, 0.9=ほぼ白 → 0~229.5）
+  const expected: number[] = [];
+  for (let i = 0; i < GRAY_BAR_STEPS; i++) {
+    expected.push((i / GRAY_BAR_STEPS) * 255);
+  }
+
+  // 左右バーの各ステップごとの補正量
+  const leftDelta = bars.left.map((v, i) => v - expected[i]);
+  const rightDelta = bars.right.map((v, i) => v - expected[i]);
+
+  // バーのピクセル座標
+  const scaleY = h / mm(PAGE_HEIGHT);
+  const scaleX = w / mm(PAGE_WIDTH);
+  const barTopPx = mm(GRAY_BAR_TOP_Y) * scaleY;
+  const barBottomPx = mm(GRAY_BAR_BOTTOM_Y) * scaleY;
+  const barLeftPx = mm(GRAY_BAR_LEFT_X + GRAY_BAR_STEP_SIZE / 2) * scaleX;
+  const barRightPx = mm(GRAY_BAR_RIGHT_X + GRAY_BAR_STEP_SIZE / 2) * scaleX;
+
+  for (let py = 0; py < h; py++) {
+    // Y方向: バーのどのステップに近いか（線形補間）
+    const barT = Math.max(0, Math.min(1, (py - barTopPx) / (barBottomPx - barTopPx)));
+    const stepF = barT * (GRAY_BAR_STEPS - 1);
+    const stepLow = Math.floor(stepF);
+    const stepHigh = Math.min(stepLow + 1, GRAY_BAR_STEPS - 1);
+    const stepFrac = stepF - stepLow;
+
+    // 左バーの補正量（この行のY位置での）
+    const leftCorr = leftDelta[stepLow] * (1 - stepFrac) + leftDelta[stepHigh] * stepFrac;
+    // 右バーの補正量
+    const rightCorr = rightDelta[stepLow] * (1 - stepFrac) + rightDelta[stepHigh] * stepFrac;
+
+    for (let px = 0; px < w; px++) {
+      // X方向: 左バー〜右バーの間で線形補間
+      const xT = Math.max(0, Math.min(1, (px - barLeftPx) / (barRightPx - barLeftPx)));
+      const correction = leftCorr * (1 - xT) + rightCorr * xT;
+
+      const i = (py * w + px) * 4;
+      data[i] = Math.max(0, Math.min(255, data[i] - correction));
+      data[i + 1] = Math.max(0, Math.min(255, data[i + 1] - correction));
+      data[i + 2] = Math.max(0, Math.min(255, data[i + 2] - correction));
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0);
 }
 
 // マスを切り出して二値化
@@ -264,6 +369,10 @@ export async function processImages(
       });
       continue;
     }
+
+    // グレースケールバー読み取り+影補正（シアン除去の前）
+    const bars = readGrayBars(corrected);
+    applyShadowCorrection(corrected, bars);
 
     // シアン除去
     const [cr, cg, cb] = readCyanSample(corrected);
