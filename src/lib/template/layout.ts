@@ -36,12 +36,17 @@ export const QR_X = 10;
 export const QR_Y = 282;
 export const QR_SIZE = 12;
 
-// グレースケールバー
-export const GRAY_BAR_X = 120;
-export const GRAY_BAR_Y = 10;
-export const GRAY_BAR_STEP_W = 5;
-export const GRAY_BAR_STEP_H = 5;
+// 左右縦グレースケールバー
 export const GRAY_BAR_STEPS = 10;
+export const GRAY_BAR_STEP_SIZE = 5; // 各ステップ 5mm幅
+
+// 左バー: ページ左端の余白内（マーカーより外側）
+export const GRAY_BAR_LEFT_X = 2;
+export const GRAY_BAR_TOP_Y = 17; // topマーカーと同じY開始
+export const GRAY_BAR_BOTTOM_Y = 272; // bottomマーカーと同じY開始
+
+// 右バー: ページ右端の余白内
+export const GRAY_BAR_RIGHT_X = 203; // 203 + 5 = 208, ページ幅210内
 
 // シアンサンプル
 export const CYAN_SAMPLE_X = 175;
