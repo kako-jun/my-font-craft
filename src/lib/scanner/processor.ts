@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { readQRFromCanvas } from './qr-reader';
+import { readQRFromCanvas, readQRFromImageData } from './qr-reader';
 import {
   detectMarkers,
   extrapolatePageCorners,
@@ -286,6 +286,38 @@ function analyzeCheckMark(
   return 'check';
 }
 
+/**
+ * QRコードの位置から画像の回転角度を判定する。
+ * QRは正立時にページ左下に配置されている。生画像の4隅でQR検出を試み、
+ * 見つかった隅から回転角度を返す。見つからなければ null。
+ */
+function detectOrientationByQR(canvas: HTMLCanvasElement): number | null {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  const w = canvas.width;
+  const h = canvas.height;
+  const regionW = Math.floor(w * 0.3);
+  const regionH = Math.floor(h * 0.3);
+
+  const regions: { name: string; x: number; y: number; rotation: number }[] = [
+    { name: 'bottomLeft', x: 0, y: h - regionH, rotation: 0 },
+    { name: 'topLeft', x: 0, y: 0, rotation: 90 },
+    { name: 'topRight', x: w - regionW, y: 0, rotation: 180 },
+    { name: 'bottomRight', x: w - regionW, y: h - regionH, rotation: 270 },
+  ];
+
+  for (const region of regions) {
+    const data = ctx.getImageData(region.x, region.y, regionW, regionH);
+    const qr = readQRFromImageData(data);
+    if (qr) {
+      return region.rotation;
+    }
+  }
+
+  return null;
+}
+
 // メイン処理
 export async function processImages(
   files: File[],
@@ -339,8 +371,9 @@ export async function processImages(
     let corrected: HTMLCanvasElement;
 
     if (corners) {
-      // 向き検出・回転補正
-      const rotation = detectOrientation(corners, canvas);
+      // 向き検出・回転補正（QRベース優先、フォールバックで密度方式）
+      const qrRotation = detectOrientationByQR(canvas);
+      const rotation = qrRotation !== null ? qrRotation : detectOrientation(corners, canvas);
       const rotated = rotation === 0 ? canvas : rotateCanvas(canvas, rotation);
       // 回転後にマーカーを再検出し、ページ全体の四隅を外挿して台形補正
       const rotatedCorners = rotation === 0 ? corners : detectMarkers(rotated);
