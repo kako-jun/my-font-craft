@@ -29,15 +29,16 @@ export function readQRFromImageData(data: ImageData): QRPayload | null {
   }
 }
 
-// 画像の上部からQRコードを探す（ヘッダー領域を切り出して高速化）
+// 画像のフッター領域からQRコードを探す（フッター領域を切り出して高速化）
 export function readQRFromCanvas(canvas: HTMLCanvasElement): QRPayload | null {
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
 
-  // まずヘッダー領域（上部20%）を試行
-  const headerHeight = Math.floor(canvas.height * 0.2);
-  const headerData = ctx.getImageData(0, 0, canvas.width, headerHeight);
-  const result = readQRFromImageData(headerData);
+  // まずフッター領域（下部20%）を試行
+  const footerHeight = Math.floor(canvas.height * 0.2);
+  const footerY = canvas.height - footerHeight;
+  const footerData = ctx.getImageData(0, footerY, canvas.width, footerHeight);
+  const result = readQRFromImageData(footerData);
   if (result) return result;
 
   // 見つからなければ全体を探索

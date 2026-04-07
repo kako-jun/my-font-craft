@@ -12,11 +12,11 @@ export const PAGE_HEIGHT = 297;
 export const MARGIN = 10;
 
 // ヘッダー
-export const HEADER_HEIGHT = 15;
+export const HEADER_HEIGHT = 7; // タイトル行のみ(10→17)
 
 // 本文領域
 export const BODY_START_X = MARGIN;
-export const BODY_START_Y = MARGIN + HEADER_HEIGHT + 5; // マーカー下余白
+export const BODY_START_Y = 28; // MARGIN(10) + HEADER_HEIGHT(7) + MARKER_SIZE(8) + 余白(3)
 
 // グリッド
 export const COLS = 4;
@@ -31,9 +31,9 @@ export const CHECK_HEIGHT = 3;
 export const CELL_GAP = 2;
 export const SAMPLE_WIDTH = 10;
 
-// QRコード
+// QRコード（フッター配置）
 export const QR_X = 10;
-export const QR_Y = 10;
+export const QR_Y = 282;
 export const QR_SIZE = 12;
 
 // グレースケールバー
@@ -49,12 +49,12 @@ export const CYAN_SAMPLE_Y = 10;
 export const CYAN_SAMPLE_SIZE = 5;
 
 // 四隅マーカー
-export const MARKER_SIZE = 5;
+export const MARKER_SIZE = 8;
 export const MARKERS = {
-  topLeft: { x: 10, y: 25, filled: true },
-  topRight: { x: 195, y: 25, filled: false },
-  bottomLeft: { x: 10, y: 287, filled: false },
-  bottomRight: { x: 195, y: 287, filled: false },
+  topLeft: { x: 10, y: 17, filled: true },
+  topRight: { x: 192, y: 17, filled: false },
+  bottomLeft: { x: 10, y: 272, filled: false },
+  bottomRight: { x: 192, y: 272, filled: false },
 } as const;
 
 // 色

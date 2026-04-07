@@ -29,10 +29,7 @@ export function detectMarkers(canvas: HTMLCanvasElement): Corners | null {
 
   // 四隅の領域で黒い塊の重心を見つける
   const margin = Math.floor(Math.min(w, h) * 0.15);
-  // 左上はQRコード（上部5%領域��との干渉を避けるため、Y方向を少しオフセット
-  const qrAvoidY = Math.floor(h * 0.05);
-
-  const topLeft = findMarkerInRegion(data, w, h, 0, qrAvoidY, margin, margin - qrAvoidY, threshold);
+  const topLeft = findMarkerInRegion(data, w, h, 0, 0, margin, margin, threshold);
   const topRight = findMarkerInRegion(data, w, h, w - margin, 0, margin, margin, threshold);
   const bottomLeft = findMarkerInRegion(data, w, h, 0, h - margin, margin, margin, threshold);
   const bottomRight = findMarkerInRegion(
@@ -236,9 +233,13 @@ export function detectOrientation(corners: Corners, canvas: HTMLCanvasElement): 
   const fullData = ctx.getImageData(0, 0, w, h).data;
   const threshold = computeOtsuThreshold(fullData, w * h);
 
+  // マーカーの画像上のサイズを推定（ページ幅に対するマーカーサイズの比率から）
+  const dx = corners.topRight.x - corners.topLeft.x;
+  const markerPixelSize = (MARKER_SIZE / (MARKERS.topRight.x - MARKERS.topLeft.x)) * dx;
+  const r = Math.max(10, Math.round(markerPixelSize / 2));
+
   // マーカー周辺の黒ピクセル密度を計測（塗りつぶし vs 枠線のみ を区別）
   function blackPixelDensity(point: Point): number {
-    const r = 10;
     const px = Math.max(0, Math.min(Math.round(point.x), w - 1));
     const py = Math.max(0, Math.min(Math.round(point.y), h - 1));
     const x0 = Math.max(0, px - r);
@@ -259,7 +260,6 @@ export function detectOrientation(corners: Corners, canvas: HTMLCanvasElement): 
 
   // 補助: 平均輝度（従来方式、ダブルチェック用）
   function avgBrightness(point: Point): number {
-    const r = 10;
     const px = Math.max(0, Math.min(Math.round(point.x), w - 1));
     const py = Math.max(0, Math.min(Math.round(point.y), h - 1));
     const x0 = Math.max(0, px - r);
