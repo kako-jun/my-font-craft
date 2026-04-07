@@ -114,16 +114,16 @@ async function generateTemplatePDFFromChars(
         color: rgb(0, 0, 0),
       });
       const fnLabel = `— "${fontName}"`;
-      const fnImage = await renderTextToImage(fnLabel, 8);
+      const fnImage = await renderTextToImage(fnLabel, 10);
       if (fnImage) {
         const fnEmbed = await pdfDoc.embedPng(fnImage.data);
         // タイトル幅を測定して直後に配置
         const titleWidth = helvetica.widthOfTextAtSize('MyFontCraft ', 10);
-        const fnHeightMm = 3.5;
+        const fnHeightMm = 4.2; // Helvetica size:10 と同等の見た目高さ
         const fnWidthMm = (fnImage.widthPx / fnImage.heightPx) * fnHeightMm;
         page.drawImage(fnEmbed, {
           x: mm(25) + titleWidth,
-          y: toY(14.5),
+          y: toY(14.8),
           width: mm(Math.min(fnWidthMm, 80)),
           height: mm(fnHeightMm),
         });
