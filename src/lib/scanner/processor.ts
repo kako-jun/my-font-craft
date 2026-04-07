@@ -228,17 +228,7 @@ export async function processImages(
       continue;
     }
 
-    // QRコード読み取り
-    const qr = readQRFromCanvas(canvas);
-    if (!qr) {
-      callbacks.onMessage({
-        type: 'error',
-        text: `ページ ${fi + 1} のQRコードを読み取れませんでした。画像が不鮮明な可能性があります。`,
-      });
-      continue;
-    }
-
-    // 四隅マーカー検出
+    // 四隅マーカー検出 → 台形補正（QR読み取りより先に行う）
     const corners = detectMarkers(canvas);
     let corrected: HTMLCanvasElement;
 
@@ -246,7 +236,7 @@ export async function processImages(
       // 向き検出・回転補正
       const rotation = detectOrientation(corners, canvas);
       const rotated = rotation === 0 ? canvas : rotateCanvas(canvas, rotation);
-      // 回転後にマー��ーを再検出して台形補正
+      // 回転後にマーカーを再検出して台形補正
       const rotatedCorners = rotation === 0 ? corners : detectMarkers(rotated);
       const targetW = Math.round(mm(PAGE_WIDTH) * 4); // 約300dpi相当
       const targetH = Math.round(mm(PAGE_HEIGHT) * 4);
@@ -256,9 +246,19 @@ export async function processImages(
     } else {
       callbacks.onMessage({
         type: 'warning',
-        text: `ページ ${qr.pg} の四隅マーカーが見つかりません。補正なしで処理を継続します。`,
+        text: `画像 ${fi + 1} の四隅マーカーが見つかりません。補正なしで処理を継続します。`,
       });
       corrected = canvas;
+    }
+
+    // QRコード読み取り（台形補正後の画像から読む）
+    const qr = readQRFromCanvas(corrected);
+    if (!qr) {
+      callbacks.onMessage({
+        type: 'error',
+        text: `画像 ${fi + 1} のQRコードを読み取れませんでした。画像が不鮮明な可能性があります。`,
+      });
+      continue;
     }
 
     // シアン除去
