@@ -26,12 +26,12 @@ describe('QR Reader', () => {
     expect(qr!.p).toBe('mfc');
     expect(qr!.v).toBe(1);
     expect(qr!.pg).toBe(1);
-    expect(qr!.t).toBe(3); // ひらがな83文字 ÷ 30 = 3ページ
+    expect(qr!.t).toBe(2); // ひらがな83文字 ÷ 48 = 2ページ
     expect(qr!.m).toBe(2);
   });
 
-  it('should read QR from page 3', async () => {
-    const img = await loadImage(path.join(MOCK_DIR, 'page-03.png'));
+  it('should read QR from page 2', async () => {
+    const img = await loadImage(path.join(MOCK_DIR, 'page-02.png'));
     const canvas = createCanvas(img.width, img.height);
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0);
@@ -41,8 +41,8 @@ describe('QR Reader', () => {
     const qr = readQRFromImageData(headerData as any);
 
     expect(qr).not.toBeNull();
-    expect(qr!.pg).toBe(3);
-    expect(qr!.t).toBe(3);
+    expect(qr!.pg).toBe(2);
+    expect(qr!.t).toBe(2);
   });
 
   it('should read QR from full image when header crop misses', async () => {

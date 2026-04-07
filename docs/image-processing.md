@@ -208,7 +208,7 @@ function getCellPosition(row: number, col: number, cellIndex: number) {
   - ページ 12: 解像度が低い（処理継続）
 
 ❌ エラー:
-  - ページ 23: QRコード読取失敗（スキップ）
+  - 画像 3: QRコード読取失敗（スキップ）
 
 [スキップしたページを再処理] [続行]
 ```
@@ -237,7 +237,7 @@ function getCellPosition(row: number, col: number, cellIndex: number) {
 
 ```
 Phase 1: スキャン
-  画像アップロード → QR/マーカー/シアン処理 → セル切出し → ベクター化
+  画像アップロード → マーカー/QR/シアン処理 → セル切出し → ベクター化
   → 結果をグリッドに表示（ページ単位→文字単位の2階層）
 
 Phase 2: 確認（レビュー）

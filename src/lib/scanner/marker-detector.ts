@@ -129,6 +129,55 @@ export function rotateCanvas(canvas: HTMLCanvasElement, degrees: number): HTMLCa
   return dst;
 }
 
+// マーカー位置からページ全体の四隅を外挿する
+// マーカーはページ内の既知位置にあるため、比率から外側のページ端を算出
+import {
+  PAGE_WIDTH,
+  PAGE_HEIGHT,
+  MARKERS,
+  MARKER_SIZE,
+} from '../template/layout';
+
+export function extrapolatePageCorners(markerCorners: Corners): Corners {
+  // マーカー中心のページ内座標（mm）
+  const mLeft = MARKERS.topLeft.x + MARKER_SIZE / 2;
+  const mRight = MARKERS.topRight.x + MARKER_SIZE / 2;
+  const mTop = MARKERS.topLeft.y + MARKER_SIZE / 2;
+  const mBottom = MARKERS.bottomLeft.y + MARKER_SIZE / 2;
+
+  // マーカー間の比率からページ端を線形外挿
+  const ml = markerCorners.topLeft;
+  const mr = markerCorners.topRight;
+  const bl = markerCorners.bottomLeft;
+  const br = markerCorners.bottomRight;
+
+  // 水平方向: マーカー左端→右端の間隔から、ページ左端・右端を外挿
+  const ratioLeft = mLeft / (mRight - mLeft);
+  const ratioRight = (PAGE_WIDTH - mRight) / (mRight - mLeft);
+  // 垂直方向: マーカー上端→下端の間隔から、ページ上端・下端を外挿
+  const ratioTop = mTop / (mBottom - mTop);
+  const ratioBottom = (PAGE_HEIGHT - mBottom) / (mBottom - mTop);
+
+  return {
+    topLeft: {
+      x: ml.x - (mr.x - ml.x) * ratioLeft,
+      y: ml.y - (bl.y - ml.y) * ratioTop,
+    },
+    topRight: {
+      x: mr.x + (mr.x - ml.x) * ratioRight,
+      y: mr.y - (br.y - mr.y) * ratioTop,
+    },
+    bottomLeft: {
+      x: bl.x - (br.x - bl.x) * ratioLeft,
+      y: bl.y + (bl.y - ml.y) * ratioBottom,
+    },
+    bottomRight: {
+      x: br.x + (br.x - bl.x) * ratioRight,
+      y: br.y + (br.y - mr.y) * ratioBottom,
+    },
+  };
+}
+
 // 射影変換（4点→長方形）— 最近傍法による逆変換
 export function perspectiveTransform(
   srcCanvas: HTMLCanvasElement,
