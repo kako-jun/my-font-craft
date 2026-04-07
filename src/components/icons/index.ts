@@ -6,3 +6,4 @@ export { default as IconZip } from './IconZip';
 export { default as IconFont } from './IconFont';
 export { default as IconHeart } from './IconHeart';
 export { default as IconGift } from './IconGift';
+export { default as IconUpload } from './IconUpload';

@@ -7,9 +7,9 @@ import {
   type ProcessMessage,
   type GlyphStatus,
 } from '../lib/scanner/processor';
-import { buildFont } from '../lib/font/builder';
+import { buildFont, importFont } from '../lib/font/builder';
 import { generateRetryTemplatePDF } from '../lib/template/generator';
-import { IconFolder, IconZip, IconDownload, IconFont } from '../components/icons';
+import { IconFolder, IconZip, IconDownload, IconFont, IconUpload } from '../components/icons';
 
 interface Props {
   fontName: string;
@@ -30,7 +30,7 @@ export default function Upload(props: Props) {
   >([]);
   const [scanResult, setScanResult] = createSignal<ProcessResult | null>(null);
 
-  // 未検出文字のリスト
+  // 未検出文字のリスト（imported は取得済み扱い）
   const missingChars = createMemo(() =>
     glyphStatuses()
       .filter((g) => g.status === 'empty')
@@ -92,34 +92,42 @@ export default function Upload(props: Props) {
       });
 
       if (merge && prevResult) {
-        // マージ: 新しく取得できた文字で既存の empty を上書き
+        // マージ: 新しく取得できた文字で既存の empty / imported を上書き（スキャンが優先）
         const newFound = new Map<number, GlyphStatus>();
         for (const gs of newGlyphStatuses) {
           if (gs.status === 'found') newFound.set(gs.unicode, gs);
         }
 
         const mergedStatuses = prevStatuses.map((gs) => {
-          if (gs.status === 'empty' && newFound.has(gs.unicode)) {
+          if ((gs.status === 'empty' || gs.status === 'imported') && newFound.has(gs.unicode)) {
             return newFound.get(gs.unicode)!;
           }
           return gs;
         });
         setGlyphStatuses(mergedStatuses);
 
-        // グリフもマージ（既存 + 新規で未検出だったもの）
-        const existingUnicodes = new Set(prevResult.glyphs.map((g) => g.unicode));
-        const newGlyphs = result.glyphs.filter(
-          (g) => g.unicode && !existingUnicodes.has(g.unicode),
+        // グリフもマージ（スキャンで取得したものは imported を上書き）
+        const newFoundUnicodes = new Set(newFound.keys());
+        // 既存グリフのうち、新しいスキャンで上書きされるものを除外
+        const keptGlyphs = prevResult.glyphs.filter(
+          (g) => !g.unicode || !newFoundUnicodes.has(g.unicode),
         );
-        const mergedGlyphs = [...prevResult.glyphs, ...newGlyphs];
+        // 新規グリフ（上書き分 + 純粋新規）
+        const existingKeptUnicodes = new Set(keptGlyphs.map((g) => g.unicode));
+        const newGlyphs = result.glyphs.filter(
+          (g) => g.unicode && !existingKeptUnicodes.has(g.unicode),
+        );
+        const mergedGlyphs = [...keptGlyphs, ...newGlyphs];
         setScanResult({ glyphs: mergedGlyphs });
 
         const added = newGlyphs.length;
         const total = mergedStatuses.length;
         const found = mergedStatuses.filter((g) => g.status === 'found').length;
+        const imported = mergedStatuses.filter((g) => g.status === 'imported').length;
+        const acquired = found + imported;
         addMessage({
           type: 'info',
-          text: `追加スキャン完了: ${added} 文字を追加しました（合計 ${found}/${total} 文字）`,
+          text: `追加スキャン完了: ${added} 文字を追加しました（合計 ${acquired}/${total} 文字）`,
         });
       } else {
         // 新規スキャン
@@ -207,6 +215,84 @@ export default function Upload(props: Props) {
     handleFiles(files, true);
   }
 
+  // 既存TTF/OTFインポート
+  async function handleImportFont(file: File) {
+    try {
+      const buffer = await file.arrayBuffer();
+      const result = importFont(buffer);
+
+      if (result.glyphs.length === 0) {
+        addMessage({ type: 'warning', text: 'フォントにグリフが含まれていませんでした。' });
+        return;
+      }
+
+      const prevStatuses = glyphStatuses();
+      const prevResult = scanResult();
+
+      if (prevStatuses.length > 0 && prevResult) {
+        // マージ: found は imported を上書きしない（スキャンが優先）
+        const importedMap = new Map<
+          number,
+          { glyph: (typeof result.glyphs)[0]; status: (typeof result.statuses)[0] }
+        >();
+        for (let i = 0; i < result.glyphs.length; i++) {
+          importedMap.set(result.statuses[i].unicode, {
+            glyph: result.glyphs[i],
+            status: result.statuses[i],
+          });
+        }
+
+        // 既存の empty を imported で埋める
+        const mergedStatuses = prevStatuses.map((gs) => {
+          if (gs.status === 'empty' && importedMap.has(gs.unicode)) {
+            return importedMap.get(gs.unicode)!.status;
+          }
+          return gs;
+        });
+
+        // グリフもマージ（既存にないものだけ追加）
+        const existingUnicodes = new Set(prevResult.glyphs.map((g) => g.unicode));
+        const newGlyphs = result.glyphs.filter(
+          (g) => g.unicode && !existingUnicodes.has(g.unicode),
+        );
+        const mergedGlyphs = [...prevResult.glyphs, ...newGlyphs];
+
+        setGlyphStatuses(mergedStatuses);
+        setScanResult({ glyphs: mergedGlyphs });
+
+        const imported = mergedStatuses.filter((g) => g.status === 'imported').length;
+        addMessage({
+          type: 'success',
+          text: `フォントをインポートしました: ${imported} 文字をインポートとして追加`,
+        });
+      } else {
+        // 新規: インポート結果をそのままセット
+        setGlyphStatuses(result.statuses);
+        setScanResult({ glyphs: result.glyphs });
+
+        addMessage({
+          type: 'success',
+          text: `フォントをインポートしました: ${result.glyphs.length} 文字を読み込みました。`,
+        });
+      }
+
+      setPhase('review');
+    } catch (err) {
+      addMessage({
+        type: 'error',
+        text: `フォントの読み込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  }
+
+  function handleFontFileInput(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    if (input.files && input.files.length > 0) {
+      handleImportFont(input.files[0]);
+      input.value = ''; // 同じファイルを再選択可能にする
+    }
+  }
+
   function handleDrop(e: DragEvent) {
     e.preventDefault();
     setDragActive(false);
@@ -282,6 +368,15 @@ export default function Upload(props: Props) {
             >
               <IconZip /> ZIPを選択
             </button>
+            <button
+              class="btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                document.getElementById('font-input')?.click();
+              }}
+            >
+              <IconUpload /> 既存フォントを読み込む
+            </button>
           </div>
           <input
             id="file-input"
@@ -298,6 +393,13 @@ export default function Upload(props: Props) {
             webkitdirectory
             style="display:none"
             onChange={handleFileInput}
+          />
+          <input
+            id="font-input"
+            type="file"
+            accept=".ttf,.otf"
+            style="display:none"
+            onChange={handleFontFileInput}
           />
         </div>
       </Show>
@@ -366,7 +468,7 @@ export default function Upload(props: Props) {
             <button class="btn btn--primary" onClick={handleBuildFont}>
               <IconFont />{' '}
               {missingChars().length > 0
-                ? `このまま生成する（${glyphStatuses().length - missingChars().length} 文字）`
+                ? `このまま生成する（${glyphStatuses().filter((g) => g.status !== 'empty').length} 文字）`
                 : 'フォントを生成する'}
             </button>
             <button class="btn" onClick={handleReset}>
