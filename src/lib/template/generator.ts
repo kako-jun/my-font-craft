@@ -101,6 +101,23 @@ async function generateTemplatePDFFromChars(
       color: rgb(0, 0, 0),
     });
 
+    // フォント名（日本語対応: Canvas→PNG→PDF）
+    if (fontName) {
+      const fontNameImage = await renderTextToImage(`— "${fontName}"`, 7);
+      if (fontNameImage) {
+        const fnEmbed = await pdfDoc.embedPng(fontNameImage.data);
+        const fnHeightMm = 4;
+        const fnWidthMm = (fontNameImage.widthPx / fontNameImage.heightPx) * fnHeightMm;
+        // タイトルの右隣に配置（約55mm地点）
+        page.drawImage(fnEmbed, {
+          x: mm(55),
+          y: toY(14),
+          width: mm(Math.min(fnWidthMm, 60)), // 最大60mmに制限
+          height: mm(fnHeightMm),
+        });
+      }
+    }
+
     // ページ番号（右寄せ）
     const pageNumText = `Page ${pageIdx + 1} / ${totalPages}`;
     const pageNumWidth = helvetica.widthOfTextAtSize(pageNumText, 9);
