@@ -9,14 +9,14 @@
 
 ## フォントメトリクス
 
-| 項目 | 値 |
-|------|-----|
+| 項目         | 値   |
+| ------------ | ---- |
 | Units per Em | 1000 |
-| Ascender | 800 |
-| Descender | -200 |
-| Line Gap | 0 |
-| Cap Height | 700 |
-| x-Height | 500 |
+| Ascender     | 800  |
+| Descender    | -200 |
+| Line Gap     | 0    |
+| Cap Height   | 700  |
+| x-Height     | 500  |
 
 ---
 
@@ -32,17 +32,17 @@ const glyph = {
   name: 'uni3042',
   unicode: 0x3042,
   path: vectorizedPath,
-  advanceWidth: 1000
+  advanceWidth: 1000,
 };
 ```
 
 ### 命名規則
 
-| 種類 | 名前 | 例 |
-|------|------|-----|
-| 基本グリフ | `uni{XXXX}` | `uni3042`（あ） |
-| バリエーション1 | `uni{XXXX}.alt1` | `uni3042.alt1` |
-| バリエーション2 | `uni{XXXX}.alt2` | `uni3042.alt2` |
+| 種類            | 名前             | 例              |
+| --------------- | ---------------- | --------------- |
+| 基本グリフ      | `uni{XXXX}`      | `uni3042`（あ） |
+| バリエーション1 | `uni{XXXX}.alt1` | `uni3042.alt1`  |
+| バリエーション2 | `uni{XXXX}.alt2` | `uni3042.alt2`  |
 
 ---
 
@@ -93,7 +93,7 @@ const font = new opentype.Font({
   styleName: 'Regular',
   unitsPerEm: 1000,
   ascender: 800,
-  descender: -200
+  descender: -200,
 });
 
 // グリフを追加
@@ -103,7 +103,7 @@ for (const char of characters) {
     name: `uni${char.unicode.toString(16).toUpperCase()}`,
     unicode: char.unicode,
     advanceWidth: 1000,
-    path: path
+    path: path,
   });
   font.glyphs.push(glyph);
 }
@@ -128,11 +128,7 @@ function convertToOpentypePath(vectorData: VectorData): opentype.Path {
       if (point.type === 'line') {
         path.lineTo(point.x, point.y);
       } else if (point.type === 'curve') {
-        path.bezierCurveTo(
-          point.cp1x, point.cp1y,
-          point.cp2x, point.cp2y,
-          point.x, point.y
-        );
+        path.bezierCurveTo(point.cp1x, point.cp1y, point.cp2x, point.cp2y, point.x, point.y);
       }
     }
 
@@ -145,33 +141,62 @@ function convertToOpentypePath(vectorData: VectorData): opentype.Path {
 
 ---
 
+## 既存フォントのインポート
+
+### 概要
+
+既存の TTF/OTF ファイルを読み込み、グリフを内部形式（`VectorGlyph[]`）に逆変換する。
+スキャン結果と同じ review グリッドに `imported` ステータスで合流する。
+
+### パス逆変換
+
+opentype.js の `parse()` で取得したグリフのパスコマンドを内部の `PathCommand[][]` に変換:
+
+- `M` / `L` / `C` / `Z` → そのまま対応
+- `Q`（二次ベジェ）→ `C`（三次ベジェ）に変換
+  - `cp1 = start + 2/3 * (control - start)`
+  - `cp2 = end + 2/3 * (control - end)`
+
+### マージ優先順位
+
+| ステータス | 由来     | 優先度             |
+| ---------- | -------- | ------------------ |
+| `found`    | スキャン | 高（手書きが優先） |
+| `imported` | 既存TTF  | 中                 |
+| `empty`    | 未検出   | 低                 |
+
+- スキャン → TTF インポート: `empty` を `imported` で穴埋め
+- TTF インポート → スキャン: `imported` を `found` で上書き
+
+---
+
 ## フォントメタデータ
 
 ### 必須項目
 
-| 項目 | 値 |
-|------|-----|
+| 項目       | 値                              |
+| ---------- | ------------------------------- |
 | familyName | ユーザー指定 or "MyHandwriting" |
-| styleName | "Regular" |
-| version | "1.0" |
-| copyright | ユーザー指定 or 空欄 |
+| styleName  | "Regular"                       |
+| version    | "1.0"                           |
+| copyright  | ユーザー指定 or 空欄            |
 
 ### オプション項目
 
-| 項目 | 値 |
-|------|-----|
-| designer | ユーザー指定 |
+| 項目        | 値                         |
+| ----------- | -------------------------- |
+| designer    | ユーザー指定               |
 | description | "Created with MyFontCraft" |
-| license | ユーザー指定 |
+| license     | ユーザー指定               |
 
 ---
 
 ## パフォーマンス目標
 
-| 処理 | 目標時間 |
-|------|---------|
+| 処理                        | 目標時間 |
+| --------------------------- | -------- |
 | フォント生成（2,400グリフ） | 10秒以内 |
-| ファイル出力 | 1秒以内 |
+| ファイル出力                | 1秒以内  |
 
 ---
 

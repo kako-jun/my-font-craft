@@ -1,5 +1,6 @@
 import opentype from 'opentype.js';
 import type { PathCommand } from '../vectorizer/contour';
+import type { GlyphStatus } from '../scanner/processor';
 
 export interface VectorGlyph {
   name: string;
@@ -74,6 +75,158 @@ export async function buildFont(opts: FontOptions): Promise<ArrayBuffer> {
   // 対応アプリから手動でアクセスできる状態にする。
 
   return font.toArrayBuffer();
+}
+
+/**
+ * 既存TTF/OTFファイルを読み込み、グリフとステータスを返す
+ */
+export function importFont(buffer: ArrayBuffer): {
+  glyphs: VectorGlyph[];
+  statuses: GlyphStatus[];
+} {
+  const font = opentype.parse(buffer);
+  const glyphs: VectorGlyph[] = [];
+  const statuses: GlyphStatus[] = [];
+
+  for (let i = 0; i < font.glyphs.length; i++) {
+    const glyph = font.glyphs.get(i);
+
+    // .notdef と space をスキップ
+    if (glyph.name === '.notdef' || glyph.unicode === undefined || glyph.unicode === null) continue;
+    if (glyph.unicode === 32) continue;
+
+    const paths = convertFromOpentypePath(glyph.path);
+    const unicode = glyph.unicode;
+    const char = String.fromCodePoint(unicode);
+    const name = `uni${unicode.toString(16).toUpperCase().padStart(4, '0')}`;
+
+    // サムネイル用 data URL を生成
+    let cellImageDataUrl: string | undefined;
+    if (typeof document !== 'undefined')
+      try {
+        const canvas = document.createElement('canvas');
+        const size = 80;
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('2d context unavailable');
+
+        // グリフをキャンバスに描画
+        const path = glyph.getPath(4, size - 8, size - 16);
+        const pathData = path.toSVG(2); // undocumented decimal places param
+        // Path2D + SVG path data で描画
+        const match = /\bd="([^"]+)"/.exec(pathData);
+        if (match) {
+          const p2d = new Path2D(match[1]);
+          ctx.fillStyle = '#333';
+          ctx.fill(p2d);
+        }
+
+        cellImageDataUrl = canvas.toDataURL('image/png');
+      } catch {
+        /* Canvas未対応環境ではスキップ */
+      }
+
+    glyphs.push({
+      name,
+      unicode,
+      paths,
+      advanceWidth: glyph.advanceWidth ?? 1000,
+    });
+
+    statuses.push({
+      char,
+      unicode,
+      pageIndex: 0,
+      row: 0,
+      col: 0,
+      status: 'imported',
+      cellImageDataUrl,
+    });
+  }
+
+  return { glyphs, statuses };
+}
+
+/**
+ * opentype.js の path を内部の PathCommand[][] に逆変換する
+ */
+function convertFromOpentypePath(otPath: opentype.Path): PathCommand[][] {
+  const commands = otPath.commands;
+  if (commands.length === 0) return [];
+
+  const pathGroups: PathCommand[][] = [];
+  let currentGroup: PathCommand[] = [];
+  let lastX = 0;
+  let lastY = 0;
+
+  // opentype.js の Y 座標はフォント座標系（上が正）
+  // 内部の PathCommand も同じ座標系を使う（builder.ts で変換済み）
+  for (const cmd of commands) {
+    switch (cmd.type) {
+      case 'M':
+        if (currentGroup.length > 0) {
+          pathGroups.push(currentGroup);
+          currentGroup = [];
+        }
+        currentGroup.push({ type: 'M', x: cmd.x, y: cmd.y });
+        lastX = cmd.x;
+        lastY = cmd.y;
+        break;
+      case 'L':
+        currentGroup.push({ type: 'L', x: cmd.x, y: cmd.y });
+        lastX = cmd.x;
+        lastY = cmd.y;
+        break;
+      case 'Q': {
+        // Quadratic → Cubic 変換
+        // cp1 = start + 2/3 * (control - start)
+        // cp2 = end + 2/3 * (control - end)
+        const qx = cmd.x1;
+        const qy = cmd.y1;
+        const cp1x = lastX + (2 / 3) * (qx - lastX);
+        const cp1y = lastY + (2 / 3) * (qy - lastY);
+        const cp2x = cmd.x + (2 / 3) * (qx - cmd.x);
+        const cp2y = cmd.y + (2 / 3) * (qy - cmd.y);
+        currentGroup.push({
+          type: 'C',
+          x: cmd.x,
+          y: cmd.y,
+          cp1x,
+          cp1y,
+          cp2x,
+          cp2y,
+        });
+        lastX = cmd.x;
+        lastY = cmd.y;
+        break;
+      }
+      case 'C':
+        currentGroup.push({
+          type: 'C',
+          x: cmd.x,
+          y: cmd.y,
+          cp1x: cmd.x1,
+          cp1y: cmd.y1,
+          cp2x: cmd.x2,
+          cp2y: cmd.y2,
+        });
+        lastX = cmd.x;
+        lastY = cmd.y;
+        break;
+      case 'Z':
+        currentGroup.push({ type: 'Z', x: 0, y: 0 });
+        pathGroups.push(currentGroup);
+        currentGroup = [];
+        break;
+    }
+  }
+
+  if (currentGroup.length > 0) {
+    pathGroups.push(currentGroup);
+  }
+
+  return pathGroups;
 }
 
 function convertToOpentypePath(pathGroups: PathCommand[][]): opentype.Path {

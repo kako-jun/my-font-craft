@@ -34,7 +34,7 @@ export interface GlyphStatus {
   pageIndex: number;
   row: number;
   col: number;
-  status: 'found' | 'empty';
+  status: 'found' | 'empty' | 'imported';
   cellImageDataUrl?: string; // セル切り出し画像のData URL
 }
 

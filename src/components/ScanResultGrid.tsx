@@ -21,7 +21,15 @@ export default function ScanResultGrid(props: Props) {
   const stats = createMemo(() => {
     const total = props.glyphStatuses.length;
     const found = props.glyphStatuses.filter((g) => g.status === 'found').length;
-    return { total, found, pct: total > 0 ? Math.round((found / total) * 100) : 0 };
+    const imported = props.glyphStatuses.filter((g) => g.status === 'imported').length;
+    const acquired = found + imported;
+    return {
+      total,
+      found,
+      imported,
+      acquired,
+      pct: total > 0 ? Math.round((acquired / total) * 100) : 0,
+    };
   });
 
   const pageThumb = (pageIndex: number) =>
@@ -31,7 +39,12 @@ export default function ScanResultGrid(props: Props) {
     <div class="scan-grid">
       {/* サマリー */}
       <div class="scan-grid__summary">
-        <span class="scan-grid__stat scan-grid__stat--found">取得: {stats().found}</span>
+        <span class="scan-grid__stat scan-grid__stat--found">取得: {stats().acquired}</span>
+        <Show when={stats().imported > 0}>
+          <span class="scan-grid__stat scan-grid__stat--imported">
+            (スキャン: {stats().found} / インポート: {stats().imported})
+          </span>
+        </Show>
         <span class="scan-grid__stat scan-grid__stat--total">/ {stats().total} 文字</span>
         <span class="scan-grid__stat">({stats().pct}%)</span>
       </div>
@@ -41,6 +54,8 @@ export default function ScanResultGrid(props: Props) {
         {([pageIndex, glyphs]) => {
           const thumb = pageThumb(pageIndex);
           const pageFound = glyphs.filter((g) => g.status === 'found').length;
+          const pageImported = glyphs.filter((g) => g.status === 'imported').length;
+          const pageAcquired = pageFound + pageImported;
           return (
             <div class="scan-grid__page" id={`scan-page-${pageIndex}`}>
               {/* ページヘッダー: サムネイル + ステータス */}
@@ -55,7 +70,8 @@ export default function ScanResultGrid(props: Props) {
                 <div class="scan-grid__page-info">
                   <h4>Page {pageIndex}</h4>
                   <span class="scan-grid__page-stat">
-                    {pageFound}/{glyphs.length} 文字取得
+                    {pageAcquired}/{glyphs.length} 文字取得
+                    {pageImported > 0 && ` (インポート: ${pageImported})`}
                   </span>
                 </div>
               </div>
@@ -69,6 +85,7 @@ export default function ScanResultGrid(props: Props) {
                       classList={{
                         'scan-grid__cell--found': gs.status === 'found',
                         'scan-grid__cell--empty': gs.status === 'empty',
+                        'scan-grid__cell--imported': gs.status === 'imported',
                       }}
                       title={`${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')}) — p${gs.pageIndex} r${gs.row} c${gs.col}`}
                     >

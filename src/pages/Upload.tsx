@@ -7,9 +7,10 @@ import {
   type ProcessMessage,
   type GlyphStatus,
 } from '../lib/scanner/processor';
-import { buildFont } from '../lib/font/builder';
+import { buildFont, importFont } from '../lib/font/builder';
+import { mergeScanIntoExisting, mergeImportIntoExisting } from '../lib/merge';
 import { generateRetryTemplatePDF } from '../lib/template/generator';
-import { IconFolder, IconZip, IconDownload, IconFont } from '../components/icons';
+import { IconFolder, IconZip, IconDownload, IconFont, IconUpload } from '../components/icons';
 
 interface Props {
   fontName: string;
@@ -30,7 +31,7 @@ export default function Upload(props: Props) {
   >([]);
   const [scanResult, setScanResult] = createSignal<ProcessResult | null>(null);
 
-  // 未検出文字のリスト
+  // 未検出文字のリスト（imported は取得済み扱い）
   const missingChars = createMemo(() =>
     glyphStatuses()
       .filter((g) => g.status === 'empty')
@@ -92,34 +93,23 @@ export default function Upload(props: Props) {
       });
 
       if (merge && prevResult) {
-        // マージ: 新しく取得できた文字で既存の empty を上書き
-        const newFound = new Map<number, GlyphStatus>();
-        for (const gs of newGlyphStatuses) {
-          if (gs.status === 'found') newFound.set(gs.unicode, gs);
-        }
-
-        const mergedStatuses = prevStatuses.map((gs) => {
-          if (gs.status === 'empty' && newFound.has(gs.unicode)) {
-            return newFound.get(gs.unicode)!;
-          }
-          return gs;
-        });
-        setGlyphStatuses(mergedStatuses);
-
-        // グリフもマージ（既存 + 新規で未検出だったもの）
-        const existingUnicodes = new Set(prevResult.glyphs.map((g) => g.unicode));
-        const newGlyphs = result.glyphs.filter(
-          (g) => g.unicode && !existingUnicodes.has(g.unicode),
+        // マージ: 新しく取得できた文字で既存の empty / imported を上書き（スキャンが優先）
+        const merged = mergeScanIntoExisting(
+          prevStatuses,
+          prevResult.glyphs,
+          newGlyphStatuses,
+          result.glyphs,
         );
-        const mergedGlyphs = [...prevResult.glyphs, ...newGlyphs];
-        setScanResult({ glyphs: mergedGlyphs });
+        setGlyphStatuses(merged.statuses);
+        setScanResult({ glyphs: merged.glyphs });
 
-        const added = newGlyphs.length;
-        const total = mergedStatuses.length;
-        const found = mergedStatuses.filter((g) => g.status === 'found').length;
+        const total = merged.statuses.length;
+        const found = merged.statuses.filter((g) => g.status === 'found').length;
+        const imported = merged.statuses.filter((g) => g.status === 'imported').length;
+        const acquired = found + imported;
         addMessage({
           type: 'info',
-          text: `追加スキャン完了: ${added} 文字を追加しました（合計 ${found}/${total} 文字）`,
+          text: `追加スキャン完了（合計 ${acquired}/${total} 文字）`,
         });
       } else {
         // 新規スキャン
@@ -207,6 +197,64 @@ export default function Upload(props: Props) {
     handleFiles(files, true);
   }
 
+  // 既存TTF/OTFインポート
+  async function handleImportFont(file: File) {
+    try {
+      const buffer = await file.arrayBuffer();
+      const result = importFont(buffer);
+
+      if (result.glyphs.length === 0) {
+        addMessage({ type: 'warning', text: 'フォントにグリフが含まれていませんでした。' });
+        return;
+      }
+
+      const prevStatuses = glyphStatuses();
+      const prevResult = scanResult();
+
+      if (prevStatuses.length > 0 && prevResult) {
+        // マージ: empty のみを imported で埋める（found は上書きしない）
+        const merged = mergeImportIntoExisting(
+          prevStatuses,
+          prevResult.glyphs,
+          result.statuses,
+          result.glyphs,
+        );
+        setGlyphStatuses(merged.statuses);
+        setScanResult({ glyphs: merged.glyphs });
+
+        const imported = merged.statuses.filter((g) => g.status === 'imported').length;
+        addMessage({
+          type: 'success',
+          text: `フォントをインポートしました: ${imported} 文字をインポートとして追加`,
+        });
+      } else {
+        // 新規: インポート結果をそのままセット
+        setGlyphStatuses(result.statuses);
+        setScanResult({ glyphs: result.glyphs });
+
+        addMessage({
+          type: 'success',
+          text: `フォントをインポートしました: ${result.glyphs.length} 文字を読み込みました。`,
+        });
+      }
+
+      setPhase('review');
+    } catch (err) {
+      addMessage({
+        type: 'error',
+        text: `フォントの読み込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  }
+
+  function handleFontFileInput(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    if (input.files && input.files.length > 0) {
+      handleImportFont(input.files[0]);
+      input.value = ''; // 同じファイルを再選択可能にする
+    }
+  }
+
   function handleDrop(e: DragEvent) {
     e.preventDefault();
     setDragActive(false);
@@ -282,6 +330,15 @@ export default function Upload(props: Props) {
             >
               <IconZip /> ZIPを選択
             </button>
+            <button
+              class="btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                document.getElementById('font-input')?.click();
+              }}
+            >
+              <IconUpload /> 既存フォントを読み込む
+            </button>
           </div>
           <input
             id="file-input"
@@ -298,6 +355,13 @@ export default function Upload(props: Props) {
             webkitdirectory
             style="display:none"
             onChange={handleFileInput}
+          />
+          <input
+            id="font-input"
+            type="file"
+            accept=".ttf,.otf"
+            style="display:none"
+            onChange={handleFontFileInput}
           />
         </div>
       </Show>
@@ -366,7 +430,7 @@ export default function Upload(props: Props) {
             <button class="btn btn--primary" onClick={handleBuildFont}>
               <IconFont />{' '}
               {missingChars().length > 0
-                ? `このまま生成する（${glyphStatuses().length - missingChars().length} 文字）`
+                ? `このまま生成する（${glyphStatuses().filter((g) => g.status !== 'empty').length} 文字）`
                 : 'フォントを生成する'}
             </button>
             <button class="btn" onClick={handleReset}>

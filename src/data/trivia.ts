@@ -117,6 +117,24 @@ const GENERAL_TRIVIA = [
   '休憩も大事。疲れたら手を休めよう',
 ];
 
+// シード付きシャッフル（同じシードなら同じ順序を保証）
+function seededShuffle<T>(arr: T[], seed: number): T[] {
+  const result = [...arr];
+  let s = seed;
+  for (let i = result.length - 1; i > 0; i--) {
+    s = (s * 1664525 + 1013904223) & 0xffffffff;
+    const j = (s >>> 0) % (i + 1);
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+// カテゴリ配列をシャッフルしてから順に取得（全要素を使い切ってから2周目）
+function pickFromCategory(arr: string[], index: number, seed: number): string {
+  const shuffled = seededShuffle(arr, seed);
+  return shuffled[index % shuffled.length];
+}
+
 /**
  * ページに表示する雑学コメントを取得する
  * @param pageIndex 0始まりのページインデックス
@@ -135,10 +153,13 @@ export function getTriviaForPage(
     return PAGE_TRIVIA[pageNum];
   }
 
-  // 最終ページ（動的に判定）
-  if (pageNum === totalPages && !PAGE_TRIVIA[pageNum]) {
+  // 最終ページ（動的に判定。PAGE_TRIVIA にある場合は上で返り済み）
+  if (pageNum === totalPages) {
     return '最終ページ。完走おめでとう！';
   }
+
+  // totalPages をシードに使い、同じ構成なら同じ順序を保証
+  const seed = totalPages * 31;
 
   // ページの文字種を判定して対応する雑学から選ぶ
   const firstChar = pageChars[0];
@@ -146,22 +167,22 @@ export function getTriviaForPage(
     const code = firstChar.charCodeAt(0);
     // ひらがな: U+3040-U+309F
     if (code >= 0x3040 && code <= 0x309f) {
-      return HIRAGANA_TRIVIA[pageIndex % HIRAGANA_TRIVIA.length];
+      return pickFromCategory(HIRAGANA_TRIVIA, pageIndex, seed);
     }
     // カタカナ: U+30A0-U+30FF
     if (code >= 0x30a0 && code <= 0x30ff) {
-      return KATAKANA_TRIVIA[pageIndex % KATAKANA_TRIVIA.length];
+      return pickFromCategory(KATAKANA_TRIVIA, pageIndex, seed + 1);
     }
     // ASCII
     if (code < 0x80) {
-      return ALPHANUM_TRIVIA[pageIndex % ALPHANUM_TRIVIA.length];
+      return pickFromCategory(ALPHANUM_TRIVIA, pageIndex, seed + 2);
     }
     // 漢字（CJK統合漢字）
     if (code >= 0x4e00 && code <= 0x9fff) {
-      return KANJI_TRIVIA[pageIndex % KANJI_TRIVIA.length];
+      return pickFromCategory(KANJI_TRIVIA, pageIndex, seed + 3);
     }
   }
 
   // フォールバック: 汎用雑学
-  return GENERAL_TRIVIA[pageIndex % GENERAL_TRIVIA.length];
+  return pickFromCategory(GENERAL_TRIVIA, pageIndex, seed + 4);
 }
