@@ -137,12 +137,11 @@ function readGrayBars(canvas: HTMLCanvasElement): GrayBarReadings {
       const ph = Math.round(mm(stepHeight) * scaleY);
       // 中央部分のみサンプリング（端のにじみを避ける）
       const marginPx = Math.max(1, Math.floor(Math.min(pw, ph) * 0.2));
-      const data = ctx.getImageData(
-        px + marginPx,
-        py + marginPx,
-        Math.max(1, pw - marginPx * 2),
-        Math.max(1, ph - marginPx * 2),
-      ).data;
+      const sx = Math.max(0, Math.min(px + marginPx, canvas.width - 1));
+      const sy = Math.max(0, Math.min(py + marginPx, canvas.height - 1));
+      const sw = Math.max(1, Math.min(pw - marginPx * 2, canvas.width - sx));
+      const sh = Math.max(1, Math.min(ph - marginPx * 2, canvas.height - sy));
+      const data = ctx.getImageData(sx, sy, sw, sh).data;
       let sum = 0;
       const count = data.length / 4;
       for (let j = 0; j < data.length; j += 4) {
