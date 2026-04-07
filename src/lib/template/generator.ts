@@ -185,9 +185,9 @@ async function generateTemplatePDFFromChars(
     const qrData = JSON.stringify(qrPayload);
     try {
       const qrDataUrl = await QRCode.toDataURL(qrData, {
-        errorCorrectionLevel: 'M',
+        errorCorrectionLevel: 'H',
         margin: 0,
-        width: 128,
+        width: 256,
       });
       const qrImageBytes = Uint8Array.from(atob(qrDataUrl.split(',')[1]), (c) => c.charCodeAt(0));
       const qrImage = await pdfDoc.embedPng(qrImageBytes);
