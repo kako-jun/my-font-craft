@@ -92,27 +92,39 @@ async function generateTemplatePDFFromChars(
     const toY = (mmY: number) => mm(PAGE_HEIGHT) - mm(mmY);
 
     // --- ヘッダー ---
-    // タイトル
-    page.drawText(`MyFontCraft`, {
-      x: mm(25),
-      y: toY(14),
-      size: 10,
-      font: helvetica,
-      color: rgb(0, 0, 0),
-    });
-
-    // フォント名（日本語対応: Canvas→PNG→PDF）
-    if (fontName) {
-      const fontNameImage = await renderTextToImage(`— "${fontName}"`, 7);
-      if (fontNameImage) {
-        const fnEmbed = await pdfDoc.embedPng(fontNameImage.data);
-        const fnHeightMm = 4;
-        const fnWidthMm = (fontNameImage.widthPx / fontNameImage.heightPx) * fnHeightMm;
-        // タイトルの右隣に配置（約55mm地点）
+    // タイトル + フォント名（1行にまとめて同じフォント・サイズで描画）
+    const titleText = fontName ? `MyFontCraft — "${fontName}"` : 'MyFontCraft';
+    // ASCII文字はHelveticaで直接描画
+    const titleIsAscii = /^[\x20-\x7E]*$/.test(titleText);
+    if (titleIsAscii) {
+      page.drawText(titleText, {
+        x: mm(25),
+        y: toY(14),
+        size: 10,
+        font: helvetica,
+        color: rgb(0, 0, 0),
+      });
+    } else {
+      // 日本語フォント名の場合: タイトル部分はHelvetica、フォント名はCanvas→PNG
+      page.drawText('MyFontCraft', {
+        x: mm(25),
+        y: toY(14),
+        size: 10,
+        font: helvetica,
+        color: rgb(0, 0, 0),
+      });
+      const fnLabel = `— "${fontName}"`;
+      const fnImage = await renderTextToImage(fnLabel, 8);
+      if (fnImage) {
+        const fnEmbed = await pdfDoc.embedPng(fnImage.data);
+        // タイトル幅を測定して直後に配置
+        const titleWidth = helvetica.widthOfTextAtSize('MyFontCraft ', 10);
+        const fnHeightMm = 3.5;
+        const fnWidthMm = (fnImage.widthPx / fnImage.heightPx) * fnHeightMm;
         page.drawImage(fnEmbed, {
-          x: mm(55),
-          y: toY(14),
-          width: mm(Math.min(fnWidthMm, 60)), // 最大60mmに制限
+          x: mm(25) + titleWidth,
+          y: toY(14.5),
+          width: mm(Math.min(fnWidthMm, 80)),
           height: mm(fnHeightMm),
         });
       }
@@ -138,8 +150,8 @@ async function generateTemplatePDFFromChars(
       // アスペクト比を保って高さ4mmに収める
       const triviaHeightMm = 4;
       const triviaWidthMm = (triviaImage.widthPx / triviaImage.heightPx) * triviaHeightMm;
-      // 右寄せ: ページ番号の右端に揃える。幅が広すぎる場合はタイトル右端まで
-      const maxWidthMm = PAGE_WIDTH - MARGIN - 25; // タイトル "MyFontCraft" の右端(~50mm)まで余裕
+      // 右寄せ: ページ番号の右端に揃える。右上マーカー(x=192)と重ならないよう制限
+      const maxWidthMm = 192 - MARGIN - 25; // マーカー左端(192) - 左余白(10) - タイトル領域(25) = 157mm
       const clampedWidthMm = Math.min(triviaWidthMm, maxWidthMm);
       const clampedHeightMm =
         clampedWidthMm < triviaWidthMm
@@ -148,8 +160,10 @@ async function generateTemplatePDFFromChars(
       // ページ番号(14mm)の下に配置。画像の上端が17mmになるよう下端を計算
       const triviaTopMm = 17;
       const triviaBottomMm = triviaTopMm + clampedHeightMm;
+      // 右上マーカー(x=192)の左に収まるよう配置
+      const triviaRightEdge = mm(190); // マーカーとの間に2mm余白
       page.drawImage(triviaEmbed, {
-        x: rightEdge - mm(clampedWidthMm),
+        x: triviaRightEdge - mm(clampedWidthMm),
         y: toY(triviaBottomMm),
         width: mm(clampedWidthMm),
         height: mm(clampedHeightMm),

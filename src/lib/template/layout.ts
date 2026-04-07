@@ -31,10 +31,10 @@ export const CHECK_HEIGHT = 3;
 export const CELL_GAP = 2;
 export const SAMPLE_WIDTH = 10;
 
-// QRコード（フッター配置）
-export const QR_X = 10;
-export const QR_Y = 282;
-export const QR_SIZE = 12;
+// QRコード（マーカー内側、右下マーカーの左隣）
+export const QR_X = 182; // bottomRight(192)の左、182+8=190
+export const QR_Y = 272; // bottomマーカーと同じY
+export const QR_SIZE = 8;
 
 // 左右縦グレースケールバー
 export const GRAY_BAR_STEPS = 10;
