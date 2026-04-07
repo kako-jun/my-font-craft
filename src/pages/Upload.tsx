@@ -10,6 +10,7 @@ import {
 import { buildFont, importFont } from '../lib/font/builder';
 import { mergeScanIntoExisting, mergeImportIntoExisting } from '../lib/merge';
 import { generateRetryTemplatePDF } from '../lib/template/generator';
+import { CHARS_PER_PAGE } from '../data/characters';
 import { IconFolder, IconZip, IconDownload, IconFont, IconUpload } from '../components/icons';
 
 interface Props {
@@ -420,7 +421,7 @@ export default function Upload(props: Props) {
                 そのまま生成すると、未検出の文字は端末のフォントで代替表示されます。
               </p>
               <button class="btn" onClick={handleDownloadRetryTemplate}>
-                未検出文字のテンプレートをダウンロード ({Math.ceil(missingChars().length / 48)}{' '}
+                未検出文字のテンプレートをダウンロード ({Math.ceil(missingChars().length / CHARS_PER_PAGE)}{' '}
                 ページ)
               </button>
             </div>

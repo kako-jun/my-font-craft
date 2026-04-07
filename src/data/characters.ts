@@ -248,8 +248,9 @@ export const ALL_CHARACTERS = [
   ...JOYO_KANJI,
 ];
 
-// 1ページあたりの文字数
-export const CHARS_PER_PAGE = 30;
+// 1ページあたりの文字数（layout.ts の COLS × ROWS から導出）
+import { COLS, ROWS } from '../lib/template/layout';
+export const CHARS_PER_PAGE = COLS * ROWS;
 
 // マス数/文字
 export const CELLS_PER_CHAR = 2;
