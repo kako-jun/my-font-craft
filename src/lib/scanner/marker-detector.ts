@@ -1,11 +1,6 @@
 // 四隅マーカー検出と台形補正
 
-import {
-  PAGE_WIDTH,
-  PAGE_HEIGHT,
-  MARKERS,
-  MARKER_SIZE,
-} from '../template/layout';
+import { PAGE_WIDTH, PAGE_HEIGHT, MARKERS, MARKER_SIZE } from '../template/layout';
 
 export interface Point {
   x: number;
@@ -34,10 +29,7 @@ export function detectMarkers(canvas: HTMLCanvasElement): Corners | null {
 
   // 四隅の領域で黒い塊の重心を見つける
   const margin = Math.floor(Math.min(w, h) * 0.15);
-  // 左上はQRコード（上部5%領域��との干渉を避けるため、Y方向を少しオフセット
-  const qrAvoidY = Math.floor(h * 0.05);
-
-  const topLeft = findMarkerInRegion(data, w, h, 0, qrAvoidY, margin, margin - qrAvoidY, threshold);
+  const topLeft = findMarkerInRegion(data, w, h, 0, 0, margin, margin, threshold);
   const topRight = findMarkerInRegion(data, w, h, w - margin, 0, margin, margin, threshold);
   const bottomLeft = findMarkerInRegion(data, w, h, 0, h - margin, margin, margin, threshold);
   const bottomRight = findMarkerInRegion(
@@ -231,14 +223,23 @@ export function perspectiveTransform(
   return dst;
 }
 
-// 向き検出: 左上マーカーが一番暗い（塗りつぶし）
+// 向き検出: 塗りつぶしマーカー（黒ピクセル密度が最も高い）を左上と判定
 export function detectOrientation(corners: Corners, canvas: HTMLCanvasElement): number {
   const ctx = canvas.getContext('2d')!;
   const w = canvas.width;
   const h = canvas.height;
 
-  function avgBrightness(point: Point): number {
-    const r = 10;
+  // 二値化閾値を算出（固定閾値128をフォールバックに使用）
+  const fullData = ctx.getImageData(0, 0, w, h).data;
+  const threshold = computeOtsuThreshold(fullData, w * h);
+
+  // マーカーの画像上のサイズを推定（ページ幅に対するマーカーサイズの比率から）
+  const dx = corners.topRight.x - corners.topLeft.x;
+  const markerPixelSize = (MARKER_SIZE / (MARKERS.topRight.x - MARKERS.topLeft.x)) * dx;
+  const r = Math.max(10, Math.round(markerPixelSize / 2));
+
+  // マーカー周辺の黒ピクセル密度を計測（塗りつぶし vs 枠線のみ を区別）
+  function blackPixelDensity(point: Point): number {
     const px = Math.max(0, Math.min(Math.round(point.x), w - 1));
     const py = Math.max(0, Math.min(Math.round(point.y), h - 1));
     const x0 = Math.max(0, px - r);
@@ -246,33 +247,45 @@ export function detectOrientation(corners: Corners, canvas: HTMLCanvasElement): 
     const x1 = Math.min(w, px + r);
     const y1 = Math.min(h, py + r);
     const data = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data;
-    let sum = 0;
-    const count = data.length / 4;
+    let blackCount = 0;
+    const totalPixels = data.length / 4;
     for (let i = 0; i < data.length; i += 4) {
-      sum += (data[i] + data[i + 1] + data[i + 2]) / 3;
+      const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      if (gray < threshold) {
+        blackCount++;
+      }
     }
-    return sum / count;
+    return totalPixels > 0 ? blackCount / totalPixels : 0;
   }
 
-  const brightnesses = [
-    { corner: 'topLeft', val: avgBrightness(corners.topLeft) },
-    { corner: 'topRight', val: avgBrightness(corners.topRight) },
-    { corner: 'bottomLeft', val: avgBrightness(corners.bottomLeft) },
-    { corner: 'bottomRight', val: avgBrightness(corners.bottomRight) },
-  ];
+  const cornerEntries = [
+    { corner: 'topLeft', point: corners.topLeft },
+    { corner: 'topRight', point: corners.topRight },
+    { corner: 'bottomLeft', point: corners.bottomLeft },
+    { corner: 'bottomRight', point: corners.bottomRight },
+  ] as const;
 
-  const darkest = brightnesses.reduce((a, b) => (a.val < b.val ? a : b));
+  // 密度方式: 黒ピクセル密度が最も高いマーカーを topLeft と判定
+  const densities = cornerEntries.map((c) => ({
+    corner: c.corner,
+    val: blackPixelDensity(c.point),
+  }));
+  const densest = densities.reduce((a, b) => (a.val > b.val ? a : b));
 
-  switch (darkest.corner) {
-    case 'topLeft':
-      return 0;
-    case 'topRight':
-      return 90;
-    case 'bottomRight':
-      return 180;
-    case 'bottomLeft':
-      return 270;
-    default:
-      return 0;
+  function cornerToRotation(corner: 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight'): number {
+    switch (corner) {
+      case 'topLeft':
+        return 0;
+      case 'topRight':
+        return 90;
+      case 'bottomRight':
+        return 180;
+      case 'bottomLeft':
+        return 270;
+      default:
+        return 0;
+    }
   }
+
+  return cornerToRotation(densest.corner);
 }

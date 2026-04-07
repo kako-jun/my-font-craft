@@ -60,7 +60,7 @@ ZIP内の `__MACOSX/` や `._*` メタファイルは自動除外。
 
 - 左上マーカーのみ塗りつぶし（★）
 - 他は白抜き（☆）
-- 塗りつぶしの位置で向きを判定（0°/90°/180°/270°）
+- 黒ピクセル密度方式で塗りつぶしマーカーを判定（影に強い）（0°/90°/180°/270°）
 
 ---
 
@@ -98,17 +98,18 @@ ZIP内の `__MACOSX/` や `._*` メタファイルは自動除外。
 
 ```typescript
 const MARGIN = 10; // mm
-const HEADER_HEIGHT = 15; // mm
-const MARKER_MARGIN = 5; // mm
-const COL_WIDTH = 60; // mm
-const ROW_HEIGHT = 25; // mm
+const HEADER_HEIGHT = 7; // mm
+const MARKER_SIZE = 8; // mm
+const BODY_START_Y = 28; // MARGIN + HEADER_HEIGHT + MARKER_SIZE + 余白3
+const COL_WIDTH = 47; // mm
+const ROW_HEIGHT = 20; // mm
 const SAMPLE_WIDTH = 10; // mm
-const CELL_SIZE = 20; // mm
+const CELL_SIZE = 15; // mm
 const CELL_GAP = 2; // mm
 
 function getCellPosition(row: number, col: number, cellIndex: number) {
   const x = MARGIN + col * COL_WIDTH + SAMPLE_WIDTH + CELL_GAP + cellIndex * (CELL_SIZE + CELL_GAP);
-  const y = MARGIN + HEADER_HEIGHT + MARKER_MARGIN + row * ROW_HEIGHT;
+  const y = BODY_START_Y + row * ROW_HEIGHT;
   return { x, y };
 }
 ```
