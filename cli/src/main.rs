@@ -1,0 +1,79 @@
+#[allow(dead_code)]
+mod layout;
+mod template;
+mod pipeline;
+mod marker;
+mod perspective;
+mod qr;
+mod cell;
+mod distort;
+
+use clap::{Parser, Subcommand};
+use std::path::PathBuf;
+
+#[derive(Parser)]
+#[command(name = "mfc-cli")]
+#[command(about = "My Font Craft - 画像処理パイプライン（台形補正デバッグ用）")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// テスト画像（テンプレートPNG）を生成する
+    Generate {
+        /// 出力パス（デフォルト: debug_output/template.png）
+        #[arg(short, long, default_value = "debug_output/template.png")]
+        output: PathBuf,
+        /// ダミー文字を描き込む（非空セルの検出テスト用）
+        #[arg(long)]
+        with_glyphs: bool,
+    },
+    /// 画像を読み込み、パイプラインを実行する
+    Process {
+        /// 入力画像パス
+        image_path: PathBuf,
+        /// 出力ディレクトリ（デフォルト: debug_output）
+        #[arg(short, long, default_value = "debug_output")]
+        output_dir: PathBuf,
+    },
+    /// 画像に擬似歪みを加える（台形補正テスト用）
+    Distort {
+        /// 入力画像パス
+        image_path: PathBuf,
+        /// 出力パス（デフォルト: debug_output/distorted.png）
+        #[arg(short, long, default_value = "debug_output/distorted.png")]
+        output: PathBuf,
+        /// 回転角度（度）
+        #[arg(long, default_value = "3.0")]
+        rotate: f64,
+        /// 台形歪みの強さ（0.0=なし, 0.1=強め）
+        #[arg(long, default_value = "0.05")]
+        trapezoid: f64,
+        /// 余白（px）
+        #[arg(long, default_value = "200")]
+        padding: u32,
+    },
+}
+
+fn main() {
+    let cli = Cli::parse();
+
+    let result = match cli.command {
+        Commands::Generate { output, with_glyphs } => {
+            template::generate_template(&output, with_glyphs)
+        }
+        Commands::Process { image_path, output_dir } => {
+            pipeline::run_pipeline(&image_path, &output_dir)
+        }
+        Commands::Distort { image_path, output, rotate, trapezoid, padding } => {
+            distort::distort_image(&image_path, &output, rotate, trapezoid, padding)
+        }
+    };
+
+    if let Err(e) = result {
+        eprintln!("エラー: {e}");
+        std::process::exit(1);
+    }
+}

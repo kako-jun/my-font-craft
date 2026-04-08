@@ -642,11 +642,12 @@ body {
   display: flex;
   gap: 0.5rem;
   align-items: baseline;
-  margin-bottom: 1rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .scan-grid__stat {
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   color: var(--accent-light);
 }
 
@@ -655,10 +656,14 @@ body {
   color: var(--success);
 }
 
+.scan-grid__stat--excluded {
+  color: var(--error);
+}
+
 .scan-grid__page {
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
   border-bottom: 1px solid var(--border);
-  padding-bottom: 1rem;
+  padding-bottom: 0.75rem;
 }
 
 .scan-grid__page:last-child {
@@ -668,25 +673,21 @@ body {
 
 .scan-grid__page-header {
   display: flex;
-  gap: 1rem;
+  gap: 0.75rem;
   align-items: center;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
 }
 
 .scan-grid__page-thumb {
-  height: 120px;
+  height: 100px;
   border: 1px solid var(--border);
-  border-radius: 4px;
   flex-shrink: 0;
   cursor: pointer;
-  transition:
-    opacity 0.15s,
-    box-shadow 0.15s;
+  transition: opacity 0.15s;
 }
 
 .scan-grid__page-thumb:hover {
-  opacity: 0.85;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  opacity: 0.8;
 }
 
 .scan-grid__page-info h4 {
@@ -701,8 +702,8 @@ body {
 
 .scan-grid__chars {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
-  gap: 4px;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 2px;
 }
 
 .scan-grid__cell {
@@ -710,27 +711,26 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  border: 2px solid var(--border);
-  border-radius: 4px;
-  padding: 2px;
-  min-height: 52px;
+  border: 1px solid var(--border);
+  padding: 1px;
+  min-height: 44px;
   background: var(--card-bg);
-  transition: border-color 0.15s;
+  cursor: pointer;
 }
 
 .scan-grid__cell--found {
   border-color: var(--success);
   background: #f0faf3;
-  cursor: pointer;
 }
 
 .scan-grid__cell--found:hover {
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  background: #d8f0dd;
 }
 
 .scan-grid__cell--empty {
   border-color: var(--error);
   background: #fdf0f0;
+  cursor: default;
 }
 
 .scan-grid__cell--imported {
@@ -738,24 +738,54 @@ body {
   background: #f5f5f5;
 }
 
+.scan-grid__cell--imported:hover {
+  background: #e8e8e8;
+}
+
+.scan-grid__cell--excluded {
+  border-color: #ccc;
+  background: #f0f0f0;
+  opacity: 0.5;
+}
+
+.scan-grid__cell--excluded:hover {
+  opacity: 0.7;
+}
+
 .scan-grid__cell-char {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   color: var(--accent-light);
   line-height: 1;
 }
 
 .scan-grid__cell-img {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   object-fit: contain;
   image-rendering: pixelated;
 }
 
 .scan-grid__cell-miss {
-  font-size: 1.2rem;
+  font-size: 1rem;
   color: var(--error);
   line-height: 1;
-  opacity: 0.6;
+  opacity: 0.5;
+}
+
+/* position: absolute は親要素 .scan-grid__cell の position: relative に依存 */
+.scan-grid__cell-excluded-mark {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  color: var(--error);
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 /* Scan Result Modal */

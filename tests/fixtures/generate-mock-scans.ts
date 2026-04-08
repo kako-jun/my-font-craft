@@ -13,76 +13,127 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import QRCode from 'qrcode';
 
-// --- レイアウト定数（layout.ts と同一値） ---
-const MM_TO_PT = 72 / 25.4;
-const mm = (v: number) => v * MM_TO_PT;
-
-const PAGE_WIDTH = 210;
-const PAGE_HEIGHT = 297;
-const MARGIN = 10;
-const HEADER_HEIGHT = 15;
-const BODY_START_X = MARGIN;
-const BODY_START_Y = MARGIN + HEADER_HEIGHT + 5;
-const COLS = 4;
-const ROWS = 12;
-const COL_WIDTH = 47;
-const ROW_HEIGHT = 20;
-const CELL_SIZE = 15;
-const INNER_SIZE = 10;
-const CHECK_HEIGHT = 3;
-const CELL_GAP = 2;
-const SAMPLE_WIDTH = 10;
-const MARKER_SIZE = 5;
-const QR_X = 10;
-const QR_Y = 10;
-const QR_SIZE = 12;
-const GRAY_BAR_X = 120;
-const GRAY_BAR_Y = 10;
-const GRAY_BAR_STEP_W = 5;
-const GRAY_BAR_STEP_H = 5;
-const GRAY_BAR_STEPS = 10;
-const CYAN_SAMPLE_X = 175;
-const CYAN_SAMPLE_Y = 10;
-const CYAN_SAMPLE_SIZE = 5;
-
-const MARKERS = {
-  topLeft: { x: 10, y: 25, filled: true },
-  topRight: { x: 195, y: 25, filled: false },
-  bottomLeft: { x: 10, y: 287, filled: false },
-  bottomRight: { x: 195, y: 287, filled: false },
-} as const;
+// --- レイアウト定数（layout.ts から取得） ---
+import {
+  PAGE_WIDTH,
+  PAGE_HEIGHT,
+  MARGIN,
+  BODY_START_X,
+  BODY_START_Y,
+  COLS,
+  ROWS,
+  COL_WIDTH,
+  ROW_HEIGHT,
+  CELL_SIZE,
+  INNER_SIZE,
+  CHECK_HEIGHT,
+  CELL_GAP,
+  SAMPLE_WIDTH,
+  MARKER_SIZE,
+  MARKERS,
+  QR_X,
+  QR_Y,
+  QR_SIZE,
+  GRAY_BAR_STEPS,
+  GRAY_BAR_STEP_SIZE,
+  GRAY_BAR_LEFT_X,
+  GRAY_BAR_RIGHT_X,
+  GRAY_BAR_TOP_Y,
+  GRAY_BAR_BOTTOM_Y,
+  CYAN_SAMPLE_X,
+  CYAN_SAMPLE_Y,
+  CYAN_SAMPLE_SIZE,
+} from '../../src/lib/template/layout';
 
 // ひらがな（characters.ts と同じ順序）
 const HIRAGANA = [
-  'あ','い','う','え','お',
-  'か','き','く','け','こ',
-  'さ','し','す','せ','そ',
-  'た','ち','つ','て','と',
-  'な','に','ぬ','ね','の',
-  'は','ひ','ふ','へ','ほ',
-  'ま','み','む','め','も',
-  'や','ゆ','よ',
-  'ら','り','る','れ','ろ',
-  'わ','を','ん',
-  'が','ぎ','ぐ','げ','ご',
-  'ざ','じ','ず','ぜ','ぞ',
-  'だ','ぢ','づ','で','ど',
-  'ば','び','ぶ','べ','ぼ',
-  'ぱ','ぴ','ぷ','ぺ','ぽ',
-  'ぁ','ぃ','ぅ','ぇ','ぉ',
+  'あ',
+  'い',
+  'う',
+  'え',
+  'お',
+  'か',
+  'き',
+  'く',
+  'け',
+  'こ',
+  'さ',
+  'し',
+  'す',
+  'せ',
+  'そ',
+  'た',
+  'ち',
+  'つ',
+  'て',
+  'と',
+  'な',
+  'に',
+  'ぬ',
+  'ね',
+  'の',
+  'は',
+  'ひ',
+  'ふ',
+  'へ',
+  'ほ',
+  'ま',
+  'み',
+  'む',
+  'め',
+  'も',
+  'や',
+  'ゆ',
+  'よ',
+  'ら',
+  'り',
+  'る',
+  'れ',
+  'ろ',
+  'わ',
+  'を',
+  'ん',
+  'が',
+  'ぎ',
+  'ぐ',
+  'げ',
+  'ご',
+  'ざ',
+  'じ',
+  'ず',
+  'ぜ',
+  'ぞ',
+  'だ',
+  'ぢ',
+  'づ',
+  'で',
+  'ど',
+  'ば',
+  'び',
+  'ぶ',
+  'べ',
+  'ぼ',
+  'ぱ',
+  'ぴ',
+  'ぷ',
+  'ぺ',
+  'ぽ',
+  'ぁ',
+  'ぃ',
+  'ぅ',
+  'ぇ',
+  'ぉ',
   'っ',
-  'ゃ','ゅ','ょ',
+  'ゃ',
+  'ゅ',
+  'ょ',
   'ゎ',
-  'ゐ','ゑ',
+  'ゐ',
+  'ゑ',
 ];
 
-const CHARS_PER_PAGE = 48;
-
-function getCellPosition(row: number, col: number, cellIndex: number) {
-  const x = BODY_START_X + col * COL_WIDTH + SAMPLE_WIDTH + CELL_GAP + cellIndex * (CELL_SIZE + CELL_GAP);
-  const y = BODY_START_Y + row * ROW_HEIGHT;
-  return { x, y };
-}
+import { CHARS_PER_PAGE } from '../../src/data/characters';
+import { getCellPosition } from '../../src/lib/template/layout';
 
 // 解像度: 300dpi 相当（mm→pixel 変換）
 const DPI = 300;
@@ -97,7 +148,10 @@ const canvasH = px(PAGE_HEIGHT);
  */
 function drawStarMarker(
   ctx: CanvasRenderingContext2D,
-  xMm: number, yMm: number, sizeMm: number, filled: boolean,
+  xMm: number,
+  yMm: number,
+  sizeMm: number,
+  filled: boolean,
 ) {
   const unit = sizeMm / 5;
   ctx.fillStyle = '#000000';
@@ -153,21 +207,22 @@ async function generatePage(pageIdx: number, chars: string[]): Promise<Buffer> {
     });
     const { createCanvas: _, loadImage } = await import('canvas');
     const qrImg = await loadImage(qrBuffer);
-    ctx.drawImage(qrImg, px(QR_X), px(QR_Y), px(QR_SIZE), px(QR_SIZE));
+    ctx.drawImage(qrImg as any, px(QR_X), px(QR_Y), px(QR_SIZE), px(QR_SIZE));
   } catch (e) {
     console.warn(`QR generation failed for page ${pageIdx + 1}:`, e);
   }
 
-  // グレースケールバー
+  // 左右縦グレースケールバー
+  const barHeight = GRAY_BAR_BOTTOM_Y - GRAY_BAR_TOP_Y;
+  const stepHeight = barHeight / GRAY_BAR_STEPS;
   for (let i = 0; i < GRAY_BAR_STEPS; i++) {
     const intensity = Math.round((i / GRAY_BAR_STEPS) * 255);
     ctx.fillStyle = `rgb(${intensity},${intensity},${intensity})`;
-    ctx.fillRect(
-      px(GRAY_BAR_X + i * GRAY_BAR_STEP_W),
-      px(GRAY_BAR_Y),
-      px(GRAY_BAR_STEP_W),
-      px(GRAY_BAR_STEP_H),
-    );
+    const y = GRAY_BAR_TOP_Y + i * stepHeight;
+    // 左バー
+    ctx.fillRect(px(GRAY_BAR_LEFT_X), px(y), px(GRAY_BAR_STEP_SIZE), px(stepHeight));
+    // 右バー
+    ctx.fillRect(px(GRAY_BAR_RIGHT_X), px(y), px(GRAY_BAR_STEP_SIZE), px(stepHeight));
   }
 
   // シアンサンプル
@@ -263,16 +318,21 @@ export async function generateMockScans(outputDir: string): Promise<string[]> {
     const filepath = path.join(outputDir, filename);
     fs.writeFileSync(filepath, buffer);
     files.push(filepath);
-    console.log(`Generated: ${filename} (${pageChars.length} chars: ${pageChars[0]}〜${pageChars[pageChars.length - 1]})`);
+    console.log(
+      `Generated: ${filename} (${pageChars.length} chars: ${pageChars[0]}〜${pageChars[pageChars.length - 1]})`,
+    );
   }
 
   return files;
 }
 
 // CLI から直接実行された場合
-if (process.argv[1]?.endsWith('generate-mock-scans.ts') || process.argv[1]?.endsWith('generate-mock-scans.js')) {
+if (
+  process.argv[1]?.endsWith('generate-mock-scans.ts') ||
+  process.argv[1]?.endsWith('generate-mock-scans.js')
+) {
   const outDir = path.join(import.meta.dirname ?? path.dirname(process.argv[1]), 'mock-scans');
-  generateMockScans(outDir).then(files => {
+  generateMockScans(outDir).then((files) => {
     console.log(`\nDone! Generated ${files.length} mock scan images.`);
   });
 }

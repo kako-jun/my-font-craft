@@ -141,7 +141,7 @@ function findMarkerBlob(
   // マーカーらしいブロブを選別:
   // - 面積が十分（ノイズ排除）: 最低100px
   // - コンパクト（格子線排除）: 幅と高さの比率が0.3〜3.0
-  // - 充填率が高い（格子線の交差排除）: 面積/(幅*高さ) > 0.15
+  // - 充填率（格子線の交差排除）: outline マーカーは低充填率なので閾値を緩めに
   const candidates: Blob[] = [];
   for (const blob of blobMap.values()) {
     const blobW = blob.maxX - blob.minX + 1;
@@ -149,7 +149,7 @@ function findMarkerBlob(
     const aspect = blobW / blobH;
     const fillRatio = blob.area / (blobW * blobH);
 
-    if (blob.area >= 100 && aspect >= 0.3 && aspect <= 3.0 && fillRatio > 0.15) {
+    if (blob.area >= 100 && aspect >= 0.3 && aspect <= 3.0 && fillRatio > 0.05) {
       blob.cx /= blob.area;
       blob.cy /= blob.area;
       candidates.push(blob);
@@ -158,8 +158,14 @@ function findMarkerBlob(
 
   if (candidates.length === 0) return null;
 
-  // 最大面積のブロブを選択（マーカーは領域内で最大のコンパクトなブロブのはず）
-  candidates.sort((a, b) => b.area - a.area);
+  // コーナーに最も近いブロブを選択（グレースケールバー等との混同を回避）
+  const cornerX = rx + (rx === 0 ? 0 : rw);
+  const cornerY = ry + (ry === 0 ? 0 : rh);
+  candidates.sort((a, b) => {
+    const distA = (a.cx - cornerX) ** 2 + (a.cy - cornerY) ** 2;
+    const distB = (b.cx - cornerX) ** 2 + (b.cy - cornerY) ** 2;
+    return distA - distB;
+  });
   const best = candidates[0];
   return { x: best.cx, y: best.cy };
 }

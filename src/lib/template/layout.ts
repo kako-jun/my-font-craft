@@ -16,7 +16,7 @@ export const HEADER_HEIGHT = 7; // タイトル行のみ
 
 // 本文領域
 export const BODY_START_X = MARGIN;
-export const BODY_START_Y = 28; // MARGIN(10) + HEADER_HEIGHT(7) + MARKER_SIZE(8) + 余白(3)
+export const BODY_START_Y = 28; // マーカー下端(11mm)よりも下、ヘッダー領域の下に配置
 
 // グリッド
 export const COLS = 4;
@@ -31,11 +31,11 @@ export const CHECK_HEIGHT = 3;
 export const CELL_GAP = 2;
 export const SAMPLE_WIDTH = 10;
 
-// QRコード（マーカー内側、左下付近）
-// 本文最終行チェック欄下端: y=266、bottomマーカー: y=272〜280
-// 4列目セル(x=180〜195)と干渉しないよう1列目の下に配置
-export const QR_X = 20; // bottomLeftマーカー(x=10)の右隣、20+15=35
-export const QR_Y = 267; // チェック欄下端(266)の1mm下
+// QRコード（本文領域下、左下付近）
+// 本文最終行チェック欄下端: y=266、bottomマーカー: y=289〜297
+// QR下端(267+15=282)はbottomマーカー(y=289)より上で干渉なし
+export const QR_X = 20;
+export const QR_Y = 267;
 export const QR_SIZE = 15;
 
 // 左右縦グレースケールバー
@@ -44,8 +44,8 @@ export const GRAY_BAR_STEP_SIZE = 5; // 各ステップ 5mm幅
 
 // 左バー: ページ左端の余白内（マーカーより外側）
 export const GRAY_BAR_LEFT_X = 2;
-export const GRAY_BAR_TOP_Y = 17; // topマーカーと同じY開始
-export const GRAY_BAR_BOTTOM_Y = 272; // bottomマーカーと同じY開始
+export const GRAY_BAR_TOP_Y = 22; // topマーカー下端(11mm)から余白を空けて開始
+export const GRAY_BAR_BOTTOM_Y = 272; // 本文領域下端付近（bottomマーカーy=289よりも上）
 
 // 右バー: ページ右端の余白内
 export const GRAY_BAR_RIGHT_X = 203; // 203 + 5 = 208, ページ幅210内
@@ -55,13 +55,13 @@ export const CYAN_SAMPLE_X = 175;
 export const CYAN_SAMPLE_Y = 10;
 export const CYAN_SAMPLE_SIZE = 5;
 
-// 四隅マーカー
+// 四隅マーカー（#33 新マーカー位置: ページ端に近い配置で外挿誤差を最小化）
 export const MARKER_SIZE = 8;
 export const MARKERS = {
-  topLeft: { x: 10, y: 17, filled: true },
-  topRight: { x: 192, y: 17, filled: false },
-  bottomLeft: { x: 10, y: 272, filled: false },
-  bottomRight: { x: 192, y: 272, filled: false },
+  topLeft: { x: 3, y: 3, filled: true },
+  topRight: { x: 201, y: 3, filled: false },
+  bottomLeft: { x: 3, y: 289, filled: false },
+  bottomRight: { x: 201, y: 289, filled: false },
 } as const;
 
 // 色

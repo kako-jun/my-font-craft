@@ -12,3 +12,7 @@ tests/fixtures/test-output.ttf
 test-results/
 playwright-report/
 blob-report/
+
+# Rust CLI
+cli/target/
+debug_output/

@@ -150,8 +150,8 @@ async function generateTemplatePDFFromChars(
       // アスペクト比を保って高さ4mmに収める
       const triviaHeightMm = 4;
       const triviaWidthMm = (triviaImage.widthPx / triviaImage.heightPx) * triviaHeightMm;
-      // 右寄せ: ページ番号の右端に揃える。右上マーカー(x=192)と重ならないよう制限
-      const maxWidthMm = 192 - MARGIN - 25; // マーカー左端(192) - 左余白(10) - タイトル領域(25) = 157mm
+      // 右寄せ: ページ番号の右端に揃える。右上マーカー(x=201)と重ならないよう制限
+      const maxWidthMm = 199 - MARGIN - 25; // マーカー左端(201)-2mm余白 - 左余白(10) - タイトル領域(25) = 164mm
       const clampedWidthMm = Math.min(triviaWidthMm, maxWidthMm);
       const clampedHeightMm =
         clampedWidthMm < triviaWidthMm
@@ -160,8 +160,8 @@ async function generateTemplatePDFFromChars(
       // ページ番号(14mm)の下に配置。画像の上端が17mmになるよう下端を計算
       const triviaTopMm = 17;
       const triviaBottomMm = triviaTopMm + clampedHeightMm;
-      // 右上マーカー(x=192)の左に収まるよう配置
-      const triviaRightEdge = mm(190); // マーカーとの間に2mm余白
+      // 右上マーカー(x=201)の左に収まるよう配置
+      const triviaRightEdge = mm(199); // マーカーとの間に2mm余白
       page.drawImage(triviaEmbed, {
         x: triviaRightEdge - mm(clampedWidthMm),
         y: toY(triviaBottomMm),
