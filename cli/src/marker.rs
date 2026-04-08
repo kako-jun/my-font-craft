@@ -193,12 +193,13 @@ pub struct DetectedMarker {
     pub area: u32,
 }
 
-/// 四隅マーカーを検出する。15%マージン領域を探索
+/// 四隅マーカーを検出する。25%マージン領域を探索
+/// 大きな歪み（7度回転+台形）でもマーカーが領域内に収まるよう広めに取る
 pub fn detect_markers(binary: &GrayImage) -> Result<[DetectedMarker; 4], String> {
     let w = binary.width();
     let h = binary.height();
-    let margin_x = (w as f64 * 0.15) as u32;
-    let margin_y = (h as f64 * 0.15) as u32;
+    let margin_x = (w as f64 * 0.25) as u32;
+    let margin_y = (h as f64 * 0.25) as u32;
 
     // 四隅領域: TL, TR, BL, BR
     let regions = [

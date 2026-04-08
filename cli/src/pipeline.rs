@@ -68,6 +68,10 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
         .map_err(|e| format!("保存エラー: {e}"))?;
     println!("  → 05_corrected.png 保存完了");
 
+    // ステップ6.5: 補正品質チェック（マーカー再検出+残差計測）
+    println!("\n=== ステップ6.5: 補正品質チェック ===");
+    verify_correction_quality(&corrected, output_dir);
+
     // ステップ7: QR読み取り
     println!("\n=== ステップ7: QR読み取り ===");
     let qr_result = read_qr_from_corrected(&corrected, output_dir);
@@ -296,4 +300,96 @@ fn remove_cyan(img: &RgbaImage) -> RgbaImage {
     );
 
     out
+}
+
+/// 補正品質チェック: 補正後画像でマーカーを再検出し、期待座標との残差を計測
+fn verify_correction_quality(corrected: &RgbaImage, output_dir: &Path) {
+    let gray = image::DynamicImage::ImageRgba8(corrected.clone()).into_luma8();
+    let threshold = marker::otsu_threshold(&gray);
+    let binary = marker::binarize(&gray, threshold);
+
+    match marker::detect_markers(&binary) {
+        Ok(detected) => {
+            let expected = [
+                (layout::MARKER_TL, "TL"),
+                (layout::MARKER_TR, "TR"),
+                (layout::MARKER_BL, "BL"),
+                (layout::MARKER_BR, "BR"),
+            ];
+
+            let mut max_err = 0.0f64;
+            let mut total_err = 0.0f64;
+
+            for (i, (marker_def, name)) in expected.iter().enumerate() {
+                let (exp_cx, exp_cy) = layout::marker_center(marker_def);
+                let exp_px_x = layout::mm_to_px(exp_cx);
+                let exp_px_y = layout::mm_to_px(exp_cy);
+
+                let det_x = detected[i].cx;
+                let det_y = detected[i].cy;
+
+                let dx = det_x - exp_px_x;
+                let dy = det_y - exp_px_y;
+                let err = (dx * dx + dy * dy).sqrt();
+                let err_mm = err / layout::mm_to_px(1.0);
+
+                max_err = max_err.max(err);
+                total_err += err;
+
+                let status = if err_mm < 0.5 { "OK" }
+                    else if err_mm < 1.0 { "注意" }
+                    else { "要改善" };
+
+                println!(
+                    "  {name}: 期待({exp_px_x:.1}, {exp_px_y:.1}) 検出({det_x:.1}, {det_y:.1}) 残差={err:.1}px ({err_mm:.2}mm) [{status}]"
+                );
+            }
+
+            let avg_err = total_err / 4.0;
+            let avg_mm = avg_err / layout::mm_to_px(1.0);
+            let max_mm = max_err / layout::mm_to_px(1.0);
+            println!("  平均残差: {avg_err:.1}px ({avg_mm:.2}mm) 最大: {max_err:.1}px ({max_mm:.2}mm)");
+
+            if max_mm > 1.0 {
+                println!("  ⚠ 台形補正の精度が不十分。罫線がセルに混入する可能性あり");
+            } else {
+                println!("  ✓ 台形補正の精度は良好");
+            }
+
+            // 残差可視化画像
+            let mut overlay = corrected.clone();
+            for (i, (marker_def, _)) in expected.iter().enumerate() {
+                let (exp_cx, exp_cy) = layout::marker_center(marker_def);
+                let exp_x = layout::mm_to_px(exp_cx).round() as i32;
+                let exp_y = layout::mm_to_px(exp_cy).round() as i32;
+                let det_x = detected[i].cx.round() as i32;
+                let det_y = detected[i].cy.round() as i32;
+                draw_cross(&mut overlay, exp_x, exp_y, 15, Rgba([0, 255, 0, 255]));
+                draw_cross(&mut overlay, det_x, det_y, 15, Rgba([255, 0, 0, 255]));
+            }
+            let _ = overlay.save(output_dir.join("05b_residual.png"));
+            println!("  → 05b_residual.png 保存完了 (緑=期待, 赤=検出)");
+        }
+        Err(e) => {
+            println!("  ⚠ 補正後マーカー再検出失敗: {e}");
+            println!("  台形補正の精度を確認できません");
+        }
+    }
+}
+
+fn draw_cross(img: &mut RgbaImage, cx: i32, cy: i32, size: i32, color: Rgba<u8>) {
+    for d in -size..=size {
+        for t in [-1i32, 0, 1] {
+            let px = cx + d;
+            let py = cy + t;
+            if px >= 0 && py >= 0 && (px as u32) < img.width() && (py as u32) < img.height() {
+                img.put_pixel(px as u32, py as u32, color);
+            }
+            let px = cx + t;
+            let py = cy + d;
+            if px >= 0 && py >= 0 && (px as u32) < img.width() && (py as u32) < img.height() {
+                img.put_pixel(px as u32, py as u32, color);
+            }
+        }
+    }
 }
