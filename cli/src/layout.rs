@@ -1,5 +1,5 @@
-/// テンプレートレイアウト定数（mm単位）
-/// TypeScript layout.ts からの移植 + #33 新マーカー位置
+// テンプレートレイアウト定数（mm単位）
+// TypeScript layout.ts からの移植 + #33 新マーカー位置
 
 // DPI
 pub const DPI: f64 = 300.0;
@@ -24,7 +24,7 @@ pub const BODY_START_Y: f64 = 28.0;
 // グリッド
 pub const COLS: usize = 4;
 pub const ROWS: usize = 12;
-pub const CHARS_PER_PAGE: usize = 48; // COLS * ROWS
+pub const CHARS_PER_PAGE: usize = 48; // COLS * ROWS（文字数。各文字に2マスあるのでセル総数は96）
 pub const COL_WIDTH: f64 = 47.0;
 pub const ROW_HEIGHT: f64 = 20.0;
 

@@ -5,7 +5,7 @@ use crate::layout;
 /// QRコードを生成し、指定位置にRGBA画像に描画する
 pub fn draw_qr_on_image(img: &mut RgbaImage, data: &str) -> Result<(), String> {
     let code = qrcode::QrCode::new(data.as_bytes())
-        .map_err(|e| format!("QRコード生成エラー: {}", e))?;
+        .map_err(|e| format!("QRコード生成エラー: {e}"))?;
 
     let qr_image = code.render::<Luma<u8>>()
         .quiet_zone(false)
@@ -55,7 +55,7 @@ pub fn read_qr_from_gray(gray: &GrayImage) -> Result<String, String> {
 
     let (_, content) = grids[0]
         .decode()
-        .map_err(|e| format!("QRデコードエラー: {}", e))?;
+        .map_err(|e| format!("QRデコードエラー: {e}"))?;
 
     Ok(content)
 }

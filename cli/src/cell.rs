@@ -17,7 +17,7 @@ pub struct CellResult {
 /// 全48セルを切り出して個別PNGで保存
 pub fn extract_cells(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CellResult>, String> {
     std::fs::create_dir_all(output_dir)
-        .map_err(|e| format!("セル出力ディレクトリ作成エラー: {}", e))?;
+        .map_err(|e| format!("セル出力ディレクトリ作成エラー: {e}"))?;
 
     let inner_size_px = layout::mm_to_px(layout::INNER_SIZE).round() as u32;
     let inner_offset = (layout::CELL_SIZE - layout::INNER_SIZE) / 2.0; // 2.5mm
@@ -79,11 +79,11 @@ pub fn extract_cells(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CellResul
                     filled_count += 1;
                 }
 
-                let filename = format!("R{:02}C{:02}_I{}.png", row, col, cell_idx);
+                let filename = format!("R{row:02}C{col:02}_I{cell_idx}.png");
                 let filepath = output_dir.join(&filename);
                 cell_img
                     .save(&filepath)
-                    .map_err(|e| format!("セル保存エラー {}: {}", filename, e))?;
+                    .map_err(|e| format!("セル保存エラー {filename}: {e}"))?;
 
                 println!(
                     "  R{:02}C{:02}_I{}: black={:.1}% {}",

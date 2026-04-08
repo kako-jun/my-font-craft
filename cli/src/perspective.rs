@@ -31,8 +31,7 @@ pub fn extrapolate_page_corners(markers: &[DetectedMarker; 4]) -> PageCorners {
     let ratio_top = m_top / (m_bottom - m_top);               // 7 / 286
     let ratio_bottom = (layout::PAGE_HEIGHT - m_bottom) / (m_bottom - m_top); // 4 / 286
 
-    println!("  外挿比率: left={:.4} right={:.4} top={:.4} bottom={:.4}",
-        ratio_left, ratio_right, ratio_top, ratio_bottom);
+    println!("  外挿比率: left={ratio_left:.4} right={ratio_right:.4} top={ratio_top:.4} bottom={ratio_bottom:.4}");
 
     // TL隅
     let tl_x = ml.cx - (mr.cx - ml.cx) * ratio_left;

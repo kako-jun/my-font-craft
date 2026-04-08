@@ -52,7 +52,7 @@ fn main() {
     };
 
     if let Err(e) = result {
-        eprintln!("エラー: {}", e);
+        eprintln!("エラー: {e}");
         std::process::exit(1);
     }
 }

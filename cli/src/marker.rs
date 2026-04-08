@@ -11,8 +11,8 @@ pub fn otsu_threshold(gray: &GrayImage) -> u8 {
 
     let total = gray.width() as f64 * gray.height() as f64;
     let mut sum_total = 0.0f64;
-    for i in 0..256 {
-        sum_total += i as f64 * histogram[i] as f64;
+    for (i, &count) in histogram.iter().enumerate() {
+        sum_total += i as f64 * count as f64;
     }
 
     let mut sum_bg = 0.0f64;
@@ -20,8 +20,8 @@ pub fn otsu_threshold(gray: &GrayImage) -> u8 {
     let mut max_variance = 0.0f64;
     let mut best_threshold = 0u8;
 
-    for t in 0..256 {
-        weight_bg += histogram[t] as f64;
+    for (t, &count) in histogram.iter().enumerate() {
+        weight_bg += count as f64;
         if weight_bg == 0.0 {
             continue;
         }
@@ -29,7 +29,7 @@ pub fn otsu_threshold(gray: &GrayImage) -> u8 {
         if weight_fg == 0.0 {
             break;
         }
-        sum_bg += t as f64 * histogram[t] as f64;
+        sum_bg += t as f64 * count as f64;
         let mean_bg = sum_bg / weight_bg;
         let mean_fg = (sum_total - sum_bg) / weight_fg;
         let variance = weight_bg * weight_fg * (mean_bg - mean_fg) * (mean_bg - mean_fg);
@@ -87,14 +87,15 @@ impl Blob {
 }
 
 /// 4連結 union-find で黒ピクセルの連結成分を抽出
-fn find(parent: &mut Vec<usize>, i: usize) -> usize {
-    if parent[i] != i {
-        parent[i] = find(parent, parent[i]);
+fn find(parent: &mut [usize], mut i: usize) -> usize {
+    while parent[i] != i {
+        parent[i] = parent[parent[i]]; // path splitting
+        i = parent[i];
     }
-    parent[i]
+    i
 }
 
-fn union(parent: &mut Vec<usize>, rank: &mut Vec<usize>, a: usize, b: usize) {
+fn union(parent: &mut [usize], rank: &mut [usize], a: usize, b: usize) {
     let ra = find(parent, a);
     let rb = find(parent, b);
     if ra == rb {
@@ -210,7 +211,7 @@ pub fn detect_markers(binary: &GrayImage) -> Result<[DetectedMarker; 4], String>
     let mut markers = Vec::new();
 
     // マーカーの期待サイズ（px）
-    let marker_px = layout::mm_to_px(layout::MARKER_SIZE).round() as f64;
+    let marker_px = layout::mm_to_px(layout::MARKER_SIZE).round();
 
     // 各領域の「コーナー座標」（マーカーが一番近いべき角）
     let corner_points: [(f64, f64); 4] = [
@@ -274,8 +275,7 @@ pub fn detect_markers(binary: &GrayImage) -> Result<[DetectedMarker; 4], String>
         let bbox_cy = (merged_min_y as f64 + merged_max_y as f64) / 2.0;
 
         println!(
-            "  {} マーカー: center=({:.1}, {:.1}) area={} bbox=({},{})..({},{})",
-            name, bbox_cx, bbox_cy, total_area, merged_min_x, merged_min_y, merged_max_x, merged_max_y,
+            "  {name} マーカー: center=({bbox_cx:.1}, {bbox_cy:.1}) area={total_area} bbox=({merged_min_x},{merged_min_y})..({merged_max_x},{merged_max_y})",
         );
         markers.push(DetectedMarker {
             cx: bbox_cx,
@@ -360,7 +360,7 @@ pub fn detect_orientation(
         }
 
         let density = if total > 0 { black_count as f64 / total as f64 } else { 0.0 };
-        println!("  マーカー[{}]: 密度={:.3} (黒={}/{})", i, density, black_count, total);
+        println!("  マーカー[{i}]: 密度={density:.3} (黒={black_count}/{total})");
         densities.push((i, density));
     }
 
@@ -380,7 +380,7 @@ pub fn detect_orientation(
         _ => unreachable!(),
     };
 
-    println!("  filled マーカー位置: [{}], 回転角度: {}°", tl_index, rotation);
+    println!("  filled マーカー位置: [{tl_index}], 回転角度: {rotation}°");
 
     Ok((tl_index, rotation))
 }

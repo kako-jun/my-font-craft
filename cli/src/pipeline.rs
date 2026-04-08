@@ -6,27 +6,27 @@ use crate::{layout, marker, perspective, qr, cell};
 /// パイプラインを実行
 pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(output_dir)
-        .map_err(|e| format!("出力ディレクトリ作成エラー: {}", e))?;
+        .map_err(|e| format!("出力ディレクトリ作成エラー: {e}"))?;
 
     // ステップ1: 画像読み込み
     println!("\n=== ステップ1: 画像読み込み ===");
     let img = image::open(image_path)
-        .map_err(|e| format!("画像読み込みエラー: {}", e))?;
+        .map_err(|e| format!("画像読み込みエラー: {e}"))?;
     let rgba = img.to_rgba8();
     println!("  画像サイズ: {}x{}", rgba.width(), rgba.height());
     rgba.save(output_dir.join("01_input.png"))
-        .map_err(|e| format!("保存エラー: {}", e))?;
+        .map_err(|e| format!("保存エラー: {e}"))?;
     println!("  → 01_input.png 保存完了");
 
     // ステップ2: 二値化
     println!("\n=== ステップ2: 二値化 ===");
     let gray = DynamicImage::ImageRgba8(rgba.clone()).into_luma8();
     let threshold = marker::otsu_threshold(&gray);
-    println!("  大津の閾値: {}", threshold);
+    println!("  大津の閾値: {threshold}");
     let binary = marker::binarize(&gray, threshold);
     binary
         .save(output_dir.join("02_binary.png"))
-        .map_err(|e| format!("保存エラー: {}", e))?;
+        .map_err(|e| format!("保存エラー: {e}"))?;
     println!("  → 02_binary.png 保存完了");
 
     // ステップ3: マーカー検出
@@ -35,7 +35,7 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
     let marker_img = marker::draw_marker_overlay(&rgba, &markers);
     marker_img
         .save(output_dir.join("03_markers.png"))
-        .map_err(|e| format!("保存エラー: {}", e))?;
+        .map_err(|e| format!("保存エラー: {e}"))?;
     println!("  → 03_markers.png 保存完了");
 
     // ステップ4: 向き検出
@@ -43,7 +43,7 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
     let (tl_index, rotation) = marker::detect_orientation(&binary, &markers)?;
 
     let (oriented_img, oriented_markers) = if rotation != 0 {
-        println!("  画像を{}°回転します", rotation);
+        println!("  画像を{rotation}°回転します");
         let rotated = marker::rotate_image(&rgba, rotation);
         let reordered = marker::reorder_markers(&markers, tl_index, rotation, rgba.width(), rgba.height());
         (rotated, reordered)
@@ -53,7 +53,7 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
 
     oriented_img
         .save(output_dir.join("04_oriented.png"))
-        .map_err(|e| format!("保存エラー: {}", e))?;
+        .map_err(|e| format!("保存エラー: {e}"))?;
     println!("  → 04_oriented.png 保存完了");
 
     // ステップ5: ページ四隅外挿
@@ -65,15 +65,15 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
     let corrected = perspective::bilinear_warp(&oriented_img, &page_corners);
     corrected
         .save(output_dir.join("05_corrected.png"))
-        .map_err(|e| format!("保存エラー: {}", e))?;
+        .map_err(|e| format!("保存エラー: {e}"))?;
     println!("  → 05_corrected.png 保存完了");
 
     // ステップ7: QR読み取り
     println!("\n=== ステップ7: QR読み取り ===");
     let qr_result = read_qr_from_corrected(&corrected, output_dir);
     match &qr_result {
-        Ok(data) => println!("  QRデータ: {}", data),
-        Err(e) => println!("  QR読み取り失敗（続行）: {}", e),
+        Ok(data) => println!("  QRデータ: {data}"),
+        Err(e) => println!("  QR読み取り失敗（続行）: {e}"),
     }
 
     // ステップ8: 影補正
@@ -81,7 +81,7 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
     let shadow_corrected = correct_shadow(&corrected);
     shadow_corrected
         .save(output_dir.join("07_shadow_corrected.png"))
-        .map_err(|e| format!("保存エラー: {}", e))?;
+        .map_err(|e| format!("保存エラー: {e}"))?;
     println!("  → 07_shadow_corrected.png 保存完了");
 
     // ステップ9: シアン除去
@@ -89,7 +89,7 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
     let cyan_removed = remove_cyan(&shadow_corrected);
     cyan_removed
         .save(output_dir.join("08_cyan_removed.png"))
-        .map_err(|e| format!("保存エラー: {}", e))?;
+        .map_err(|e| format!("保存エラー: {e}"))?;
     println!("  → 08_cyan_removed.png 保存完了");
 
     // ステップ10: セル切り出し
@@ -135,13 +135,15 @@ fn read_qr_from_corrected(img: &RgbaImage, output_dir: &Path) -> Result<String, 
     }
     qr_region_img
         .save(output_dir.join("06_qr_region.png"))
-        .map_err(|e| format!("保存エラー: {}", e))?;
-    println!("  → 06_qr_region.png 保存完了 ({}x{})", region_w, region_h);
+        .map_err(|e| format!("保存エラー: {e}"))?;
+    println!("  → 06_qr_region.png 保存完了 ({region_w}x{region_h})");
 
     qr::read_qr_from_gray(&region)
 }
 
 /// 影補正: 左右グレースケールバーを読み取り、期待値との差分で勾配補正
+/// 注: 現在は水平方向（左→右）の線形補間のみ。Y方向の段階的補正は
+/// TypeScript版の2Dグリッド補正と異なるが、デバッグツールとしては十分
 fn correct_shadow(img: &RgbaImage) -> RgbaImage {
     let w = img.width();
     let h = img.height();
@@ -160,7 +162,7 @@ fn correct_shadow(img: &RgbaImage) -> RgbaImage {
     let mut right_ratios = Vec::new();
 
     for i in 0..layout::GRAY_BAR_STEPS {
-        let expected = (i as f64 / layout::GRAY_BAR_STEPS as f64 * 255.0).round() as f64;
+        let expected = (i as f64 / layout::GRAY_BAR_STEPS as f64 * 255.0).round();
         let y_start = top_y + i as u32 * step_h;
 
         // 左バーの平均輝度
@@ -174,8 +176,7 @@ fn correct_shadow(img: &RgbaImage) -> RgbaImage {
         }
 
         println!(
-            "  バーステップ[{}]: 期待={:.0} 左実測={:.1} 右実測={:.1}",
-            i, expected, left_avg, right_avg
+            "  バーステップ[{i}]: 期待={expected:.0} 左実測={left_avg:.1} 右実測={right_avg:.1}"
         );
     }
 
@@ -191,7 +192,7 @@ fn correct_shadow(img: &RgbaImage) -> RgbaImage {
         right_ratios.iter().sum::<f64>() / right_ratios.len() as f64
     };
 
-    println!("  補正比率: 左={:.3} 右={:.3}", left_ratio, right_ratio);
+    println!("  補正比率: 左={left_ratio:.3} 右={right_ratio:.3}");
 
     // 勾配補正
     let mut out = img.clone();
@@ -200,9 +201,9 @@ fn correct_shadow(img: &RgbaImage) -> RgbaImage {
             let t = x as f64 / w as f64;
             let ratio = left_ratio * (1.0 - t) + right_ratio * t;
             let p = img.get_pixel(x, y);
-            let r = (p[0] as f64 * ratio).min(255.0).max(0.0) as u8;
-            let g = (p[1] as f64 * ratio).min(255.0).max(0.0) as u8;
-            let b = (p[2] as f64 * ratio).min(255.0).max(0.0) as u8;
+            let r = (p[0] as f64 * ratio).clamp(0.0, 255.0) as u8;
+            let g = (p[1] as f64 * ratio).clamp(0.0, 255.0) as u8;
+            let b = (p[2] as f64 * ratio).clamp(0.0, 255.0) as u8;
             out.put_pixel(x, y, Rgba([r, g, b, p[3]]));
         }
     }
@@ -266,7 +267,7 @@ fn remove_cyan(img: &RgbaImage) -> RgbaImage {
     let avg_g = if count > 0 { sum_g / count as f64 } else { 255.0 };
     let avg_b = if count > 0 { sum_b / count as f64 } else { 255.0 };
 
-    println!("  シアンサンプル平均色: R={:.1} G={:.1} B={:.1}", avg_r, avg_g, avg_b);
+    println!("  シアンサンプル平均色: R={avg_r:.1} G={avg_g:.1} B={avg_b:.1}");
 
     // 色距離80以内のピクセルを白化
     let threshold = 80.0f64;

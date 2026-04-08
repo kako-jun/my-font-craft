@@ -9,7 +9,7 @@ use std::path::Path;
 pub fn generate_template(output_path: &Path, with_glyphs: bool) -> Result<(), String> {
     let w = layout::image_width();
     let h = layout::image_height();
-    println!("テンプレート生成: {}x{} px (A4 300dpi)", w, h);
+    println!("テンプレート生成: {w}x{h} px (A4 300dpi)");
 
     // 白背景
     let mut img = RgbaImage::from_pixel(w, h, Rgba([255, 255, 255, 255]));
@@ -45,10 +45,10 @@ pub fn generate_template(output_path: &Path, with_glyphs: bool) -> Result<(), St
     // 保存
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|e| format!("出力ディレクトリ作成エラー: {}", e))?;
+            .map_err(|e| format!("出力ディレクトリ作成エラー: {e}"))?;
     }
     img.save(output_path)
-        .map_err(|e| format!("画像保存エラー: {}", e))?;
+        .map_err(|e| format!("画像保存エラー: {e}"))?;
     println!("テンプレート保存: {}", output_path.display());
 
     Ok(())
