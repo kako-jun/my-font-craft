@@ -9,22 +9,13 @@ const PAGE_TRIVIA: Record<number, string> = {
   7: 'ラッキーセブン。いい字が書けそう',
   8: '八は末広がりで縁起がいい',
   9: '九は中国語で「久」と同じ発音',
-  10: '10ページ到達。いいペース！',
   13: '13は西洋では不吉、でも書は関係ない',
-  20: '20ページ。もう4分の1くらい？',
   21: 'ブラックジャック！ 最強の手',
-  30: '30ページ突破。折り返しが見えてきた',
   33: 'ゾロ目。ちょっと嬉しい',
-  40: '40ページ。半分近い。休憩してもいい',
   42: '42は「生命、宇宙、そして万物の答え」',
-  50: '50ページ。折り返し地点を過ぎた',
-  55: 'ゴーゴー！ ラストスパートへ',
-  60: 'あと少し。最後まで丁寧に',
+  55: 'ゴーゴー！',
   64: '64は2の6乗。コンピュータ的に美しい数',
-  70: '70ページ。ゴールが見えてきた',
   77: 'ラッキーセブンが2つ。超ラッキー',
-  80: 'ラスト1ページかも？ お疲れ様',
-  81: '最終ページ。完走おめでとう！',
 };
 
 // ひらがなにまつわる雑学
@@ -148,14 +139,34 @@ export function getTriviaForPage(
 ): string {
   const pageNum = pageIndex + 1;
 
-  // ページ番号に固有の雑学があればそれを優先
-  if (PAGE_TRIVIA[pageNum]) {
-    return PAGE_TRIVIA[pageNum];
-  }
-
-  // 最終ページ（動的に判定。PAGE_TRIVIA にある場合は上で返り済み）
+  // 最終ページ
   if (pageNum === totalPages) {
     return '最終ページ。完走おめでとう！';
+  }
+
+  // ラスト1ページ
+  if (pageNum === totalPages - 1) {
+    return 'ラスト1ページ。お疲れ様！';
+  }
+
+  // 進捗マイルストーン（totalPages ベースで動的に計算）
+  if (totalPages >= 4) {
+    const quarter = Math.round(totalPages / 4);
+    const half = Math.round(totalPages / 2);
+    const threeQuarter = Math.round((totalPages * 3) / 4);
+    if (pageNum === quarter) return `${pageNum}ページ。4分の1を通過！`;
+    if (pageNum === half) return `${pageNum}ページ。折り返し地点！`;
+    if (pageNum === threeQuarter) return `${pageNum}ページ。ゴールが見えてきた`;
+  }
+
+  // 10ページ刻みのキリ番
+  if (pageNum >= 10 && pageNum % 10 === 0) {
+    return `${pageNum}ページ到達。いいペース！`;
+  }
+
+  // ページ番号に固有の雑学（数字にまつわるトリビア）
+  if (PAGE_TRIVIA[pageNum]) {
+    return PAGE_TRIVIA[pageNum];
   }
 
   // totalPages をシードに使い、同じ構成なら同じ順序を保証

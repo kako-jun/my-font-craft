@@ -24,7 +24,7 @@ pub const BODY_START_Y: f64 = 28.0;
 // グリッド
 pub const COLS: usize = 4;
 pub const ROWS: usize = 12;
-pub const CHARS_PER_PAGE: usize = 48; // COLS * ROWS（文字数。各文字に2マスあるのでセル総数は96）
+pub const CHARS_PER_PAGE: usize = COLS * ROWS; // 各文字に2マスあるのでセル総数は CHARS_PER_PAGE * 2
 pub const COL_WIDTH: f64 = 47.0;
 pub const ROW_HEIGHT: f64 = 20.0;
 
@@ -113,6 +113,6 @@ pub fn get_sample_position(row: usize, col: usize) -> (f64, f64) {
     (x, y)
 }
 
-// TODO: 中心マーカーによりページあたり文字数が48→47に変更
-// CHARS_PER_PAGE、QRコード、ページ割り当て、TypeScript側のテンプレート生成を含む
-// 包括的な変更が必要（Issue #33 で対応）
+// NOTE: 中心マーカー追加時は CHARS_PER_PAGE を1減らす波及変更が必要
+// （QRコード、ページ割り当て、TypeScript側テンプレート生成を含む）
+// 実写テストで中心マーカーの必要性を確認してから対応する

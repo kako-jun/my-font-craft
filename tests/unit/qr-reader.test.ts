@@ -17,10 +17,11 @@ describe('QR Reader', () => {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0);
 
-    // ヘッダー領域（上部20%）を切り出して読み取り
-    const headerH = Math.floor(img.height * 0.2);
-    const headerData = ctx.getImageData(0, 0, img.width, headerH);
-    const qr = readQRFromImageData(headerData as any);
+    // QRはページ左下（下部30%×左30%）に配置
+    const regionH = Math.floor(img.height * 0.3);
+    const regionW = Math.floor(img.width * 0.3);
+    const footerData = ctx.getImageData(0, img.height - regionH, regionW, regionH);
+    const qr = readQRFromImageData(footerData as any);
 
     expect(qr).not.toBeNull();
     expect(qr!.p).toBe('mfc');
@@ -36,9 +37,10 @@ describe('QR Reader', () => {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0);
 
-    const headerH = Math.floor(img.height * 0.2);
-    const headerData = ctx.getImageData(0, 0, img.width, headerH);
-    const qr = readQRFromImageData(headerData as any);
+    const regionH = Math.floor(img.height * 0.3);
+    const regionW = Math.floor(img.width * 0.3);
+    const footerData = ctx.getImageData(0, img.height - regionH, regionW, regionH);
+    const qr = readQRFromImageData(footerData as any);
 
     expect(qr).not.toBeNull();
     expect(qr!.pg).toBe(2);

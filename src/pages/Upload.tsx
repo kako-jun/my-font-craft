@@ -31,17 +31,32 @@ export default function Upload(props: Props) {
     { pageIndex: number; dataUrl: string }[]
   >([]);
   const [scanResult, setScanResult] = createSignal<ProcessResult | null>(null);
+  const [excludedChars, setExcludedChars] = createSignal<Set<string>>(new Set());
 
-  // 未検出文字のリスト（imported は取得済み扱い）
+  // 未検出文字のリスト（imported は取得済み扱い、excluded は未検出扱い）
   const missingChars = createMemo(() =>
     glyphStatuses()
-      .filter((g) => g.status === 'empty')
+      .filter((g) => g.status === 'empty' || excludedChars().has(g.char))
       .map((g) => g.char),
   );
 
-  // 取得済み文字が1件以上あるか
+  function toggleExclude(char: string) {
+    setExcludedChars((prev) => {
+      const next = new Set(prev);
+      if (next.has(char)) {
+        next.delete(char);
+      } else {
+        next.add(char);
+      }
+      return next;
+    });
+  }
+
+  // 取得済み文字（除外を除く）が1件以上あるか
   const hasAcquiredChars = createMemo(() =>
-    glyphStatuses().some((g) => g.status === 'found' || g.status === 'imported'),
+    glyphStatuses().some(
+      (g) => (g.status === 'found' || g.status === 'imported') && !excludedChars().has(g.char),
+    ),
   );
 
   function addMessage(msg: ProcessMessage) {
@@ -148,9 +163,20 @@ export default function Upload(props: Props) {
     addMessage({ type: 'info', text: 'フォントを生成中...' });
 
     try {
+      // 除外文字のグリフを除く
+      const excluded = excludedChars();
+      const glyphs =
+        excluded.size > 0
+          ? result.glyphs.filter((g) => {
+              if (g.unicode === undefined) return true;
+              const char = String.fromCodePoint(g.unicode);
+              return !excluded.has(char);
+            })
+          : result.glyphs;
+
       const fontBytes = await buildFont({
         familyName: props.fontName || 'MyHandwriting',
-        glyphs: result.glyphs,
+        glyphs,
       });
 
       const blob = new Blob([fontBytes], { type: 'font/ttf' });
@@ -293,6 +319,7 @@ export default function Upload(props: Props) {
     setGlyphStatuses([]);
     setCorrectedPages([]);
     setScanResult(null);
+    setExcludedChars(new Set());
   }
 
   return (
@@ -404,7 +431,12 @@ export default function Upload(props: Props) {
       {/* スキャン結果確認グリッド */}
       <Show when={glyphStatuses().length > 0}>
         <div class="card" style="margin-top:1rem">
-          <ScanResultGrid glyphStatuses={glyphStatuses()} correctedPages={correctedPages()} />
+          <ScanResultGrid
+            glyphStatuses={glyphStatuses()}
+            correctedPages={correctedPages()}
+            excludedChars={excludedChars()}
+            onToggleExclude={toggleExclude}
+          />
         </div>
       </Show>
 
@@ -445,7 +477,7 @@ export default function Upload(props: Props) {
               {!hasAcquiredChars()
                 ? 'フォントを生成できません'
                 : missingChars().length > 0
-                  ? `このまま生成する（${glyphStatuses().filter((g) => g.status !== 'empty').length} 文字）`
+                  ? `このまま生成する（${glyphStatuses().filter((g) => g.status !== 'empty' && !excludedChars().has(g.char)).length} 文字）`
                   : 'フォントを生成する'}
             </button>
             <button class="btn" onClick={handleReset}>

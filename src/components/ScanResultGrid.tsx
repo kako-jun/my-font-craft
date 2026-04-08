@@ -4,6 +4,8 @@ import type { GlyphStatus } from '../lib/scanner/processor';
 interface Props {
   glyphStatuses: GlyphStatus[];
   correctedPages: { pageIndex: number; dataUrl: string }[];
+  excludedChars?: Set<string>;
+  onToggleExclude?: (char: string) => void;
 }
 
 export default function ScanResultGrid(props: Props) {
@@ -21,15 +23,23 @@ export default function ScanResultGrid(props: Props) {
     return Array.from(groups.entries()).sort((a, b) => a[0] - b[0]);
   });
 
+  const isExcluded = (char: string) => props.excludedChars?.has(char) ?? false;
+
   const stats = createMemo(() => {
     const total = props.glyphStatuses.length;
-    const found = props.glyphStatuses.filter((g) => g.status === 'found').length;
-    const imported = props.glyphStatuses.filter((g) => g.status === 'imported').length;
+    const found = props.glyphStatuses.filter(
+      (g) => g.status === 'found' && !isExcluded(g.char),
+    ).length;
+    const imported = props.glyphStatuses.filter(
+      (g) => g.status === 'imported' && !isExcluded(g.char),
+    ).length;
+    const excluded = props.excludedChars?.size ?? 0;
     const acquired = found + imported;
     return {
       total,
       found,
       imported,
+      excluded,
       acquired,
       pct: total > 0 ? Math.round((acquired / total) * 100) : 0,
     };
@@ -71,6 +81,9 @@ export default function ScanResultGrid(props: Props) {
             (スキャン: {stats().found} / インポート: {stats().imported})
           </span>
         </Show>
+        <Show when={stats().excluded > 0}>
+          <span class="scan-grid__stat scan-grid__stat--excluded">除外: {stats().excluded}</span>
+        </Show>
         <span class="scan-grid__stat scan-grid__stat--total">/ {stats().total} 文字</span>
         <span class="scan-grid__stat">({stats().pct}%)</span>
       </div>
@@ -107,38 +120,62 @@ export default function ScanResultGrid(props: Props) {
               {/* 文字グリッド */}
               <div class="scan-grid__chars">
                 <For each={glyphs}>
-                  {(gs) => (
-                    <div
-                      class="scan-grid__cell"
-                      classList={{
-                        'scan-grid__cell--found': gs.status === 'found',
-                        'scan-grid__cell--empty': gs.status === 'empty',
-                        'scan-grid__cell--imported': gs.status === 'imported',
-                      }}
-                      title={`${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')}) — p${gs.pageIndex} r${gs.row} c${gs.col}`}
-                      onClick={() => {
-                        if (gs.cellImageDataUrl) {
-                          openModal(
-                            gs.cellImageDataUrl,
-                            `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')})`,
-                          );
+                  {(gs) => {
+                    const excluded = () => isExcluded(gs.char);
+                    const canToggle = () => gs.status !== 'empty' && props.onToggleExclude;
+                    return (
+                      <div
+                        class="scan-grid__cell"
+                        classList={{
+                          'scan-grid__cell--found': gs.status === 'found' && !excluded(),
+                          'scan-grid__cell--empty': gs.status === 'empty',
+                          'scan-grid__cell--imported': gs.status === 'imported' && !excluded(),
+                          'scan-grid__cell--excluded': excluded(),
+                        }}
+                        title={
+                          excluded()
+                            ? `${gs.char} — 除外中（クリックで復帰）`
+                            : canToggle()
+                              ? `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')}) — クリックで除外`
+                              : `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')})`
                         }
-                      }}
-                    >
-                      <div class="scan-grid__cell-char">{gs.char}</div>
-                      <Show when={gs.cellImageDataUrl}>
-                        <img
-                          class="scan-grid__cell-img"
-                          src={gs.cellImageDataUrl}
-                          alt={gs.char}
-                          loading="lazy"
-                        />
-                      </Show>
-                      <Show when={gs.status === 'empty'}>
-                        <div class="scan-grid__cell-miss">×</div>
-                      </Show>
-                    </div>
-                  )}
+                        onClick={(e) => {
+                          if (canToggle()) {
+                            // Shift+クリックで拡大、通常クリックで除外トグル
+                            if (e.shiftKey && gs.cellImageDataUrl) {
+                              openModal(
+                                gs.cellImageDataUrl,
+                                `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')})`,
+                              );
+                            } else {
+                              props.onToggleExclude!(gs.char);
+                            }
+                          } else if (gs.cellImageDataUrl) {
+                            openModal(
+                              gs.cellImageDataUrl,
+                              `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')})`,
+                            );
+                          }
+                        }}
+                      >
+                        <div class="scan-grid__cell-char">{gs.char}</div>
+                        <Show when={gs.cellImageDataUrl}>
+                          <img
+                            class="scan-grid__cell-img"
+                            src={gs.cellImageDataUrl}
+                            alt={gs.char}
+                            loading="lazy"
+                          />
+                        </Show>
+                        <Show when={gs.status === 'empty'}>
+                          <div class="scan-grid__cell-miss">×</div>
+                        </Show>
+                        <Show when={excluded()}>
+                          <div class="scan-grid__cell-excluded-mark">/</div>
+                        </Show>
+                      </div>
+                    );
+                  }}
                 </For>
               </div>
             </div>
