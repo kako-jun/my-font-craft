@@ -258,7 +258,7 @@ npm run check
 # テスト（TypeScript: Vitest 20件）
 npm test
 
-# テスト（Rust CLI: 27件）
+# テスト（Rust CLI）
 cd cli && cargo test
 
 # デプロイ

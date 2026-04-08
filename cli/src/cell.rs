@@ -283,7 +283,7 @@ mod tests {
         img
     }
 
-    // ── judge_adoption: 13パターン（template-spec.md 採用ルール表） ──
+    // ── judge_adoption: 14パターン（template-spec.md 採用ルール表） ──
 
     #[test]
     fn judge_both_filled_both_check() {
@@ -357,6 +357,17 @@ mod tests {
         let slots = [
             make_slot(0, false, CheckMark::Cross),
             make_slot(1, false, CheckMark::Empty),
+        ];
+        let (adopted, _) = judge_adoption(&slots);
+        assert_eq!(adopted, vec![1]);
+    }
+
+    #[test]
+    fn judge_both_filled_i0_cross_i1_check() {
+        // I0記入×, I1記入✓ → I1採用（I0は×で除外、I1に✓）
+        let slots = [
+            make_slot(0, false, CheckMark::Cross),
+            make_slot(1, false, CheckMark::Check),
         ];
         let (adopted, _) = judge_adoption(&slots);
         assert_eq!(adopted, vec![1]);
