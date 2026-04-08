@@ -20,6 +20,9 @@ pub fn generate_template(output_path: &Path, with_glyphs: bool) -> Result<(), St
     // セルグリッド
     draw_cell_grid(&mut img);
 
+    // 中心マーカー（グリッド後に描画して罫線を上書き+白境界で隔離）
+    draw_center_marker(&mut img);
+
     // グレースケールバー
     draw_gray_bars(&mut img);
 
@@ -111,6 +114,23 @@ fn draw_circle_outline(img: &mut RgbaImage, cx: i32, cy: i32, radius: i32, thick
             }
         }
     }
+}
+
+/// 中心マーカーを描画（塗りつぶし四角 + 白アイソレーション境界）
+/// グリッド罫線との接触を防ぐため、マーカー周囲に白い境界を確保してから描画
+fn draw_center_marker(img: &mut RgbaImage) {
+    let x = layout::mm_to_px(layout::CENTER_MARKER_X).round() as u32;
+    let y = layout::mm_to_px(layout::CENTER_MARKER_Y).round() as u32;
+    let size = layout::mm_to_px(layout::CENTER_MARKER_SIZE).round() as u32;
+    let border = 4u32; // 白アイソレーション境界（px）
+    let white = Rgba([255, 255, 255, 255]);
+    let black = Rgba([0, 0, 0, 255]);
+    // 周囲の罫線を白で上書きして隔離
+    fill_rect(img, x.saturating_sub(border), y.saturating_sub(border),
+              size + border * 2, size + border * 2, white);
+    // 塗りつぶし四角
+    fill_rect(img, x, y, size, size, black);
+    println!("  中心マーカー描画完了 ({}x{}mm 塗りつぶし四角、白境界付き)", layout::CENTER_MARKER_SIZE, layout::CENTER_MARKER_SIZE);
 }
 
 /// セルグリッドを描画

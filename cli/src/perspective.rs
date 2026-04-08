@@ -181,7 +181,7 @@ fn compute_homography(src: &[(f64, f64); 4], dst: &[(f64, f64); 4]) -> [f64; 9] 
 }
 
 /// 双線形補間でサンプリング（nearest neighborのエイリアシングを防ぐ）
-fn sample_bilinear(img: &RgbaImage, x: f64, y: f64) -> Rgba<u8> {
+pub fn sample_bilinear(img: &RgbaImage, x: f64, y: f64) -> Rgba<u8> {
     let w = img.width() as i64;
     let h = img.height() as i64;
 

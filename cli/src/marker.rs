@@ -194,14 +194,13 @@ pub struct DetectedMarker {
 }
 
 /// 四隅マーカーを検出する。25%マージン領域を探索
-/// 大きな歪み（7度回転+台形）でもマーカーが領域内に収まるよう広めに取る
+/// ブロブの面積・形状でフィルタし、重心（centroid）を返す
 pub fn detect_markers(binary: &GrayImage) -> Result<[DetectedMarker; 4], String> {
     let w = binary.width();
     let h = binary.height();
     let margin_x = (w as f64 * 0.25) as u32;
     let margin_y = (h as f64 * 0.25) as u32;
 
-    // 四隅領域: TL, TR, BL, BR
     let regions = [
         ("TopLeft", 0, 0, margin_x, margin_y),
         ("TopRight", w - margin_x, 0, w, margin_y),
@@ -211,25 +210,33 @@ pub fn detect_markers(binary: &GrayImage) -> Result<[DetectedMarker; 4], String>
 
     let mut markers = Vec::new();
 
-    // マーカーの期待サイズ（px）
     let marker_px = layout::mm_to_px(layout::MARKER_SIZE).round();
+    // 塗りつぶし円の期待面積（px²）
+    let expected_filled_area = std::f64::consts::PI * (marker_px / 2.0).powi(2);
+    // 個別ブロブのフィルタ範囲（アウトラインの弧も拾うが、巨大ブロブは除外）
+    let min_blob_area = 30u32;
+    let max_blob_area = (expected_filled_area * 5.0) as u32;
 
-    // 各領域の「コーナー座標」（マーカーが一番近いべき角）
     let corner_points: [(f64, f64); 4] = [
-        (0.0, 0.0),                     // TL: 画像左上
-        (w as f64, 0.0),                 // TR: 画像右上
-        (0.0, h as f64),                 // BL: 画像左下
-        (w as f64, h as f64),            // BR: 画像右下
+        (0.0, 0.0),
+        (w as f64, 0.0),
+        (0.0, h as f64),
+        (w as f64, h as f64),
     ];
 
     for (i, (name, x0, y0, x1, y1)) in regions.iter().enumerate() {
         let blobs = extract_blobs(binary, *x0, *y0, *x1, *y1);
         let (corner_x, corner_y) = corner_points[i];
 
-        // フィルタ: 面積≥20（小さな弧も拾う）
+        // フィルタ: 面積範囲 + アスペクト比（細長いバー・罫線を除外）
         let filtered: Vec<&Blob> = blobs
             .iter()
-            .filter(|b| b.area >= 20)
+            .filter(|b| {
+                b.area >= min_blob_area
+                    && b.area <= max_blob_area
+                    && b.aspect_ratio() > 0.2
+                    && b.aspect_ratio() < 5.0
+            })
             .collect();
 
         println!(
@@ -238,7 +245,10 @@ pub fn detect_markers(binary: &GrayImage) -> Result<[DetectedMarker; 4], String>
         );
 
         if filtered.is_empty() {
-            return Err(format!("{} マーカーが検出できませんでした（ブロブ数={}）", name, blobs.len()));
+            return Err(format!(
+                "{} マーカーが検出できませんでした（ブロブ数={}, フィルタ通過=0）",
+                name, blobs.len()
+            ));
         }
 
         // コーナーに最も近いブロブを種として選ぶ
@@ -250,13 +260,13 @@ pub fn detect_markers(binary: &GrayImage) -> Result<[DetectedMarker; 4], String>
 
         let seed_cx = seed.center_x();
         let seed_cy = seed.center_y();
-        let merge_radius = marker_px * 1.5;
+        let merge_radius = marker_px * 1.0; // 1.0倍に縮小（1.5では文字を巻き込む）
 
+        // マージ＋重心計算（bbox中心ではなくピクセル重心を使う）
         let mut total_area = 0u32;
-        let mut merged_min_x = u32::MAX;
-        let mut merged_max_x = 0u32;
-        let mut merged_min_y = u32::MAX;
-        let mut merged_max_y = 0u32;
+        let mut total_sum_x = 0.0f64;
+        let mut total_sum_y = 0.0f64;
+        let mut merged_count = 0usize;
 
         for b in &filtered {
             let bcx = b.center_x();
@@ -264,23 +274,22 @@ pub fn detect_markers(binary: &GrayImage) -> Result<[DetectedMarker; 4], String>
             let dist = ((bcx - seed_cx).powi(2) + (bcy - seed_cy).powi(2)).sqrt();
             if dist <= merge_radius {
                 total_area += b.area;
-                merged_min_x = merged_min_x.min(b.min_x);
-                merged_max_x = merged_max_x.max(b.max_x);
-                merged_min_y = merged_min_y.min(b.min_y);
-                merged_max_y = merged_max_y.max(b.max_y);
+                total_sum_x += b.sum_x;
+                total_sum_y += b.sum_y;
+                merged_count += 1;
             }
         }
 
-        // バウンディングボックスの中心をマーカー中心とする
-        let bbox_cx = (merged_min_x as f64 + merged_max_x as f64) / 2.0;
-        let bbox_cy = (merged_min_y as f64 + merged_max_y as f64) / 2.0;
+        // 重心（ピクセル加重平均）
+        let centroid_x = total_sum_x / total_area as f64;
+        let centroid_y = total_sum_y / total_area as f64;
 
         println!(
-            "  {name} マーカー: center=({bbox_cx:.1}, {bbox_cy:.1}) area={total_area} bbox=({merged_min_x},{merged_min_y})..({merged_max_x},{merged_max_y})",
+            "  {name} マーカー: centroid=({centroid_x:.1}, {centroid_y:.1}) area={total_area} merged={merged_count}ブロブ",
         );
         markers.push(DetectedMarker {
-            cx: bbox_cx,
-            cy: bbox_cy,
+            cx: centroid_x,
+            cy: centroid_y,
             area: total_area,
         });
     }
@@ -291,6 +300,61 @@ pub fn detect_markers(binary: &GrayImage) -> Result<[DetectedMarker; 4], String>
         markers[2].clone(),
         markers[3].clone(),
     ])
+}
+
+/// 中心マーカーを検出する（ページ中央 ±10% の領域を探索）
+pub fn detect_center_marker(binary: &GrayImage) -> Option<DetectedMarker> {
+    let w = binary.width();
+    let h = binary.height();
+    let search_w = (w as f64 * 0.10) as u32;
+    let search_h = (h as f64 * 0.10) as u32;
+    let cx = w / 2;
+    let cy = h / 2;
+
+    let x0 = cx.saturating_sub(search_w);
+    let y0 = cy.saturating_sub(search_h);
+    let x1 = (cx + search_w).min(w);
+    let y1 = (cy + search_h).min(h);
+
+    let blobs = extract_blobs(binary, x0, y0, x1, y1);
+
+    let center_px = layout::mm_to_px(layout::CENTER_MARKER_SIZE).round();
+    let expected_area = center_px * center_px; // filled square
+
+    // 面積が期待値の 20%〜500% で、ほぼ正方形のブロブを選ぶ
+    let candidates: Vec<&Blob> = blobs
+        .iter()
+        .filter(|b| {
+            let a = b.area as f64;
+            a > expected_area * 0.2
+                && a < expected_area * 5.0
+                && b.aspect_ratio() > 0.5
+                && b.aspect_ratio() < 2.0
+                && b.fill_ratio() > 0.5 // 塗りつぶしマーカーなので充填率高い
+        })
+        .collect();
+
+    // ページ中心に最も近い候補を選択
+    let page_cx = w as f64 / 2.0;
+    let page_cy = h as f64 / 2.0;
+
+    let best = candidates.iter().min_by(|a, b| {
+        let da = (a.center_x() - page_cx).powi(2) + (a.center_y() - page_cy).powi(2);
+        let db = (b.center_x() - page_cx).powi(2) + (b.center_y() - page_cy).powi(2);
+        da.partial_cmp(&db).unwrap()
+    });
+
+    best.map(|b| {
+        println!(
+            "  中心マーカー検出: centroid=({:.1}, {:.1}) area={} fill_ratio={:.2}",
+            b.center_x(), b.center_y(), b.area, b.fill_ratio()
+        );
+        DetectedMarker {
+            cx: b.center_x(),
+            cy: b.center_y(),
+            area: b.area,
+        }
+    })
 }
 
 /// マーカー検出位置を赤丸で可視化

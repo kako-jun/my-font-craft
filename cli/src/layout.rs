@@ -40,12 +40,12 @@ pub const QR_X: f64 = 20.0;
 pub const QR_Y: f64 = 267.0;
 pub const QR_SIZE: f64 = 15.0;
 
-// グレースケールバー
+// グレースケールバー（マーカー quiet zone を避けて配置）
 pub const GRAY_BAR_STEPS: usize = 10;
 pub const GRAY_BAR_STEP_SIZE: f64 = 5.0;
 pub const GRAY_BAR_LEFT_X: f64 = 2.0;
 pub const GRAY_BAR_RIGHT_X: f64 = 203.0;
-pub const GRAY_BAR_TOP_Y: f64 = 17.0;
+pub const GRAY_BAR_TOP_Y: f64 = 22.0;    // マーカー下端(11mm)から11mm離す
 pub const GRAY_BAR_BOTTOM_Y: f64 = 272.0;
 
 // シアンサンプル
@@ -68,9 +68,19 @@ pub const MARKER_TR: MarkerDef = MarkerDef { x: 201.0, y: 3.0, filled: false };
 pub const MARKER_BL: MarkerDef = MarkerDef { x: 3.0, y: 289.0, filled: false };
 pub const MARKER_BR: MarkerDef = MarkerDef { x: 201.0, y: 289.0, filled: false };
 
-/// マーカー中心座標（mm）
+/// 中心マーカー（検証・レンズ歪み検出用、塗りつぶし四角）
+pub const CENTER_MARKER_X: f64 = 101.0;
+pub const CENTER_MARKER_Y: f64 = 144.5;
+pub const CENTER_MARKER_SIZE: f64 = 6.0;
+
+/// 四隅マーカー中心座標（mm）
 pub fn marker_center(m: &MarkerDef) -> (f64, f64) {
     (m.x + MARKER_SIZE / 2.0, m.y + MARKER_SIZE / 2.0)
+}
+
+/// 中心マーカー中心座標（mm）
+pub fn center_marker_center() -> (f64, f64) {
+    (CENTER_MARKER_X + CENTER_MARKER_SIZE / 2.0, CENTER_MARKER_Y + CENTER_MARKER_SIZE / 2.0)
 }
 
 // 色
@@ -102,3 +112,7 @@ pub fn get_sample_position(row: usize, col: usize) -> (f64, f64) {
     let y = BODY_START_Y + row as f64 * ROW_HEIGHT;
     (x, y)
 }
+
+// TODO: 中心マーカーによりページあたり文字数が48→47に変更
+// CHARS_PER_PAGE、QRコード、ページ割り当て、TypeScript側のテンプレート生成を含む
+// 包括的な変更が必要（Issue #33 で対応）

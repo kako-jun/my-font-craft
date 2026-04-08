@@ -34,7 +34,7 @@ const GRAY_BAR_STEPS = 10;
 const GRAY_BAR_STEP_SIZE = 5;
 const GRAY_BAR_LEFT_X = 2;
 const GRAY_BAR_RIGHT_X = 203;
-const GRAY_BAR_TOP_Y = 17;
+const GRAY_BAR_TOP_Y = 22;
 const GRAY_BAR_BOTTOM_Y = 272;
 const CYAN_SAMPLE_X = 175;
 const CYAN_SAMPLE_Y = 10;
@@ -47,6 +47,9 @@ const MARKERS = {
   bottomLeft:  { x: 3,   y: 289, filled: false },
   bottomRight: { x: 201, y: 289, filled: false },
 };
+
+// 中心マーカー（検証用、塗りつぶし四角）
+const CENTER_MARKER = { x: 101, y: 144.5, size: 6 };
 
 function getCellPosition(row, col, cellIndex) {
   const x = BODY_START_X + col * COL_WIDTH + SAMPLE_WIDTH + CELL_GAP + cellIndex * (CELL_SIZE + CELL_GAP);
@@ -162,6 +165,25 @@ async function main() {
       }
     }
   }
+
+  // --- 中心マーカー（グリッド後に描画して罫線を上書き） ---
+  // 白アイソレーション境界（1mm）
+  const cmBorder = 1;
+  page.drawRectangle({
+    x: mm(CENTER_MARKER.x - cmBorder),
+    y: toY(CENTER_MARKER.y + CENTER_MARKER.size + cmBorder),
+    width: mm(CENTER_MARKER.size + cmBorder * 2),
+    height: mm(CENTER_MARKER.size + cmBorder * 2),
+    color: rgb(1, 1, 1),
+  });
+  // 塗りつぶし四角
+  page.drawRectangle({
+    x: mm(CENTER_MARKER.x),
+    y: toY(CENTER_MARKER.y + CENTER_MARKER.size),
+    width: mm(CENTER_MARKER.size),
+    height: mm(CENTER_MARKER.size),
+    color: rgb(0, 0, 0),
+  });
 
   // 保存
   const pdfBytes = await pdfDoc.save();

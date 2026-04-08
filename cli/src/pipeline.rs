@@ -2,6 +2,7 @@
 use image::{DynamicImage, GrayImage, RgbaImage, Rgba};
 use std::path::Path;
 use crate::{layout, marker, perspective, qr, cell};
+// perspective::sample_bilinear を直交性補正で使用
 
 /// パイプラインを実行
 pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> {
@@ -67,6 +68,14 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
     // ステップ6.5: 補正品質チェック（マーカー再検出+残差計測）
     println!("\n=== ステップ6.5: 補正品質チェック ===");
     verify_correction_quality(&corrected, output_dir);
+
+    // ステップ6.6: 中心マーカー検証
+    println!("\n=== ステップ6.6: 中心マーカー検証 ===");
+    verify_center_marker(&corrected);
+
+    // ステップ6.7: 罫線直交性チェック＋微小回転補正
+    println!("\n=== ステップ6.7: 罫線直交性チェック ===");
+    let corrected = apply_orthogonality_correction(corrected, output_dir);
 
     // ステップ7: QR読み取り
     println!("\n=== ステップ7: QR読み取り ===");
@@ -371,6 +380,150 @@ fn verify_correction_quality(corrected: &RgbaImage, output_dir: &Path) {
             println!("  台形補正の精度を確認できません");
         }
     }
+}
+
+/// 中心マーカー検証: ホモグラフィー後の中心マーカー位置を確認
+fn verify_center_marker(corrected: &RgbaImage) {
+    let gray = image::DynamicImage::ImageRgba8(corrected.clone()).into_luma8();
+    let threshold = marker::otsu_threshold(&gray);
+    let binary = marker::binarize(&gray, threshold);
+
+    match marker::detect_center_marker(&binary) {
+        Some(detected) => {
+            let (exp_cx, exp_cy) = layout::center_marker_center();
+            let exp_px_x = layout::mm_to_px(exp_cx);
+            let exp_px_y = layout::mm_to_px(exp_cy);
+
+            let dx = detected.cx - exp_px_x;
+            let dy = detected.cy - exp_px_y;
+            let err = (dx * dx + dy * dy).sqrt();
+            let err_mm = err / layout::mm_to_px(1.0);
+
+            let status = if err_mm < 0.5 { "OK" }
+                else if err_mm < 1.0 { "注意" }
+                else if err_mm < 3.0 { "要改善" }
+                else { "レンズ歪みの可能性" };
+
+            println!(
+                "  中心マーカー: 期待({exp_px_x:.1}, {exp_px_y:.1}) 検出({:.1}, {:.1}) 残差={err:.1}px ({err_mm:.2}mm) [{status}]",
+                detected.cx, detected.cy
+            );
+
+            if err_mm > 3.0 {
+                println!("  ⚠ 中心の残差が大きい → ホモグラフィーでは補正できないレンズ歪み（バレル/ピンクッション）の可能性");
+            }
+        }
+        None => {
+            println!("  中心マーカー未検出（テンプレートに中心マーカーが無い可能性）");
+        }
+    }
+}
+
+/// 罫線の直交性を計測し、残差回転があれば微小補正する
+fn apply_orthogonality_correction(img: RgbaImage, output_dir: &Path) -> RgbaImage {
+    let gray = image::DynamicImage::ImageRgba8(img.clone()).into_luma8();
+    let threshold = marker::otsu_threshold(&gray);
+    let binary = marker::binarize(&gray, threshold);
+
+    // 複数の縦罫線で角度を計測（ボディ領域の列境界）
+    let col_xs: Vec<f64> = (0..=layout::COLS)
+        .map(|c| layout::BODY_START_X + c as f64 * layout::COL_WIDTH)
+        .collect();
+
+    let y_top = layout::mm_to_px(layout::BODY_START_Y + 2.0).round() as u32;
+    let y_bottom = layout::mm_to_px(layout::BODY_START_Y + 10.0 * layout::ROW_HEIGHT + 2.0).round() as u32;
+
+    let mut angles = Vec::new();
+
+    for &col_x_mm in &col_xs {
+        let expected_x = layout::mm_to_px(col_x_mm).round() as i32;
+        let top_x = find_grid_line_x(&binary, expected_x, y_top, 30);
+        let bottom_x = find_grid_line_x(&binary, expected_x, y_bottom, 30);
+
+        if let (Some(tx), Some(bx)) = (top_x, bottom_x) {
+            let dx = bx as f64 - tx as f64;
+            let dy = y_bottom as f64 - y_top as f64;
+            let angle_deg = (dx / dy).atan().to_degrees();
+            angles.push(angle_deg);
+            println!(
+                "  縦罫線 x={col_x_mm:.0}mm: top_x={tx} bottom_x={bx} 角度={angle_deg:.3}°"
+            );
+        }
+    }
+
+    if angles.is_empty() {
+        println!("  罫線検出できず → 直交性補正スキップ");
+        return img;
+    }
+
+    // 中央値を使う（外れ値に強い）
+    angles.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let median_angle = angles[angles.len() / 2];
+    println!("  残差回転角度（中央値）: {median_angle:.3}°");
+
+    if median_angle.abs() < 0.05 {
+        println!("  ✓ 直交性は良好（補正不要）");
+        return img;
+    }
+
+    println!("  → {:.3}° の微小回転補正を適用", -median_angle);
+    let corrected = rotate_small_angle(&img, median_angle);
+    let _ = corrected.save(output_dir.join("05c_orthogonal.png"));
+    println!("  → 05c_orthogonal.png 保存完了");
+
+    corrected
+}
+
+/// 期待X位置付近で縦罫線（黒ピクセル）のX座標を探す
+/// ±2px の垂直バンドを走査して、サブピクセル位置ずれに対応
+fn find_grid_line_x(binary: &GrayImage, expected_x: i32, y: u32, search_range: i32) -> Option<i32> {
+    let mut best_x = None;
+    let mut min_dist = search_range + 1;
+
+    for dy in -2i32..=2 {
+        let sy = (y as i32 + dy).max(0) as u32;
+        if sy >= binary.height() { continue; }
+
+        for dx in -search_range..=search_range {
+            let x = expected_x + dx;
+            if x < 0 || x as u32 >= binary.width() {
+                continue;
+            }
+            if binary.get_pixel(x as u32, sy)[0] == 0 {
+                if dx.abs() < min_dist {
+                    min_dist = dx.abs();
+                    best_x = Some(x);
+                }
+            }
+        }
+    }
+    best_x
+}
+
+/// 微小角度の回転補正（ページ中心を基準に回転）
+fn rotate_small_angle(img: &RgbaImage, degrees: f64) -> RgbaImage {
+    let w = img.width();
+    let h = img.height();
+    let cx = w as f64 / 2.0;
+    let cy = h as f64 / 2.0;
+    let rad = -degrees.to_radians();
+    let cos_a = rad.cos();
+    let sin_a = rad.sin();
+
+    let mut out = RgbaImage::from_pixel(w, h, Rgba([255, 255, 255, 255]));
+
+    for y in 0..h {
+        for x in 0..w {
+            let dx = x as f64 - cx;
+            let dy = y as f64 - cy;
+            let src_x = cx + dx * cos_a - dy * sin_a;
+            let src_y = cy + dx * sin_a + dy * cos_a;
+            let pixel = perspective::sample_bilinear(img, src_x, src_y);
+            out.put_pixel(x, y, pixel);
+        }
+    }
+
+    out
 }
 
 fn draw_cross(img: &mut RgbaImage, cx: i32, cy: i32, size: i32, color: Rgba<u8>) {
