@@ -37,7 +37,7 @@ pub fn extract_and_judge(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CharR
         .map_err(|e| format!("セル出力ディレクトリ作成エラー: {e}"))?;
 
     // 外枠の枠線(0.5pt≈0.18mm)を避けて内側を切り出す
-    // 余裕を持って1mm内側にオフセット → 13mm×13mm
+    // 台形補正の残差+サンプリング太り分も考慮して1.5mm内側 → 12mm×12mm
     let border_margin = 1.0; // mm
     let crop_size = layout::CELL_SIZE - border_margin * 2.0; // 13mm
     let crop_size_px = layout::mm_to_px(crop_size).round() as u32;

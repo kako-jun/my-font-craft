@@ -56,13 +56,9 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
         .map_err(|e| format!("保存エラー: {e}"))?;
     println!("  → 04_oriented.png 保存完了");
 
-    // ステップ5: ページ四隅外挿
-    println!("\n=== ステップ5: ページ四隅外挿 ===");
-    let page_corners = perspective::extrapolate_page_corners(&oriented_markers);
-
-    // ステップ6: 射影変換
-    println!("\n=== ステップ6: 射影変換 ===");
-    let corrected = perspective::bilinear_warp(&oriented_img, &page_corners);
+    // ステップ5+6: マーカー4点から直接ホモグラフィー変換（外挿廃止）
+    println!("\n=== ステップ5+6: マーカー直接ホモグラフィー変換 ===");
+    let corrected = perspective::homography_warp_from_markers(&oriented_img, &oriented_markers);
     corrected
         .save(output_dir.join("05_corrected.png"))
         .map_err(|e| format!("保存エラー: {e}"))?;
