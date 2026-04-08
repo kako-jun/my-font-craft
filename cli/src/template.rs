@@ -6,7 +6,7 @@ use crate::qr;
 use std::path::Path;
 
 /// テンプレート画像を生成して保存
-pub fn generate_template(output_path: &Path) -> Result<(), String> {
+pub fn generate_template(output_path: &Path, with_glyphs: bool) -> Result<(), String> {
     let w = layout::image_width();
     let h = layout::image_height();
     println!("テンプレート生成: {}x{} px (A4 300dpi)", w, h);
@@ -36,6 +36,11 @@ pub fn generate_template(output_path: &Path) -> Result<(), String> {
 
     // シアンサンプル
     draw_cyan_sample(&mut img);
+
+    // ダミー文字（--with-glyphs 時）
+    if with_glyphs {
+        draw_dummy_glyphs(&mut img);
+    }
 
     // 保存
     if let Some(parent) = output_path.parent() {
@@ -211,6 +216,36 @@ fn fill_rect(img: &mut RgbaImage, x: u32, y: u32, w: u32, h: u32, color: Rgba<u8
             }
         }
     }
+}
+
+/// ダミー文字を数セルに描画（非空セルの検出テスト用）
+/// Row0の4セル(Col0-3)のI0に異なるサイズの黒四角を描く
+fn draw_dummy_glyphs(img: &mut RgbaImage) {
+    let black = Rgba([0, 0, 0, 255]);
+    let inner_offset = (layout::CELL_SIZE - layout::INNER_SIZE) / 2.0;
+
+    // テスト対象: Row0のCol0-3、各セルインデックス0
+    let test_cells = [
+        (0, 0, 0, 0.6), // 大きめの文字（内枠の60%）
+        (0, 1, 0, 0.4), // 中くらい
+        (0, 2, 0, 0.2), // 小さめ
+        (0, 3, 0, 0.1), // 非常に小さい（検出限界テスト）
+        (1, 0, 0, 0.5), // Row1にも1つ
+        (1, 0, 1, 0.3), // I1にも1つ（altバリアント検出テスト）
+    ];
+
+    for &(row, col, cell_idx, fill_ratio) in &test_cells {
+        let (mm_x, mm_y) = layout::get_cell_position(row, col, cell_idx);
+        let inner_px = layout::mm_to_px(layout::INNER_SIZE).round() as u32;
+        let px_x = layout::mm_to_px(mm_x + inner_offset).round() as u32;
+        let px_y = layout::mm_to_px(mm_y + inner_offset).round() as u32;
+
+        let glyph_size = (inner_px as f64 * fill_ratio).round() as u32;
+        let offset = (inner_px - glyph_size) / 2;
+
+        fill_rect(img, px_x + offset, px_y + offset, glyph_size, glyph_size, black);
+    }
+    println!("  ダミー文字描画完了 ({}セル)", 6);
 }
 
 /// シアンサンプルを描画

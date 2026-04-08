@@ -25,6 +25,9 @@ enum Commands {
         /// 出力パス（デフォルト: debug_output/template.png）
         #[arg(short, long, default_value = "debug_output/template.png")]
         output: PathBuf,
+        /// ダミー文字を描き込む（非空セルの検出テスト用）
+        #[arg(long)]
+        with_glyphs: bool,
     },
     /// 画像を読み込み、パイプラインを実行する
     Process {
@@ -40,8 +43,8 @@ fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
-        Commands::Generate { output } => {
-            template::generate_template(&output)
+        Commands::Generate { output, with_glyphs } => {
+            template::generate_template(&output, with_glyphs)
         }
         Commands::Process { image_path, output_dir } => {
             pipeline::run_pipeline(&image_path, &output_dir)

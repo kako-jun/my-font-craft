@@ -19,7 +19,8 @@ pub fn extract_cells(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CellResul
     std::fs::create_dir_all(output_dir)
         .map_err(|e| format!("セル出力ディレクトリ作成エラー: {}", e))?;
 
-    let cell_size_px = layout::mm_to_px(layout::CELL_SIZE).round() as u32;
+    let inner_size_px = layout::mm_to_px(layout::INNER_SIZE).round() as u32;
+    let inner_offset = (layout::CELL_SIZE - layout::INNER_SIZE) / 2.0; // 2.5mm
     let mut results = Vec::new();
     let mut empty_count = 0u32;
     let mut filled_count = 0u32;
@@ -28,13 +29,14 @@ pub fn extract_cells(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CellResul
         for col in 0..layout::COLS {
             for cell_idx in 0..2 {
                 let (mm_x, mm_y) = layout::get_cell_position(row, col, cell_idx);
-                let px_x = layout::mm_to_px(mm_x).round() as u32;
-                let px_y = layout::mm_to_px(mm_y).round() as u32;
+                // 内枠領域の左上座標（外枠からinnerOffsetだけ内側）
+                let px_x = layout::mm_to_px(mm_x + inner_offset).round() as u32;
+                let px_y = layout::mm_to_px(mm_y + inner_offset).round() as u32;
 
-                // セル画像を切り出し
-                let mut cell_img = RgbaImage::new(cell_size_px, cell_size_px);
-                for dy in 0..cell_size_px {
-                    for dx in 0..cell_size_px {
+                // 内枠領域のみ切り出し（INNER_SIZE = 10mm）
+                let mut cell_img = RgbaImage::new(inner_size_px, inner_size_px);
+                for dy in 0..inner_size_px {
+                    for dx in 0..inner_size_px {
                         let sx = px_x + dx;
                         let sy = px_y + dy;
                         if sx < img.width() && sy < img.height() {
@@ -46,9 +48,9 @@ pub fn extract_cells(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CellResul
                 }
 
                 // 空判定: 内側60%領域で黒ピクセル2%未満=空
-                let margin = (cell_size_px as f64 * 0.2).round() as u32;
+                let margin = (inner_size_px as f64 * 0.2).round() as u32;
                 let inner_start = margin;
-                let inner_end = cell_size_px - margin;
+                let inner_end = inner_size_px - margin;
                 let mut black_count = 0u32;
                 let mut total = 0u32;
 
