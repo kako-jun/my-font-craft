@@ -92,10 +92,10 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
         .map_err(|e| format!("保存エラー: {e}"))?;
     println!("  → 08_cyan_removed.png 保存完了");
 
-    // ステップ10: セル切り出し
-    println!("\n=== ステップ10: セル切り出し ===");
+    // ステップ10: セル切り出し + チェック欄解析 + 採用判定
+    println!("\n=== ステップ10: セル切り出し + 採用判定 ===");
     let cells_dir = output_dir.join("09_cells");
-    cell::extract_cells(&cyan_removed, &cells_dir)?;
+    cell::extract_and_judge(&cyan_removed, &cells_dir)?;
 
     println!("\n=== パイプライン完了 ===");
     Ok(())
