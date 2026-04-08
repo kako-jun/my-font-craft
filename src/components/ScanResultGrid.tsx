@@ -1,4 +1,4 @@
-import { For, Show, createMemo } from 'solid-js';
+import { For, Show, createSignal, createMemo } from 'solid-js';
 import type { GlyphStatus } from '../lib/scanner/processor';
 
 interface Props {
@@ -7,6 +7,9 @@ interface Props {
 }
 
 export default function ScanResultGrid(props: Props) {
+  const [modalImage, setModalImage] = createSignal<string | null>(null);
+  const [modalTitle, setModalTitle] = createSignal('');
+
   // ページごとにグループ化
   const pageGroups = createMemo(() => {
     const groups = new Map<number, GlyphStatus[]>();
@@ -35,8 +38,31 @@ export default function ScanResultGrid(props: Props) {
   const pageThumb = (pageIndex: number) =>
     props.correctedPages.find((p) => p.pageIndex === pageIndex);
 
+  function openModal(src: string, title: string) {
+    setModalImage(src);
+    setModalTitle(title);
+  }
+
+  function closeModal() {
+    setModalImage(null);
+    setModalTitle('');
+  }
+
   return (
     <div class="scan-grid">
+      {/* 拡大モーダル */}
+      <Show when={modalImage()}>
+        <div class="scan-grid__modal-overlay" onClick={closeModal}>
+          <div class="scan-grid__modal" onClick={(e) => e.stopPropagation()}>
+            <button class="scan-grid__modal-close" onClick={closeModal}>
+              ×
+            </button>
+            <div class="scan-grid__modal-title">{modalTitle()}</div>
+            <img class="scan-grid__modal-img" src={modalImage()!} alt={modalTitle()} />
+          </div>
+        </div>
+      </Show>
+
       {/* サマリー */}
       <div class="scan-grid__summary">
         <span class="scan-grid__stat scan-grid__stat--found">取得: {stats().acquired}</span>
@@ -65,6 +91,8 @@ export default function ScanResultGrid(props: Props) {
                     class="scan-grid__page-thumb"
                     src={thumb!.dataUrl}
                     alt={`Page ${pageIndex}`}
+                    onClick={() => openModal(thumb!.dataUrl, `Page ${pageIndex} — 補正後画像`)}
+                    title="クリックで拡大"
                   />
                 </Show>
                 <div class="scan-grid__page-info">
@@ -76,7 +104,7 @@ export default function ScanResultGrid(props: Props) {
                 </div>
               </div>
 
-              {/* 文字グリッド（3列×10行 = テンプレートと同じ配置） */}
+              {/* 文字グリッド */}
               <div class="scan-grid__chars">
                 <For each={glyphs}>
                   {(gs) => (
@@ -88,6 +116,14 @@ export default function ScanResultGrid(props: Props) {
                         'scan-grid__cell--imported': gs.status === 'imported',
                       }}
                       title={`${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')}) — p${gs.pageIndex} r${gs.row} c${gs.col}`}
+                      onClick={() => {
+                        if (gs.cellImageDataUrl) {
+                          openModal(
+                            gs.cellImageDataUrl,
+                            `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')})`,
+                          );
+                        }
+                      }}
                     >
                       <div class="scan-grid__cell-char">{gs.char}</div>
                       <Show when={gs.cellImageDataUrl}>

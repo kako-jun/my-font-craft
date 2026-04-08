@@ -15,6 +15,7 @@ export interface Corners {
 }
 
 // 二値化して黒い領域の塊（マーカー候補）を探す
+// 連結成分解析で個別ブロブを識別し、マーカーらしいもの（コンパクトで十分なサイズ）を選ぶ
 export function detectMarkers(canvas: HTMLCanvasElement): Corners | null {
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
@@ -24,31 +25,32 @@ export function detectMarkers(canvas: HTMLCanvasElement): Corners | null {
   const imgData = ctx.getImageData(0, 0, w, h);
   const data = imgData.data;
 
-  // 二値化閾値（大津の方法の簡易版）
   const threshold = computeOtsuThreshold(data, w * h);
 
-  // 四隅の領域で黒い塊の重心を見つける
+  // 四隅の領域で最大のコンパクトなブロブ（＝マーカー）を見つける
   const margin = Math.floor(Math.min(w, h) * 0.15);
-  const topLeft = findMarkerInRegion(data, w, h, 0, 0, margin, margin, threshold);
-  const topRight = findMarkerInRegion(data, w, h, w - margin, 0, margin, margin, threshold);
-  const bottomLeft = findMarkerInRegion(data, w, h, 0, h - margin, margin, margin, threshold);
-  const bottomRight = findMarkerInRegion(
-    data,
-    w,
-    h,
-    w - margin,
-    h - margin,
-    margin,
-    margin,
-    threshold,
-  );
+  const topLeft = findMarkerBlob(data, w, h, 0, 0, margin, margin, threshold);
+  const topRight = findMarkerBlob(data, w, h, w - margin, 0, margin, margin, threshold);
+  const bottomLeft = findMarkerBlob(data, w, h, 0, h - margin, margin, margin, threshold);
+  const bottomRight = findMarkerBlob(data, w, h, w - margin, h - margin, margin, margin, threshold);
 
   if (!topLeft || !topRight || !bottomLeft || !bottomRight) return null;
 
   return { topLeft, topRight, bottomLeft, bottomRight };
 }
 
-function findMarkerInRegion(
+interface Blob {
+  cx: number;
+  cy: number;
+  area: number;
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+// 連結成分ラベリング（4連結）でブロブを見つけ、マーカーらしいものを返す
+function findMarkerBlob(
   data: Uint8ClampedArray,
   imgW: number,
   imgH: number,
@@ -58,24 +60,108 @@ function findMarkerInRegion(
   rh: number,
   threshold: number,
 ): Point | null {
-  let sumX = 0,
-    sumY = 0,
-    count = 0;
+  const endX = Math.min(rx + rw, imgW);
+  const endY = Math.min(ry + rh, imgH);
+  const regionW = endX - rx;
+  const regionH = endY - ry;
 
-  for (let y = ry; y < Math.min(ry + rh, imgH); y++) {
-    for (let x = rx; x < Math.min(rx + rw, imgW); x++) {
-      const i = (y * imgW + x) * 4;
+  // 領域内の二値画像を作成
+  const binary = new Uint8Array(regionW * regionH);
+  for (let y = 0; y < regionH; y++) {
+    for (let x = 0; x < regionW; x++) {
+      const i = ((ry + y) * imgW + (rx + x)) * 4;
       const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
-      if (gray < threshold) {
-        sumX += x;
-        sumY += y;
-        count++;
+      binary[y * regionW + x] = gray < threshold ? 1 : 0;
+    }
+  }
+
+  // 連結成分ラベリング（4連結、union-find）
+  const labels = new Int32Array(regionW * regionH);
+  labels.fill(-1);
+  const parent = new Int32Array(regionW * regionH);
+  for (let i = 0; i < parent.length; i++) parent[i] = i;
+
+  function find(a: number): number {
+    while (parent[a] !== a) {
+      parent[a] = parent[parent[a]];
+      a = parent[a];
+    }
+    return a;
+  }
+  function union(a: number, b: number) {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent[rb] = ra;
+  }
+
+  let nextLabel = 0;
+  for (let y = 0; y < regionH; y++) {
+    for (let x = 0; x < regionW; x++) {
+      const idx = y * regionW + x;
+      if (!binary[idx]) continue;
+
+      const up = y > 0 ? labels[(y - 1) * regionW + x] : -1;
+      const left = x > 0 ? labels[y * regionW + (x - 1)] : -1;
+
+      if (up >= 0 && left >= 0) {
+        labels[idx] = up;
+        union(up, left);
+      } else if (up >= 0) {
+        labels[idx] = up;
+      } else if (left >= 0) {
+        labels[idx] = left;
+      } else {
+        labels[idx] = nextLabel++;
       }
     }
   }
 
-  if (count < 10) return null;
-  return { x: sumX / count, y: sumY / count };
+  // ブロブ統計を集計
+  const blobMap = new Map<number, Blob>();
+  for (let y = 0; y < regionH; y++) {
+    for (let x = 0; x < regionW; x++) {
+      const idx = y * regionW + x;
+      if (labels[idx] < 0) continue;
+      const root = find(labels[idx]);
+      let blob = blobMap.get(root);
+      if (!blob) {
+        blob = { cx: 0, cy: 0, area: 0, minX: x, minY: y, maxX: x, maxY: y };
+        blobMap.set(root, blob);
+      }
+      blob.cx += rx + x;
+      blob.cy += ry + y;
+      blob.area++;
+      blob.minX = Math.min(blob.minX, x);
+      blob.minY = Math.min(blob.minY, y);
+      blob.maxX = Math.max(blob.maxX, x);
+      blob.maxY = Math.max(blob.maxY, y);
+    }
+  }
+
+  // マーカーらしいブロブを選別:
+  // - 面積が十分（ノイズ排除）: 最低100px
+  // - コンパクト（格子線排除）: 幅と高さの比率が0.3〜3.0
+  // - 充填率が高い（格子線の交差排除）: 面積/(幅*高さ) > 0.15
+  const candidates: Blob[] = [];
+  for (const blob of blobMap.values()) {
+    const blobW = blob.maxX - blob.minX + 1;
+    const blobH = blob.maxY - blob.minY + 1;
+    const aspect = blobW / blobH;
+    const fillRatio = blob.area / (blobW * blobH);
+
+    if (blob.area >= 100 && aspect >= 0.3 && aspect <= 3.0 && fillRatio > 0.15) {
+      blob.cx /= blob.area;
+      blob.cy /= blob.area;
+      candidates.push(blob);
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  // 最大面積のブロブを選択（マーカーは領域内で最大のコンパクトなブロブのはず）
+  candidates.sort((a, b) => b.area - a.area);
+  const best = candidates[0];
+  return { x: best.cx, y: best.cy };
 }
 
 function computeOtsuThreshold(data: Uint8ClampedArray, pixelCount: number): number {

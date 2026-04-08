@@ -76,14 +76,15 @@ export default function Upload(props: Props) {
         onMessage: addMessage,
         onPageCorrected: (pageIndex, canvas) => {
           try {
+            // 拡大表示に耐えるよう800px幅で保存
             const thumb = document.createElement('canvas');
-            const scale = 300 / canvas.width;
-            thumb.width = 300;
+            const scale = 800 / canvas.width;
+            thumb.width = 800;
             thumb.height = Math.round(canvas.height * scale);
             thumb.getContext('2d')!.drawImage(canvas, 0, 0, thumb.width, thumb.height);
             setCorrectedPages((prev) => [
               ...prev,
-              { pageIndex, dataUrl: thumb.toDataURL('image/png') },
+              { pageIndex, dataUrl: thumb.toDataURL('image/jpeg', 0.85) },
             ]);
           } catch {
             /* ignore */
@@ -421,8 +422,8 @@ export default function Upload(props: Props) {
                 そのまま生成すると、未検出の文字は端末のフォントで代替表示されます。
               </p>
               <button class="btn" onClick={handleDownloadRetryTemplate}>
-                未検出文字のテンプレートをダウンロード ({Math.ceil(missingChars().length / CHARS_PER_PAGE)}{' '}
-                ページ)
+                未検出文字のテンプレートをダウンロード (
+                {Math.ceil(missingChars().length / CHARS_PER_PAGE)} ページ)
               </button>
             </div>
           </Show>
@@ -435,7 +436,11 @@ export default function Upload(props: Props) {
                 : '結果を確認して、このまま生成するか、追加スキャンしてください。'}
           </p>
           <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap">
-            <button class="btn btn--primary" onClick={handleBuildFont} disabled={!hasAcquiredChars()}>
+            <button
+              class="btn btn--primary"
+              onClick={handleBuildFont}
+              disabled={!hasAcquiredChars()}
+            >
               <IconFont />{' '}
               {!hasAcquiredChars()
                 ? 'フォントを生成できません'

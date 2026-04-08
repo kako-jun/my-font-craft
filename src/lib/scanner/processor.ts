@@ -235,19 +235,34 @@ function extractCell(
   return ctx.getImageData(px, py, pw, ph);
 }
 
-// 空マス判定（黒ピクセルが1%未満）
+// 空マス判定
+// 黒ピクセル率だけでなく、格子線残骸（外周に集中する薄い線）を除外する
 function isEmpty(imageData: ImageData): boolean {
+  const w = imageData.width;
+  const h = imageData.height;
   const data = imageData.data;
-  const total = data.length / 4;
-  let blackCount = 0;
+  const total = w * h;
   const threshold = 128;
 
-  for (let i = 0; i < data.length; i += 4) {
-    const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
-    if (gray < threshold) blackCount++;
+  // 外周20%を除外した内側領域のみで判定（格子線はセル境界に出る）
+  const marginX = Math.floor(w * 0.2);
+  const marginY = Math.floor(h * 0.2);
+  let blackCount = 0;
+  let innerTotal = 0;
+
+  for (let y = marginY; y < h - marginY; y++) {
+    for (let x = marginX; x < w - marginX; x++) {
+      const i = (y * w + x) * 4;
+      const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      if (gray < threshold) blackCount++;
+      innerTotal++;
+    }
   }
 
-  return blackCount / total < 0.01;
+  if (innerTotal === 0) return true;
+
+  // 内側領域で黒ピクセルが2%未満なら空とみなす（旧1%より緩和）
+  return blackCount / innerTotal < 0.02;
 }
 
 // チェック欄解析（簡易版: 黒ピクセル密度で✓/×/空欄を推定）
