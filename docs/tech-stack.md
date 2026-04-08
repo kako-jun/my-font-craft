@@ -255,8 +255,11 @@ npm run format
 # リント + フォーマットチェック
 npm run check
 
-# テスト
+# テスト（TypeScript: Vitest 20件）
 npm test
+
+# テスト（Rust CLI: 27件）
+cd cli && cargo test
 
 # デプロイ
 npm run deploy
@@ -268,6 +271,19 @@ npm run deploy
 
 ```
 my-font-craft/
+├── cli/                     # Rust CLI（画像処理パイプライン）
+│   ├── Cargo.toml
+│   ├── generate-test-pdf.ts # テスト用PDF生成（layout.tsからimport）
+│   └── src/
+│       ├── main.rs          # CLIエントリーポイント（generate/process/distort）
+│       ├── layout.rs        # レイアウト定数（layout.tsと同期）
+│       ├── template.rs      # テンプレート画像生成
+│       ├── pipeline.rs      # 10段階画像処理パイプライン
+│       ├── marker.rs        # マーカー検出（union-find）
+│       ├── perspective.rs   # ホモグラフィー変換
+│       ├── qr.rs            # QRコード読み取り
+│       ├── cell.rs          # セル切り出し+採用判定
+│       └── distort.rs       # 合成歪みテスト用
 ├── docs/                    # ドキュメント
 │   ├── README.md
 │   ├── overview.md
