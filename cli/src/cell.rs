@@ -13,6 +13,7 @@ pub enum CheckMark {
 
 /// 1マスの解析結果
 #[derive(Debug)]
+#[allow(dead_code)] // パイプライン後段で使用予定
 pub struct SlotResult {
     pub cell_index: usize,   // 0=左, 1=右
     pub is_empty: bool,
@@ -23,6 +24,7 @@ pub struct SlotResult {
 
 /// 1文字（2マス）の採用判定結果
 #[derive(Debug)]
+#[allow(dead_code)] // パイプライン後段で使用予定
 pub struct CharResult {
     pub row: usize,
     pub col: usize,
@@ -37,12 +39,10 @@ pub fn extract_and_judge(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CharR
         .map_err(|e| format!("セル出力ディレクトリ作成エラー: {e}"))?;
 
     // 外枠の枠線(0.5pt≈0.18mm)を避けて内側を切り出す
-    // 台形補正の残差+サンプリング太り分も考慮して1.5mm内側 → 12mm×12mm
+    // 台形補正の残差+サンプリング太り分も考慮して1.0mm内側 → 13mm×13mm
     let border_margin = 1.0; // mm
     let crop_size = layout::CELL_SIZE - border_margin * 2.0; // 13mm
     let crop_size_px = layout::mm_to_px(crop_size).round() as u32;
-    let cell_size_px = layout::mm_to_px(layout::CELL_SIZE).round() as u32;
-    let check_height_px = layout::mm_to_px(layout::CHECK_HEIGHT).round() as u32;
 
     let mut results = Vec::new();
     let mut total_adopted = 0usize;
@@ -213,11 +213,17 @@ fn measure_inner_black_ratio(img: &RgbaImage, margin_ratio: f64) -> f64 {
     let margin_x = (w as f64 * margin_ratio).round() as u32;
     let margin_y = (h as f64 * margin_ratio).round() as u32;
 
+    let inner_w = w.saturating_sub(margin_x);
+    let inner_h = h.saturating_sub(margin_y);
+    if margin_x >= inner_w || margin_y >= inner_h {
+        return 0.0;
+    }
+
     let mut black_count = 0u32;
     let mut total = 0u32;
 
-    for y in margin_y..(h - margin_y) {
-        for x in margin_x..(w - margin_x) {
+    for y in margin_y..inner_h {
+        for x in margin_x..inner_w {
             total += 1;
             let p = img.get_pixel(x, y);
             let lum = (p[0] as f64 * 0.299 + p[1] as f64 * 0.587 + p[2] as f64 * 0.114) as u8;

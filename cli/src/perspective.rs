@@ -3,61 +3,6 @@ use image::{RgbaImage, Rgba};
 use crate::layout;
 use crate::marker::DetectedMarker;
 
-/// ページ四隅の座標
-#[derive(Debug, Clone)]
-pub struct PageCorners {
-    pub tl: (f64, f64),
-    pub tr: (f64, f64),
-    pub bl: (f64, f64),
-    pub br: (f64, f64),
-}
-
-/// マーカー中心座標からページ四隅を線形外挿する
-/// TypeScript extrapolatePageCorners の移植
-pub fn extrapolate_page_corners(markers: &[DetectedMarker; 4]) -> PageCorners {
-    let ml = &markers[0]; // TL
-    let mr = &markers[1]; // TR
-    let bl = &markers[2]; // BL
-    let br = &markers[3]; // BR
-
-    // マーカー中心のページ内座標（mm）
-    let m_left = layout::MARKER_TL.x + layout::MARKER_SIZE / 2.0;   // 3 + 4 = 7
-    let m_right = layout::MARKER_TR.x + layout::MARKER_SIZE / 2.0;  // 201 + 4 = 205
-    let m_top = layout::MARKER_TL.y + layout::MARKER_SIZE / 2.0;    // 3 + 4 = 7
-    let m_bottom = layout::MARKER_BL.y + layout::MARKER_SIZE / 2.0; // 289 + 4 = 293
-
-    let ratio_left = m_left / (m_right - m_left);
-    let ratio_right = (layout::PAGE_WIDTH - m_right) / (m_right - m_left);
-    let ratio_top = m_top / (m_bottom - m_top);
-    let ratio_bottom = (layout::PAGE_HEIGHT - m_bottom) / (m_bottom - m_top);
-
-    println!("  外挿比率: left={ratio_left:.4} right={ratio_right:.4} top={ratio_top:.4} bottom={ratio_bottom:.4}");
-
-    let tl_x = ml.cx - (mr.cx - ml.cx) * ratio_left;
-    let tl_y = ml.cy - (bl.cy - ml.cy) * ratio_top;
-    let tr_x = mr.cx + (mr.cx - ml.cx) * ratio_right;
-    let tr_y = mr.cy - (br.cy - mr.cy) * ratio_top;
-    let bl_x = bl.cx - (br.cx - bl.cx) * ratio_left;
-    let bl_y = bl.cy + (bl.cy - ml.cy) * ratio_bottom;
-    let br_x = br.cx + (br.cx - bl.cx) * ratio_right;
-    let br_y = br.cy + (br.cy - mr.cy) * ratio_bottom;
-
-    let corners = PageCorners {
-        tl: (tl_x, tl_y),
-        tr: (tr_x, tr_y),
-        bl: (bl_x, bl_y),
-        br: (br_x, br_y),
-    };
-
-    println!("  外挿ページ四隅:");
-    println!("    TL=({:.1}, {:.1})", corners.tl.0, corners.tl.1);
-    println!("    TR=({:.1}, {:.1})", corners.tr.0, corners.tr.1);
-    println!("    BL=({:.1}, {:.1})", corners.bl.0, corners.bl.1);
-    println!("    BR=({:.1}, {:.1})", corners.br.0, corners.br.1);
-
-    corners
-}
-
 /// マーカー4点から直接ホモグラフィーを計算して射影変換
 /// 外挿ステップを廃止し、マーカー位置→期待マーカー位置の変換を求める
 pub fn homography_warp_from_markers(img: &RgbaImage, markers: &[DetectedMarker; 4]) -> RgbaImage {

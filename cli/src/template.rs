@@ -155,8 +155,8 @@ fn draw_cell_grid(img: &mut RgbaImage) {
                 let offset = (cell_px - inner_px) / 2;
                 draw_rect_outline(img, px_x + offset, px_y + offset, inner_px, inner_px, cyan);
 
-                // チェック欄（3mm、セル下部）
-                let check_y = px_y + cell_px - check_px;
+                // チェック欄（3mm、セル外枠の直下）
+                let check_y = px_y + cell_px;
                 draw_rect_outline(img, px_x, check_y, cell_px, check_px, black);
             }
 

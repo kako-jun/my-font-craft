@@ -772,6 +772,7 @@ body {
   opacity: 0.5;
 }
 
+/* position: absolute は親要素 .scan-grid__cell の position: relative に依存 */
 .scan-grid__cell-excluded-mark {
   position: absolute;
   top: 0;

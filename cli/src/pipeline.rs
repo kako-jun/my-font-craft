@@ -85,7 +85,7 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
         Err(e) => println!("  QR読み取り失敗（続行）: {e}"),
     }
 
-    // ステップ8: 影補正
+    // ステップ8: 影補正（07_shadow_corrected）
     println!("\n=== ステップ8: 影補正 ===");
     let shadow_corrected = correct_shadow(&corrected);
     shadow_corrected
@@ -93,7 +93,7 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
         .map_err(|e| format!("保存エラー: {e}"))?;
     println!("  → 07_shadow_corrected.png 保存完了");
 
-    // ステップ9: シアン除去
+    // ステップ9: シアン除去（08_cyan_removed）
     println!("\n=== ステップ9: シアン除去 ===");
     let cyan_removed = remove_cyan(&shadow_corrected);
     cyan_removed
@@ -101,7 +101,7 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
         .map_err(|e| format!("保存エラー: {e}"))?;
     println!("  → 08_cyan_removed.png 保存完了");
 
-    // ステップ10: セル切り出し + チェック欄解析 + 採用判定
+    // ステップ10: セル切り出し + チェック欄解析 + 採用判定（09_cells）
     println!("\n=== ステップ10: セル切り出し + 採用判定 ===");
     let cells_dir = output_dir.join("09_cells");
     cell::extract_and_judge(&cyan_removed, &cells_dir)?;
