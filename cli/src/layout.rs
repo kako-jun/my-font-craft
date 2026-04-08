@@ -116,3 +116,73 @@ pub fn get_sample_position(row: usize, col: usize) -> (f64, f64) {
 // NOTE: 中心マーカー追加時は CHARS_PER_PAGE を1減らす波及変更が必要
 // （QRコード、ページ割り当て、TypeScript側テンプレート生成を含む）
 // 実写テストで中心マーカーの必要性を確認してから対応する
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// TS版の計算式:
+    ///   x = 10 + col*47 + 10 + 2 + cell_index*(15+2)
+    ///   y = 28 + row*20
+    fn ts_get_cell_position(row: usize, col: usize, cell_index: usize) -> (f64, f64) {
+        let x = 10.0 + col as f64 * 47.0 + 10.0 + 2.0 + cell_index as f64 * (15.0 + 2.0);
+        let y = 28.0 + row as f64 * 20.0;
+        (x, y)
+    }
+
+    #[test]
+    fn cell_position_row0_col0_i0() {
+        let (x, y) = get_cell_position(0, 0, 0);
+        let (ex, ey) = ts_get_cell_position(0, 0, 0);
+        assert!((x - ex).abs() < 1e-9, "x: got={x}, expected={ex}");
+        assert!((y - ey).abs() < 1e-9, "y: got={y}, expected={ey}");
+    }
+
+    #[test]
+    fn cell_position_row0_col0_i1() {
+        let (x, y) = get_cell_position(0, 0, 1);
+        let (ex, ey) = ts_get_cell_position(0, 0, 1);
+        assert!((x - ex).abs() < 1e-9, "x: got={x}, expected={ex}");
+        assert!((y - ey).abs() < 1e-9, "y: got={y}, expected={ey}");
+    }
+
+    #[test]
+    fn cell_position_row3_col2_i0() {
+        let (x, y) = get_cell_position(3, 2, 0);
+        let (ex, ey) = ts_get_cell_position(3, 2, 0);
+        assert!((x - ex).abs() < 1e-9, "x: got={x}, expected={ex}");
+        assert!((y - ey).abs() < 1e-9, "y: got={y}, expected={ey}");
+    }
+
+    #[test]
+    fn cell_position_row11_col3_i1() {
+        let (x, y) = get_cell_position(11, 3, 1);
+        let (ex, ey) = ts_get_cell_position(11, 3, 1);
+        assert!((x - ex).abs() < 1e-9, "x: got={x}, expected={ex}");
+        assert!((y - ey).abs() < 1e-9, "y: got={y}, expected={ey}");
+    }
+
+    #[test]
+    fn cell_position_all_48_chars() {
+        // 全48文字×2マスがTS版と一致することを確認
+        for row in 0..ROWS {
+            for col in 0..COLS {
+                for ci in 0..2 {
+                    let (x, y) = get_cell_position(row, col, ci);
+                    let (ex, ey) = ts_get_cell_position(row, col, ci);
+                    assert!(
+                        (x - ex).abs() < 1e-9 && (y - ey).abs() < 1e-9,
+                        "mismatch at row={row}, col={col}, ci={ci}: ({x},{y}) vs ({ex},{ey})"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn mm_to_px_known_values() {
+        // 25.4mm = 1inch = 300px at 300dpi
+        assert!((mm_to_px(25.4) - 300.0).abs() < 1e-9);
+        assert!((mm_to_px(0.0) - 0.0).abs() < 1e-9);
+    }
+}

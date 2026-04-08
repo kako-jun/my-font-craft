@@ -1,61 +1,47 @@
 /**
  * #33 新マーカーレイアウトでテスト用PDFを生成する
- * pdf-lib を使い、Rust CLI の layout.rs と完全に同じ定数で描画
+ * pdf-lib を使い、layout.ts の定数で描画（ハードコードなし）
  *
- * Usage: node cli/generate-test-pdf.mjs [output.pdf]
+ * Usage: npx tsx cli/generate-test-pdf.ts [output.pdf]
  */
 
 import { PDFDocument, rgb } from 'pdf-lib';
 import QRCode from 'qrcode';
 import fs from 'node:fs';
 
-// layout.rs と同一の定数
-const MM_TO_PT = 72 / 25.4;
-const mm = (v) => v * MM_TO_PT;
-
-const PAGE_WIDTH = 210;
-const PAGE_HEIGHT = 297;
-const BODY_START_X = 10;
-const BODY_START_Y = 28;
-const COLS = 4;
-const ROWS = 12;
-const COL_WIDTH = 47;
-const ROW_HEIGHT = 20;
-const CELL_SIZE = 15;
-const INNER_SIZE = 10;
-const CHECK_HEIGHT = 3;
-const CELL_GAP = 2;
-const SAMPLE_WIDTH = 10;
-const MARKER_SIZE = 8;
-const QR_X = 20;
-const QR_Y = 267;
-const QR_SIZE = 15;
-const GRAY_BAR_STEPS = 10;
-const GRAY_BAR_STEP_SIZE = 5;
-const GRAY_BAR_LEFT_X = 2;
-const GRAY_BAR_RIGHT_X = 203;
-const GRAY_BAR_TOP_Y = 22;
-const GRAY_BAR_BOTTOM_Y = 272;
-const CYAN_SAMPLE_X = 175;
-const CYAN_SAMPLE_Y = 10;
-const CYAN_SAMPLE_SIZE = 5;
-
-// #33 新マーカー位置
-const MARKERS = {
-  topLeft:     { x: 3,   y: 3,   filled: true },
-  topRight:    { x: 201, y: 3,   filled: false },
-  bottomLeft:  { x: 3,   y: 289, filled: false },
-  bottomRight: { x: 201, y: 289, filled: false },
-};
-
-// 中心マーカー（検証用、塗りつぶし四角）
-const CENTER_MARKER = { x: 101, y: 144.5, size: 6 };
-
-function getCellPosition(row, col, cellIndex) {
-  const x = BODY_START_X + col * COL_WIDTH + SAMPLE_WIDTH + CELL_GAP + cellIndex * (CELL_SIZE + CELL_GAP);
-  const y = BODY_START_Y + row * ROW_HEIGHT;
-  return { x, y };
-}
+// --- レイアウト定数（layout.ts から取得） ---
+import {
+  mm,
+  PAGE_WIDTH,
+  PAGE_HEIGHT,
+  BODY_START_X,
+  BODY_START_Y,
+  COLS,
+  ROWS,
+  COL_WIDTH,
+  ROW_HEIGHT,
+  CELL_SIZE,
+  INNER_SIZE,
+  CHECK_HEIGHT,
+  CELL_GAP,
+  SAMPLE_WIDTH,
+  MARKER_SIZE,
+  MARKERS,
+  QR_X,
+  QR_Y,
+  QR_SIZE,
+  GRAY_BAR_STEPS,
+  GRAY_BAR_STEP_SIZE,
+  GRAY_BAR_LEFT_X,
+  GRAY_BAR_RIGHT_X,
+  GRAY_BAR_TOP_Y,
+  GRAY_BAR_BOTTOM_Y,
+  CYAN_SAMPLE_X,
+  CYAN_SAMPLE_Y,
+  CYAN_SAMPLE_SIZE,
+  CENTER_MARKER,
+  getCellPosition,
+} from '../src/lib/template/layout';
 
 async function main() {
   const outputPath = process.argv[2] || 'cli/debug_output/test-template.pdf';
@@ -64,7 +50,7 @@ async function main() {
   const page = pdfDoc.addPage([mm(PAGE_WIDTH), mm(PAGE_HEIGHT)]);
 
   // PDF座標系は左下原点
-  const toY = (mmY) => mm(PAGE_HEIGHT) - mm(mmY);
+  const toY = (mmY: number) => mm(PAGE_HEIGHT) - mm(mmY);
 
   // --- 四隅マーカー（円） ---
   for (const [, marker] of Object.entries(MARKERS)) {
@@ -75,15 +61,19 @@ async function main() {
     if (marker.filled) {
       // 塗りつぶし円: pdf-lib には drawCircle がないので楕円で代用
       page.drawEllipse({
-        x: cx, y: cy,
-        xScale: r, yScale: r,
+        x: cx,
+        y: cy,
+        xScale: r,
+        yScale: r,
         color: rgb(0, 0, 0),
       });
     } else {
       // 枠線のみの円
       page.drawEllipse({
-        x: cx, y: cy,
-        xScale: r, yScale: r,
+        x: cx,
+        y: cy,
+        xScale: r,
+        yScale: r,
         borderColor: rgb(0, 0, 0),
         borderWidth: 1.5,
       });
@@ -98,22 +88,28 @@ async function main() {
     const y = GRAY_BAR_TOP_Y + i * stepHeight;
     // 左バー
     page.drawRectangle({
-      x: mm(GRAY_BAR_LEFT_X), y: toY(y + stepHeight),
-      width: mm(GRAY_BAR_STEP_SIZE), height: mm(stepHeight),
+      x: mm(GRAY_BAR_LEFT_X),
+      y: toY(y + stepHeight),
+      width: mm(GRAY_BAR_STEP_SIZE),
+      height: mm(stepHeight),
       color: rgb(intensity, intensity, intensity),
     });
     // 右バー
     page.drawRectangle({
-      x: mm(GRAY_BAR_RIGHT_X), y: toY(y + stepHeight),
-      width: mm(GRAY_BAR_STEP_SIZE), height: mm(stepHeight),
+      x: mm(GRAY_BAR_RIGHT_X),
+      y: toY(y + stepHeight),
+      width: mm(GRAY_BAR_STEP_SIZE),
+      height: mm(stepHeight),
       color: rgb(intensity, intensity, intensity),
     });
   }
 
   // --- シアンサンプル ---
   page.drawRectangle({
-    x: mm(CYAN_SAMPLE_X), y: toY(CYAN_SAMPLE_Y + CYAN_SAMPLE_SIZE),
-    width: mm(CYAN_SAMPLE_SIZE), height: mm(CYAN_SAMPLE_SIZE),
+    x: mm(CYAN_SAMPLE_X),
+    y: toY(CYAN_SAMPLE_Y + CYAN_SAMPLE_SIZE),
+    width: mm(CYAN_SAMPLE_SIZE),
+    height: mm(CYAN_SAMPLE_SIZE),
     color: rgb(0.8, 1, 1),
   });
 
@@ -121,14 +117,18 @@ async function main() {
   const qrData = JSON.stringify({ p: 'mfc', v: 2, pg: 1, t: 1, m: 2 });
   try {
     const qrDataUrl = await QRCode.toDataURL(qrData, {
-      errorCorrectionLevel: 'H', margin: 0, width: 256,
+      errorCorrectionLevel: 'H',
+      margin: 0,
+      width: 256,
     });
     const qrBase64 = qrDataUrl.split(',')[1];
-    const qrBytes = Uint8Array.from(atob(qrBase64), c => c.charCodeAt(0));
+    const qrBytes = Uint8Array.from(atob(qrBase64), (c) => c.charCodeAt(0));
     const qrImage = await pdfDoc.embedPng(qrBytes);
     page.drawImage(qrImage, {
-      x: mm(QR_X), y: toY(QR_Y + QR_SIZE),
-      width: mm(QR_SIZE), height: mm(QR_SIZE),
+      x: mm(QR_X),
+      y: toY(QR_Y + QR_SIZE),
+      width: mm(QR_SIZE),
+      height: mm(QR_SIZE),
     });
   } catch (e) {
     console.warn('QR generation failed:', e);
@@ -143,24 +143,33 @@ async function main() {
 
         // 外枠（黒）
         page.drawRectangle({
-          x: mm(pos.x), y: toY(pos.y + CELL_SIZE),
-          width: mm(CELL_SIZE), height: mm(CELL_SIZE),
-          borderColor: rgb(0, 0, 0), borderWidth: 0.5,
+          x: mm(pos.x),
+          y: toY(pos.y + CELL_SIZE),
+          width: mm(CELL_SIZE),
+          height: mm(CELL_SIZE),
+          borderColor: rgb(0, 0, 0),
+          borderWidth: 0.5,
         });
 
         // 内枠（シアン）
         const innerOffset = (CELL_SIZE - INNER_SIZE) / 2;
         page.drawRectangle({
-          x: mm(pos.x + innerOffset), y: toY(pos.y + innerOffset + INNER_SIZE),
-          width: mm(INNER_SIZE), height: mm(INNER_SIZE),
-          borderColor: cyanColor, borderWidth: 0.5,
+          x: mm(pos.x + innerOffset),
+          y: toY(pos.y + innerOffset + INNER_SIZE),
+          width: mm(INNER_SIZE),
+          height: mm(INNER_SIZE),
+          borderColor: cyanColor,
+          borderWidth: 0.5,
         });
 
         // チェック欄
         page.drawRectangle({
-          x: mm(pos.x), y: toY(pos.y + CELL_SIZE + CHECK_HEIGHT),
-          width: mm(CELL_SIZE), height: mm(CHECK_HEIGHT),
-          borderColor: rgb(0, 0, 0), borderWidth: 0.5,
+          x: mm(pos.x),
+          y: toY(pos.y + CELL_SIZE + CHECK_HEIGHT),
+          width: mm(CELL_SIZE),
+          height: mm(CHECK_HEIGHT),
+          borderColor: rgb(0, 0, 0),
+          borderWidth: 0.5,
         });
       }
     }

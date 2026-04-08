@@ -64,6 +64,9 @@ export const MARKERS = {
   bottomRight: { x: 201, y: 289, filled: false },
 } as const;
 
+// 中心マーカー（検証用、塗りつぶし四角）
+export const CENTER_MARKER = { x: 101, y: 144.5, size: 6 };
+
 // 色
 export const COLOR_BLACK = { r: 0, g: 0, b: 0 };
 export const COLOR_CYAN = { r: 0.8, g: 1, b: 1 };

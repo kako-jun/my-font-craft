@@ -256,3 +256,265 @@ fn crop_region(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> RgbaImage {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── ヘルパー ──
+
+    fn make_slot(cell_index: usize, is_empty: bool, check_mark: CheckMark) -> SlotResult {
+        SlotResult {
+            cell_index,
+            is_empty,
+            black_ratio: if is_empty { 0.0 } else { 0.5 },
+            check_mark,
+            check_density: 0.0,
+        }
+    }
+
+    fn make_uniform_image(w: u32, h: u32, color: Rgba<u8>) -> RgbaImage {
+        let mut img = RgbaImage::new(w, h);
+        for y in 0..h {
+            for x in 0..w {
+                img.put_pixel(x, y, color);
+            }
+        }
+        img
+    }
+
+    // ── judge_adoption: 13パターン（template-spec.md 採用ルール表） ──
+
+    #[test]
+    fn judge_both_filled_both_check() {
+        // I0記入✓, I1記入✓ → 両方採用(alt)
+        let slots = [
+            make_slot(0, false, CheckMark::Check),
+            make_slot(1, false, CheckMark::Check),
+        ];
+        let (adopted, _) = judge_adoption(&slots);
+        assert_eq!(adopted, vec![0, 1]);
+    }
+
+    #[test]
+    fn judge_both_filled_i0_check_i1_empty_mark() {
+        // I0記入✓, I1記入空欄 → I0採用
+        let slots = [
+            make_slot(0, false, CheckMark::Check),
+            make_slot(1, false, CheckMark::Empty),
+        ];
+        let (adopted, _) = judge_adoption(&slots);
+        assert_eq!(adopted, vec![0]);
+    }
+
+    #[test]
+    fn judge_both_filled_i0_check_i1_cross() {
+        // I0記入✓, I1記入× → I0採用
+        let slots = [
+            make_slot(0, false, CheckMark::Check),
+            make_slot(1, false, CheckMark::Cross),
+        ];
+        let (adopted, _) = judge_adoption(&slots);
+        assert_eq!(adopted, vec![0]);
+    }
+
+    #[test]
+    fn judge_both_filled_i0_empty_mark_i1_check() {
+        // I0記入空欄, I1記入✓ → I1採用
+        let slots = [
+            make_slot(0, false, CheckMark::Empty),
+            make_slot(1, false, CheckMark::Check),
+        ];
+        let (adopted, _) = judge_adoption(&slots);
+        assert_eq!(adopted, vec![1]);
+    }
+
+    #[test]
+    fn judge_both_filled_both_empty_mark() {
+        // I0記入空欄, I1記入空欄 → I1採用（右=後書き優先）
+        let slots = [
+            make_slot(0, false, CheckMark::Empty),
+            make_slot(1, false, CheckMark::Empty),
+        ];
+        let (adopted, _) = judge_adoption(&slots);
+        assert_eq!(adopted, vec![1]);
+    }
+
+    #[test]
+    fn judge_both_filled_i0_empty_mark_i1_cross() {
+        // I0記入空欄, I1記入× → I0採用（I1は×で除外）
+        let slots = [
+            make_slot(0, false, CheckMark::Empty),
+            make_slot(1, false, CheckMark::Cross),
+        ];
+        let (adopted, _) = judge_adoption(&slots);
+        assert_eq!(adopted, vec![0]);
+    }
+
+    #[test]
+    fn judge_both_filled_i0_cross_i1_empty_mark() {
+        // I0記入×, I1記入空欄 → I1採用（I0は×で除外）
+        let slots = [
+            make_slot(0, false, CheckMark::Cross),
+            make_slot(1, false, CheckMark::Empty),
+        ];
+        let (adopted, _) = judge_adoption(&slots);
+        assert_eq!(adopted, vec![1]);
+    }
+
+    #[test]
+    fn judge_both_filled_both_cross() {
+        // I0記入×, I1記入× → 採用なし
+        let slots = [
+            make_slot(0, false, CheckMark::Cross),
+            make_slot(1, false, CheckMark::Cross),
+        ];
+        let (adopted, _) = judge_adoption(&slots);
+        assert!(adopted.is_empty());
+    }
+
+    #[test]
+    fn judge_i0_filled_i1_empty_no_mark() {
+        // I0記入空欄, I1空 → I0採用（唯一の記入済み）
+        let slots = [
+            make_slot(0, false, CheckMark::Empty),
+            make_slot(1, true, CheckMark::Empty),
+        ];
+        let (adopted, _) = judge_adoption(&slots);
+        assert_eq!(adopted, vec![0]);
+    }
+
+    #[test]
+    fn judge_i0_empty_i1_filled_no_mark() {
+        // I0空, I1記入空欄 → I1採用（唯一の記入済み）
+        let slots = [
+            make_slot(0, true, CheckMark::Empty),
+            make_slot(1, false, CheckMark::Empty),
+        ];
+        let (adopted, _) = judge_adoption(&slots);
+        assert_eq!(adopted, vec![1]);
+    }
+
+    #[test]
+    fn judge_i0_filled_check_i1_empty() {
+        // I0記入✓, I1空 → I0採用
+        let slots = [
+            make_slot(0, false, CheckMark::Check),
+            make_slot(1, true, CheckMark::Empty),
+        ];
+        let (adopted, _) = judge_adoption(&slots);
+        assert_eq!(adopted, vec![0]);
+    }
+
+    #[test]
+    fn judge_i0_filled_cross_i1_empty() {
+        // I0記入×, I1空 → 採用なし（唯一の記入だが×）
+        let slots = [
+            make_slot(0, false, CheckMark::Cross),
+            make_slot(1, true, CheckMark::Empty),
+        ];
+        let (adopted, _) = judge_adoption(&slots);
+        assert!(adopted.is_empty());
+    }
+
+    #[test]
+    fn judge_both_empty() {
+        // I0空, I1空 → 採用なし（文字未記入）
+        let slots = [
+            make_slot(0, true, CheckMark::Empty),
+            make_slot(1, true, CheckMark::Empty),
+        ];
+        let (adopted, _) = judge_adoption(&slots);
+        assert!(adopted.is_empty());
+    }
+
+    // ── analyze_check_mark: 閾値境界テスト ──
+
+    #[test]
+    fn check_mark_empty_for_white_image() {
+        let img = make_uniform_image(50, 20, Rgba([255, 255, 255, 255]));
+        let (mark, density) = analyze_check_mark(&img);
+        assert_eq!(mark, CheckMark::Empty);
+        assert!(density < 0.02, "density={density} should be < 0.02");
+    }
+
+    #[test]
+    fn check_mark_check_for_sparse_black() {
+        // 密度5%程度 → Check（2%〜15%の範囲）
+        let mut img = make_uniform_image(100, 10, Rgba([255, 255, 255, 255]));
+        let total = 100 * 10;
+        let target_black = (total as f64 * 0.05) as u32;
+        let mut count = 0u32;
+        'outer: for y in 0..10 {
+            for x in 0..100 {
+                if count >= target_black { break 'outer; }
+                img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+                count += 1;
+            }
+        }
+        let (mark, density) = analyze_check_mark(&img);
+        assert_eq!(mark, CheckMark::Check);
+        assert!(density >= 0.02 && density <= 0.15, "density={density}");
+    }
+
+    #[test]
+    fn check_mark_cross_for_dense_black() {
+        // 密度20%程度 → Cross（>15%）
+        let mut img = make_uniform_image(100, 10, Rgba([255, 255, 255, 255]));
+        let total = 100 * 10;
+        let target_black = (total as f64 * 0.20) as u32;
+        let mut count = 0u32;
+        'outer: for y in 0..10 {
+            for x in 0..100 {
+                if count >= target_black { break 'outer; }
+                img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+                count += 1;
+            }
+        }
+        let (mark, density) = analyze_check_mark(&img);
+        assert_eq!(mark, CheckMark::Cross);
+        assert!(density > 0.15, "density={density} should be > 0.15");
+    }
+
+    #[test]
+    fn check_mark_empty_for_zero_size() {
+        let img = RgbaImage::new(0, 0);
+        let (mark, density) = analyze_check_mark(&img);
+        assert_eq!(mark, CheckMark::Empty);
+        assert_eq!(density, 0.0);
+    }
+
+    // ── measure_inner_black_ratio ──
+
+    #[test]
+    fn inner_ratio_all_white() {
+        let img = make_uniform_image(100, 100, Rgba([255, 255, 255, 255]));
+        let ratio = measure_inner_black_ratio(&img, 0.2);
+        assert_eq!(ratio, 0.0);
+    }
+
+    #[test]
+    fn inner_ratio_all_black() {
+        let img = make_uniform_image(100, 100, Rgba([0, 0, 0, 255]));
+        let ratio = measure_inner_black_ratio(&img, 0.2);
+        assert!((ratio - 1.0).abs() < 0.01, "ratio={ratio} should be ~1.0");
+    }
+
+    #[test]
+    fn inner_ratio_tiny_image_no_underflow() {
+        // 1x1画像: margin_ratio=0.2 → margin=0, inner=1
+        // margin_x(0) >= inner_w(1) は false なので計算される
+        // ただし非常に小さい画像でもパニックしないことが重要
+        let img = make_uniform_image(1, 1, Rgba([255, 255, 255, 255]));
+        let ratio = measure_inner_black_ratio(&img, 0.2);
+        assert!(ratio >= 0.0 && ratio <= 1.0);
+    }
+
+    #[test]
+    fn inner_ratio_zero_size_image() {
+        // 0x0画像 → saturating_sub で安全に0.0を返す
+        let img = RgbaImage::new(0, 0);
+        let ratio = measure_inner_black_ratio(&img, 0.2);
+        assert_eq!(ratio, 0.0);
+    }
+}
