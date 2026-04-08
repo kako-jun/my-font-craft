@@ -36,8 +36,11 @@ pub fn extract_and_judge(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CharR
     std::fs::create_dir_all(output_dir)
         .map_err(|e| format!("セル出力ディレクトリ作成エラー: {e}"))?;
 
-    let inner_size_px = layout::mm_to_px(layout::INNER_SIZE).round() as u32;
-    let inner_offset = (layout::CELL_SIZE - layout::INNER_SIZE) / 2.0;
+    // 外枠の枠線(0.5pt≈0.18mm)を避けて内側を切り出す
+    // 余裕を持って1mm内側にオフセット → 13mm×13mm
+    let border_margin = 1.0; // mm
+    let crop_size = layout::CELL_SIZE - border_margin * 2.0; // 13mm
+    let crop_size_px = layout::mm_to_px(crop_size).round() as u32;
     let cell_size_px = layout::mm_to_px(layout::CELL_SIZE).round() as u32;
     let check_height_px = layout::mm_to_px(layout::CHECK_HEIGHT).round() as u32;
 
@@ -52,19 +55,21 @@ pub fn extract_and_judge(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CharR
             for cell_idx in 0..2 {
                 let (mm_x, mm_y) = layout::get_cell_position(row, col, cell_idx);
 
-                // 内枠領域のみ切り出し（INNER_SIZE = 10mm）
-                let inner_px_x = layout::mm_to_px(mm_x + inner_offset).round() as u32;
-                let inner_px_y = layout::mm_to_px(mm_y + inner_offset).round() as u32;
-                let cell_img = crop_region(img, inner_px_x, inner_px_y, inner_size_px, inner_size_px);
+                // 外枠の枠線を除いた内側を切り出し（枠線から1mm内側 = 13mm×13mm）
+                let crop_px_x = layout::mm_to_px(mm_x + border_margin).round() as u32;
+                let crop_px_y = layout::mm_to_px(mm_y + border_margin).round() as u32;
+                let cell_img = crop_region(img, crop_px_x, crop_px_y, crop_size_px, crop_size_px);
 
                 // 空判定: 内側60%領域で黒ピクセル2%未満=空
                 let black_ratio = measure_inner_black_ratio(&cell_img, 0.2);
                 let is_empty = black_ratio < 0.02;
 
-                // チェック欄切り出し（セル下部の3mm領域）
-                let check_px_x = layout::mm_to_px(mm_x).round() as u32;
-                let check_px_y = layout::mm_to_px(mm_y + layout::CELL_SIZE).round() as u32;
-                let check_img = crop_region(img, check_px_x, check_px_y, cell_size_px, check_height_px);
+                // チェック欄切り出し（セル下部の3mm領域、枠線を除く）
+                let check_px_x = layout::mm_to_px(mm_x + border_margin).round() as u32;
+                let check_px_y = layout::mm_to_px(mm_y + layout::CELL_SIZE + border_margin * 0.5).round() as u32;
+                let check_w = layout::mm_to_px(layout::CELL_SIZE - border_margin * 2.0).round() as u32;
+                let check_h = layout::mm_to_px(layout::CHECK_HEIGHT - border_margin).round() as u32;
+                let check_img = crop_region(img, check_px_x, check_px_y, check_w, check_h);
 
                 // チェック欄解析
                 let (check_mark, check_density) = analyze_check_mark(&check_img);
