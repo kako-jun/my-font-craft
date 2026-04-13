@@ -166,3 +166,7 @@ npm run deploy
 - 表示時のバリエーション切り替え
 
 詳細: [docs/future-plans.md](./docs/future-plans.md)
+
+## デザインシステム
+
+UIの生成・修正時は `DESIGN.md` に定義されたデザインシステムに従うこと。定義外の色・フォント・スペーシングを勝手に使わない。
