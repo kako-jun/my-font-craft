@@ -64,8 +64,29 @@ export const MARKERS = {
   bottomRight: { x: 201, y: 289, filled: false },
 } as const;
 
-// 中心マーカー（検証用、塗りつぶし四角）
-export const CENTER_MARKER = { x: 101, y: 144.5, size: 6 };
+// 中心マーカー（4隅マーカー矩形の幾何学的中心に配置）
+// 4隅マーカー中心の幾何学的中心 = (106, 150) に合わせる
+export const CENTER_MARKER_X = 103; // 106 - SIZE/2
+export const CENTER_MARKER_Y = 147; // 150 - SIZE/2
+export const CENTER_MARKER_SIZE = 6;
+
+// スキップセル（中心マーカーが占有）
+export const SKIPPED_ROW = 6;
+export const SKIPPED_COL = 2;
+
+export function isSkippedCell(row: number, col: number): boolean {
+  return row === SKIPPED_ROW && col === SKIPPED_COL;
+}
+
+/** グリッド上の (row, col) を文字インデックス（0〜46）に変換。スキップセルなら null */
+export function gridToCharIndex(row: number, col: number): number | null {
+  if (isSkippedCell(row, col)) {
+    return null;
+  }
+  const linear = row * COLS + col;
+  const skipLinear = SKIPPED_ROW * COLS + SKIPPED_COL;
+  return linear < skipLinear ? linear : linear - 1;
+}
 
 // 色
 export const COLOR_BLACK = { r: 0, g: 0, b: 0 };
