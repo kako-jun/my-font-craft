@@ -39,7 +39,10 @@ import {
   CYAN_SAMPLE_X,
   CYAN_SAMPLE_Y,
   CYAN_SAMPLE_SIZE,
-  CENTER_MARKER,
+  CENTER_MARKER_X,
+  CENTER_MARKER_Y,
+  CENTER_MARKER_SIZE,
+  isSkippedCell,
   getCellPosition,
 } from '../src/lib/template/layout';
 
@@ -138,6 +141,7 @@ async function main() {
   const cyanColor = rgb(0.8, 1, 1);
   for (let row = 0; row < ROWS; row++) {
     for (let col = 0; col < COLS; col++) {
+      if (isSkippedCell(row, col)) continue;
       for (let cellIdx = 0; cellIdx < 2; cellIdx++) {
         const pos = getCellPosition(row, col, cellIdx);
 
@@ -179,18 +183,18 @@ async function main() {
   // 白アイソレーション境界（1mm）
   const cmBorder = 1;
   page.drawRectangle({
-    x: mm(CENTER_MARKER.x - cmBorder),
-    y: toY(CENTER_MARKER.y + CENTER_MARKER.size + cmBorder),
-    width: mm(CENTER_MARKER.size + cmBorder * 2),
-    height: mm(CENTER_MARKER.size + cmBorder * 2),
+    x: mm(CENTER_MARKER_X - cmBorder),
+    y: toY(CENTER_MARKER_Y + CENTER_MARKER_SIZE + cmBorder),
+    width: mm(CENTER_MARKER_SIZE + cmBorder * 2),
+    height: mm(CENTER_MARKER_SIZE + cmBorder * 2),
     color: rgb(1, 1, 1),
   });
   // 塗りつぶし四角
   page.drawRectangle({
-    x: mm(CENTER_MARKER.x),
-    y: toY(CENTER_MARKER.y + CENTER_MARKER.size),
-    width: mm(CENTER_MARKER.size),
-    height: mm(CENTER_MARKER.size),
+    x: mm(CENTER_MARKER_X),
+    y: toY(CENTER_MARKER_Y + CENTER_MARKER_SIZE),
+    width: mm(CENTER_MARKER_SIZE),
+    height: mm(CENTER_MARKER_SIZE),
     color: rgb(0, 0, 0),
   });
 
