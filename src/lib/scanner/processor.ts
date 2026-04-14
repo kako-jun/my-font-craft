@@ -1,34 +1,6 @@
 import JSZip from 'jszip';
-import { readQRFromCanvas, readQRFromImageData } from './qr-reader';
-import {
-  detectMarkers,
-  extrapolatePageCorners,
-  perspectiveTransform,
-  detectOrientation,
-  rotateCanvas,
-} from './marker-detector';
-import {
-  mm,
-  PAGE_WIDTH,
-  PAGE_HEIGHT,
-  COLS,
-  ROWS,
-  CELL_SIZE,
-  CHECK_HEIGHT,
-  INNER_SIZE,
-  CYAN_SAMPLE_X,
-  CYAN_SAMPLE_Y,
-  CYAN_SAMPLE_SIZE,
-  GRAY_BAR_STEPS,
-  GRAY_BAR_STEP_SIZE,
-  GRAY_BAR_LEFT_X,
-  GRAY_BAR_RIGHT_X,
-  GRAY_BAR_TOP_Y,
-  GRAY_BAR_BOTTOM_Y,
-  isSkippedCell,
-  gridToCharIndex,
-  getCellPosition,
-} from '../template/layout';
+import { processImageWasm, cellToImageData, cellToDataUrl } from '../wasm/loader';
+import type { WasmProcessedCell } from '../wasm/loader';
 import { getCharactersForPage } from '../../data/characters';
 import type { VectorGlyph } from '../font/builder';
 import { vectorizeGlyph } from '../vectorizer/contour';
@@ -59,281 +31,22 @@ export interface ProcessResult {
   glyphs: VectorGlyph[];
 }
 
-// 画像ファイルからCanvasに読み込む
-async function loadImageToCanvas(file: File): Promise<HTMLCanvasElement> {
-  const bitmap = await createImageBitmap(file);
-  const canvas = document.createElement('canvas');
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
-  const ctx = canvas.getContext('2d')!;
-  ctx.drawImage(bitmap, 0, 0);
-  bitmap.close();
-  return canvas;
-}
-
-// シアン色の除去
-function removeCyan(canvas: HTMLCanvasElement, cyanR: number, cyanG: number, cyanB: number) {
-  const ctx = canvas.getContext('2d')!;
-  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const data = imgData.data;
-  const tolerance = 80; // 色距離の閾値
-
-  for (let i = 0; i < data.length; i += 4) {
-    const dr = data[i] - cyanR;
-    const dg = data[i + 1] - cyanG;
-    const db = data[i + 2] - cyanB;
-    const dist = Math.sqrt(dr * dr + dg * dg + db * db);
-    if (dist < tolerance) {
-      data[i] = 255;
-      data[i + 1] = 255;
-      data[i + 2] = 255;
-    }
-  }
-
-  ctx.putImageData(imgData, 0, 0);
-}
-
-// シアンサンプルの平均色を読み取る
-function readCyanSample(canvas: HTMLCanvasElement): [number, number, number] {
-  const ctx = canvas.getContext('2d')!;
-  const scaleX = canvas.width / mm(PAGE_WIDTH);
-  const scaleY = canvas.height / mm(PAGE_HEIGHT);
-  const sx = Math.round(mm(CYAN_SAMPLE_X) * scaleX);
-  const sy = Math.round(mm(CYAN_SAMPLE_Y) * scaleY);
-  const sw = Math.round(mm(CYAN_SAMPLE_SIZE) * scaleX);
-  const sh = Math.round(mm(CYAN_SAMPLE_SIZE) * scaleY);
-
-  const data = ctx.getImageData(sx, sy, Math.max(1, sw), Math.max(1, sh)).data;
-  let r = 0,
-    g = 0,
-    b = 0;
-  const count = data.length / 4;
-  for (let i = 0; i < data.length; i += 4) {
-    r += data[i];
-    g += data[i + 1];
-    b += data[i + 2];
-  }
-  return [Math.round(r / count), Math.round(g / count), Math.round(b / count)];
-}
-
-// グレースケールバー読み取り結果
-interface GrayBarReadings {
-  left: number[]; // 左バーの各ステップの平均輝度 (0-255)
-  right: number[]; // 右バーの各ステップの平均輝度 (0-255)
-}
-
-// 左右縦グレースケールバーを読み取る
-function readGrayBars(canvas: HTMLCanvasElement): GrayBarReadings {
-  const ctx = canvas.getContext('2d')!;
-  const scaleX = canvas.width / mm(PAGE_WIDTH);
-  const scaleY = canvas.height / mm(PAGE_HEIGHT);
-  const barHeight = GRAY_BAR_BOTTOM_Y - GRAY_BAR_TOP_Y;
-  const stepHeight = barHeight / GRAY_BAR_STEPS;
-
-  function readBar(barX: number): number[] {
-    const values: number[] = [];
-    for (let i = 0; i < GRAY_BAR_STEPS; i++) {
-      const y = GRAY_BAR_TOP_Y + i * stepHeight;
-      const px = Math.round(mm(barX) * scaleX);
-      const py = Math.round(mm(y) * scaleY);
-      const pw = Math.round(mm(GRAY_BAR_STEP_SIZE) * scaleX);
-      const ph = Math.round(mm(stepHeight) * scaleY);
-      // 中央部分のみサンプリング（端のにじみを避ける）
-      const marginPx = Math.max(1, Math.floor(Math.min(pw, ph) * 0.2));
-      const sx = Math.max(0, Math.min(px + marginPx, canvas.width - 1));
-      const sy = Math.max(0, Math.min(py + marginPx, canvas.height - 1));
-      const sw = Math.max(1, Math.min(pw - marginPx * 2, canvas.width - sx));
-      const sh = Math.max(1, Math.min(ph - marginPx * 2, canvas.height - sy));
-      const data = ctx.getImageData(sx, sy, sw, sh).data;
-      let sum = 0;
-      const count = data.length / 4;
-      for (let j = 0; j < data.length; j += 4) {
-        sum += (data[j] + data[j + 1] + data[j + 2]) / 3;
-      }
-      values.push(count > 0 ? sum / count : 128);
-    }
-    return values;
-  }
-
-  return {
-    left: readBar(GRAY_BAR_LEFT_X),
-    right: readBar(GRAY_BAR_RIGHT_X),
-  };
-}
-
-// 上下・左右の影勾配を補正
-function applyShadowCorrection(canvas: HTMLCanvasElement, bars: GrayBarReadings): void {
-  const ctx = canvas.getContext('2d')!;
-  const w = canvas.width;
-  const h = canvas.height;
-  const imgData = ctx.getImageData(0, 0, w, h);
-  const data = imgData.data;
-
-  // 各ステップの期待値（0=黒, 0.9=ほぼ白 → 0~229.5）
-  const expected: number[] = [];
-  for (let i = 0; i < GRAY_BAR_STEPS; i++) {
-    expected.push((i / GRAY_BAR_STEPS) * 255);
-  }
-
-  // 左右バーの各ステップごとの補正量
-  const leftDelta = bars.left.map((v, i) => v - expected[i]);
-  const rightDelta = bars.right.map((v, i) => v - expected[i]);
-
-  // バーのピクセル座標
-  const scaleY = h / mm(PAGE_HEIGHT);
-  const scaleX = w / mm(PAGE_WIDTH);
-  const barTopPx = mm(GRAY_BAR_TOP_Y) * scaleY;
-  const barBottomPx = mm(GRAY_BAR_BOTTOM_Y) * scaleY;
-  const barLeftPx = mm(GRAY_BAR_LEFT_X + GRAY_BAR_STEP_SIZE / 2) * scaleX;
-  const barRightPx = mm(GRAY_BAR_RIGHT_X + GRAY_BAR_STEP_SIZE / 2) * scaleX;
-
-  for (let py = 0; py < h; py++) {
-    // Y方向: バーのどのステップに近いか（線形補間）
-    const barT = Math.max(0, Math.min(1, (py - barTopPx) / (barBottomPx - barTopPx)));
-    const stepF = barT * (GRAY_BAR_STEPS - 1);
-    const stepLow = Math.floor(stepF);
-    const stepHigh = Math.min(stepLow + 1, GRAY_BAR_STEPS - 1);
-    const stepFrac = stepF - stepLow;
-
-    // 左バーの補正量（この行のY位置での）
-    const leftCorr = leftDelta[stepLow] * (1 - stepFrac) + leftDelta[stepHigh] * stepFrac;
-    // 右バーの補正量
-    const rightCorr = rightDelta[stepLow] * (1 - stepFrac) + rightDelta[stepHigh] * stepFrac;
-
-    for (let px = 0; px < w; px++) {
-      // X方向: 左バー〜右バーの間で線形補間
-      const xT = Math.max(0, Math.min(1, (px - barLeftPx) / (barRightPx - barLeftPx)));
-      const correction = leftCorr * (1 - xT) + rightCorr * xT;
-
-      const i = (py * w + px) * 4;
-      data[i] = Math.max(0, Math.min(255, data[i] - correction));
-      data[i + 1] = Math.max(0, Math.min(255, data[i + 1] - correction));
-      data[i + 2] = Math.max(0, Math.min(255, data[i + 2] - correction));
-    }
-  }
-
-  ctx.putImageData(imgData, 0, 0);
-}
-
-// マスを切り出して二値化
-function extractCell(
-  canvas: HTMLCanvasElement,
-  row: number,
-  col: number,
-  cellIndex: number,
-): ImageData | null {
-  const ctx = canvas.getContext('2d')!;
-  const scaleX = canvas.width / mm(PAGE_WIDTH);
-  const scaleY = canvas.height / mm(PAGE_HEIGHT);
-
-  const pos = getCellPosition(row, col, cellIndex);
-  // 内枠領域のみ切り出す
-  const innerOffset = (CELL_SIZE - INNER_SIZE) / 2;
-  const px = Math.round(mm(pos.x + innerOffset) * scaleX);
-  const py = Math.round(mm(pos.y + innerOffset) * scaleY);
-  const pw = Math.round(mm(INNER_SIZE) * scaleX);
-  const ph = Math.round(mm(INNER_SIZE) * scaleY);
-
-  if (pw <= 0 || ph <= 0) return null;
-  return ctx.getImageData(px, py, pw, ph);
-}
-
-// 空マス判定
-// 黒ピクセル率だけでなく、格子線残骸（外周に集中する薄い線）を除外する
-function isEmpty(imageData: ImageData): boolean {
-  const w = imageData.width;
-  const h = imageData.height;
-  const data = imageData.data;
-  const total = w * h;
-  const threshold = 128;
-
-  // 外周20%を除外した内側領域のみで判定（格子線はセル境界に出る）
-  const marginX = Math.floor(w * 0.2);
-  const marginY = Math.floor(h * 0.2);
-  let blackCount = 0;
-  let innerTotal = 0;
-
-  for (let y = marginY; y < h - marginY; y++) {
-    for (let x = marginX; x < w - marginX; x++) {
-      const i = (y * w + x) * 4;
-      const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
-      if (gray < threshold) blackCount++;
-      innerTotal++;
-    }
-  }
-
-  if (innerTotal === 0) return true;
-
-  // 内側領域で黒ピクセルが2%未満なら空とみなす（旧1%より緩和）
-  return blackCount / innerTotal < 0.02;
-}
-
-// チェック欄解析（簡易版: 黒ピクセル密度で✓/×/空欄を推定）
-function analyzeCheckMark(
-  canvas: HTMLCanvasElement,
-  row: number,
-  col: number,
-  cellIndex: number,
-): 'check' | 'cross' | 'empty' {
-  const ctx = canvas.getContext('2d')!;
-  const scaleX = canvas.width / mm(PAGE_WIDTH);
-  const scaleY = canvas.height / mm(PAGE_HEIGHT);
-
-  const pos = getCellPosition(row, col, cellIndex);
-  const px = Math.round(mm(pos.x) * scaleX);
-  const py = Math.round(mm(pos.y + CELL_SIZE) * scaleY);
-  const pw = Math.round(mm(CELL_SIZE) * scaleX);
-  const ph = Math.round(mm(CHECK_HEIGHT) * scaleY);
-
-  if (pw <= 0 || ph <= 0) return 'empty';
-
-  const data = ctx.getImageData(px, py, pw, ph).data;
-  const total = data.length / 4;
-  let blackCount = 0;
-
-  for (let i = 0; i < data.length; i += 4) {
-    const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
-    if (gray < 128) blackCount++;
-  }
-
-  const ratio = blackCount / total;
-  if (ratio < 0.02) return 'empty';
-  // ✓ vs × の区別は将来的にテンプレートマッチングで改善
-  // 暫定: 密度が高ければ×、低ければ✓
-  if (ratio > 0.15) return 'cross';
-  return 'check';
-}
-
 /**
- * QRコードの位置から画像の回転角度を判定する。
- * QRは正立時にページ左下に配置されている。生画像の4隅でQR検出を試み、
- * 見つかった隅から回転角度を返す。見つからなければ null。
+ * 補正後画像（RGBA配列）からCanvasを生成する
  */
-function detectOrientationByQR(canvas: HTMLCanvasElement): number | null {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-
-  const w = canvas.width;
-  const h = canvas.height;
-  const regionW = Math.floor(w * 0.3);
-  const regionH = Math.floor(h * 0.3);
-
-  const regions: { name: string; x: number; y: number; rotation: number }[] = [
-    { name: 'bottomLeft', x: 0, y: h - regionH, rotation: 0 },
-    { name: 'topLeft', x: 0, y: 0, rotation: 90 },
-    { name: 'topRight', x: w - regionW, y: 0, rotation: 180 },
-    { name: 'bottomRight', x: w - regionW, y: h - regionH, rotation: 270 },
-  ];
-
-  for (const region of regions) {
-    const data = ctx.getImageData(region.x, region.y, regionW, regionH);
-    const qr = readQRFromImageData(data);
-    if (qr) {
-      return region.rotation;
-    }
-  }
-
-  return null;
+function correctedImageToCanvas(
+  imageData: number[],
+  width: number,
+  height: number,
+): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+  const data = new Uint8ClampedArray(imageData);
+  const imgData = new ImageData(data, width, height);
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
 }
 
 // メイン処理
@@ -373,47 +86,20 @@ export async function processImages(
   for (let fi = 0; fi < imageFiles.length; fi++) {
     callbacks.onPageStart(fi + 1, imageFiles.length);
 
-    let canvas: HTMLCanvasElement;
+    let wasmResult;
     try {
-      canvas = await loadImageToCanvas(imageFiles[fi]);
-    } catch {
+      wasmResult = await processImageWasm(imageFiles[fi]);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
       callbacks.onMessage({
         type: 'error',
-        text: `ファイル "${imageFiles[fi].name}" を画像として読み込めませんでした。スキップします。`,
+        text: `ファイル "${imageFiles[fi].name}" の処理に失敗しました: ${msg}`,
       });
       continue;
     }
 
-    // 四隅マーカー検出 → ページ全体を台形補正 → QR読み取り
-    const corners = detectMarkers(canvas);
-    let corrected: HTMLCanvasElement;
-
-    if (corners) {
-      // 向き検出・回転補正（QRベース優先、フォールバックで密度方式）
-      const qrRotation = detectOrientationByQR(canvas);
-      const rotation = qrRotation !== null ? qrRotation : detectOrientation(corners, canvas);
-      const rotated = rotation === 0 ? canvas : rotateCanvas(canvas, rotation);
-      // 回転後にマーカーを再検出し、ページ全体の四隅を外挿して台形補正
-      const rotatedCorners = rotation === 0 ? corners : detectMarkers(rotated);
-      const targetW = Math.round(mm(PAGE_WIDTH) * 4); // 約300dpi相当
-      const targetH = Math.round(mm(PAGE_HEIGHT) * 4);
-      if (rotatedCorners) {
-        const pageCorners = extrapolatePageCorners(rotatedCorners);
-        corrected = perspectiveTransform(rotated, pageCorners, targetW, targetH);
-      } else {
-        corrected = rotated;
-      }
-    } else {
-      callbacks.onMessage({
-        type: 'warning',
-        text: `画像 ${fi + 1} の四隅マーカーが見つかりません。補正なしで処理を継続します。`,
-      });
-      corrected = canvas;
-    }
-
-    // QRコード読み取り（台形補正後のページ全体画像から）
-    const qr = readQRFromCanvas(corrected);
-    if (!qr) {
+    const pageNumber = wasmResult.page_number;
+    if (!pageNumber) {
       callbacks.onMessage({
         type: 'error',
         text: `画像 ${fi + 1} のQRコードを読み取れませんでした。画像が不鮮明な可能性があります。`,
@@ -421,101 +107,84 @@ export async function processImages(
       continue;
     }
 
-    // グレースケールバー読み取り+影補正（シアン除去の前）
-    const bars = readGrayBars(corrected);
-    applyShadowCorrection(corrected, bars);
-
-    // シアン除去
-    const [cr, cg, cb] = readCyanSample(corrected);
-    removeCyan(corrected, cr, cg, cb);
-
     // 補正後キャンバスをコールバックで通知
-    callbacks.onPageCorrected?.(qr.pg, corrected);
+    if (callbacks.onPageCorrected) {
+      const correctedCanvas = correctedImageToCanvas(
+        wasmResult.corrected_image,
+        wasmResult.corrected_width,
+        wasmResult.corrected_height,
+      );
+      callbacks.onPageCorrected(pageNumber, correctedCanvas);
+    }
 
-    // 各文字を処理（QRに文字リストがあればそれを使用、なければページ番号から導出）
-    const pageChars = qr.chars ?? getCharactersForPage(qr.pg - 1);
-    for (let row = 0; row < ROWS; row++) {
-      for (let col = 0; col < COLS; col++) {
-        // 中心マーカーが占有するセルはスキップ
-        if (isSkippedCell(row, col)) continue;
+    // ページの文字リスト
+    const pageChars = getCharactersForPage(pageNumber - 1);
 
-        const charIndex = gridToCharIndex(row, col);
-        if (charIndex === null || charIndex >= pageChars.length) continue;
-        const char = pageChars[charIndex];
-        const unicode = char.codePointAt(0)!;
+    // セルを (row, col) でグループ化
+    const cellsByPos = new Map<string, WasmProcessedCell[]>();
+    for (const cell of wasmResult.cells) {
+      const key = `${cell.row},${cell.col}`;
+      if (!cellsByPos.has(key)) cellsByPos.set(key, []);
+      cellsByPos.get(key)!.push(cell);
+    }
 
-        // 2つのマスを評価
-        const cells: {
-          imageData: ImageData;
-          checkMark: 'check' | 'cross' | 'empty';
-          index: number;
-        }[] = [];
+    for (const [, cells] of cellsByPos) {
+      const firstCell = cells[0];
+      const charIndex = firstCell.char_index;
+      if (charIndex === null || charIndex === undefined || charIndex >= pageChars.length) continue;
 
-        for (let cellIdx = 0; cellIdx < 2; cellIdx++) {
-          const cellData = extractCell(corrected, row, col, cellIdx);
-          if (!cellData || isEmpty(cellData)) continue;
+      const char = pageChars[charIndex];
+      const unicode = char.codePointAt(0)!;
 
-          const check = analyzeCheckMark(corrected, row, col, cellIdx);
-          if (check === 'cross') continue;
+      // 採用されたセルを抽出
+      const adoptedCells = cells.filter((c) => c.adopted);
 
-          cells.push({ imageData: cellData, checkMark: check, index: cellIdx });
-        }
-
-        if (cells.length === 0) {
-          callbacks.onGlyphStatus?.({
-            char,
-            unicode,
-            pageIndex: qr.pg,
-            row,
-            col,
-            status: 'empty',
-          });
-          continue;
-        }
-
-        // 採用判定
-        const checked = cells.filter((c) => c.checkMark === 'check');
-        const adopted = checked.length > 0 ? checked : [cells[cells.length - 1]];
-
-        // セル画像のData URLを生成（UI表示用）
-        const adoptedCell = adopted[0];
-        let cellImageDataUrl: string | undefined;
-        try {
-          const cellCanvas = document.createElement('canvas');
-          cellCanvas.width = adoptedCell.imageData.width;
-          cellCanvas.height = adoptedCell.imageData.height;
-          cellCanvas.getContext('2d')!.putImageData(adoptedCell.imageData, 0, 0);
-          cellImageDataUrl = cellCanvas.toDataURL('image/png');
-        } catch {
-          /* Node.js環境ではスキップ */
-        }
-
+      if (adoptedCells.length === 0) {
         callbacks.onGlyphStatus?.({
           char,
           unicode,
-          pageIndex: qr.pg,
-          row,
-          col,
-          status: 'found',
-          cellImageDataUrl,
+          pageIndex: pageNumber,
+          row: firstCell.row,
+          col: firstCell.col,
+          status: 'empty',
         });
+        continue;
+      }
 
-        for (let ai = 0; ai < adopted.length; ai++) {
-          const cell = adopted[ai];
-          const paths = vectorizeGlyph(cell.imageData);
+      // セル画像のData URL（UI表示用、最初の採用セル）
+      let cellImageDataUrl: string | undefined;
+      try {
+        cellImageDataUrl = cellToDataUrl(adoptedCells[0]);
+      } catch {
+        /* non-browser environment */
+      }
 
-          const name =
-            ai === 0
-              ? `uni${unicode.toString(16).toUpperCase().padStart(4, '0')}`
-              : `uni${unicode.toString(16).toUpperCase().padStart(4, '0')}.alt${ai}`;
+      callbacks.onGlyphStatus?.({
+        char,
+        unicode,
+        pageIndex: pageNumber,
+        row: firstCell.row,
+        col: firstCell.col,
+        status: 'found',
+        cellImageDataUrl,
+      });
 
-          glyphs.push({
-            name,
-            unicode: ai === 0 ? unicode : undefined,
-            paths,
-            advanceWidth: 1000,
-          });
-        }
+      for (let ai = 0; ai < adoptedCells.length; ai++) {
+        const cell = adoptedCells[ai];
+        const imageData = cellToImageData(cell);
+        const paths = vectorizeGlyph(imageData);
+
+        const name =
+          ai === 0
+            ? `uni${unicode.toString(16).toUpperCase().padStart(4, '0')}`
+            : `uni${unicode.toString(16).toUpperCase().padStart(4, '0')}.alt${ai}`;
+
+        glyphs.push({
+          name,
+          unicode: ai === 0 ? unicode : undefined,
+          paths,
+          advanceWidth: 1000,
+        });
       }
     }
   }

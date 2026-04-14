@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "wasm:build": "cd cli && wasm-pack build --target web --out-dir ../src/wasm",
     "preview": "vite preview",
     "deploy": "wrangler pages deploy dist",
     "test": "vitest run",

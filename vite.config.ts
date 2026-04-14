@@ -6,4 +6,9 @@ export default defineConfig({
   build: {
     target: 'esnext',
   },
+  // WASM ファイルを正しくサーブするための設定
+  optimizeDeps: {
+    exclude: ['mfc'],
+  },
+  assetsInclude: ['**/*.wasm'],
 });
