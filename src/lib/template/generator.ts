@@ -5,6 +5,7 @@ import {
   PAGE_WIDTH,
   PAGE_HEIGHT,
   COLS,
+  ROWS,
   CELL_SIZE,
   INNER_SIZE,
   CHECK_HEIGHT,
@@ -25,6 +26,11 @@ import {
   MARKER_SIZE,
   SAMPLE_WIDTH,
   COLOR_CYAN,
+  CENTER_MARKER_X,
+  CENTER_MARKER_Y,
+  CENTER_MARKER_SIZE,
+  isSkippedCell,
+  gridToCharIndex,
   getCellPosition,
   getSamplePosition,
 } from './layout';
@@ -240,102 +246,125 @@ async function generateTemplatePDFFromChars(
     }
 
     // --- 本文：文字マス ---
-    for (let i = 0; i < pageChars.length; i++) {
-      const row = Math.floor(i / COLS);
-      const col = i % COLS;
-      const char = pageChars[i];
+    for (let row = 0; row < ROWS; row++) {
+      for (let col = 0; col < COLS; col++) {
+        // 中心マーカーが占有するセルはスキップ
+        if (isSkippedCell(row, col)) continue;
 
-      // 見本文字（Canvas APIで描画→画像としてPDFに埋め込み）
-      const sample = getSamplePosition(row, col);
-      const charCode = char.charCodeAt(0);
-      if (charCode < 128) {
-        // ASCII文字はフォントで直接描画
-        page.drawText(char, {
-          x: mm(sample.x + 2),
-          y: toY(sample.y + 14),
-          size: 12,
-          font: helvetica,
-          color: rgb(0, 0, 0),
-        });
-      } else {
-        // 日本語文字はCanvas→PNG→PDF埋め込み
-        const charImage = await renderCharToImage(char);
-        if (charImage) {
-          const pngImage = await pdfDoc.embedPng(charImage);
-          const charSize = SAMPLE_WIDTH;
-          const charY = sample.y + (CELL_SIZE - charSize) / 2;
-          page.drawImage(pngImage, {
-            x: mm(sample.x),
-            y: toY(charY + charSize),
-            width: mm(charSize),
-            height: mm(charSize),
+        const charIndex = gridToCharIndex(row, col);
+        if (charIndex === null || charIndex >= pageChars.length) continue;
+        const char = pageChars[charIndex];
+
+        // 見本文字（Canvas APIで描画→画像としてPDFに埋め込み）
+        const sample = getSamplePosition(row, col);
+        const charCode = char.charCodeAt(0);
+        if (charCode < 128) {
+          // ASCII文字はフォントで直接描画
+          page.drawText(char, {
+            x: mm(sample.x + 2),
+            y: toY(sample.y + 14),
+            size: 12,
+            font: helvetica,
+            color: rgb(0, 0, 0),
+          });
+        } else {
+          // 日本語文字はCanvas→PNG→PDF埋め込み
+          const charImage = await renderCharToImage(char);
+          if (charImage) {
+            const pngImage = await pdfDoc.embedPng(charImage);
+            const charSize = SAMPLE_WIDTH;
+            const charY = sample.y + (CELL_SIZE - charSize) / 2;
+            page.drawImage(pngImage, {
+              x: mm(sample.x),
+              y: toY(charY + charSize),
+              width: mm(charSize),
+              height: mm(charSize),
+            });
+          }
+        }
+
+        // 2つのマス
+        for (let cellIdx = 0; cellIdx < 2; cellIdx++) {
+          const pos = getCellPosition(row, col, cellIdx);
+
+          // 外枠（黒）
+          page.drawRectangle({
+            x: mm(pos.x),
+            y: toY(pos.y + CELL_SIZE),
+            width: mm(CELL_SIZE),
+            height: mm(CELL_SIZE),
+            borderColor: rgb(0, 0, 0),
+            borderWidth: 0.5,
+          });
+
+          // 内枠（シアン）
+          const innerOffset = (CELL_SIZE - INNER_SIZE) / 2;
+          page.drawRectangle({
+            x: mm(pos.x + innerOffset),
+            y: toY(pos.y + innerOffset + INNER_SIZE),
+            width: mm(INNER_SIZE),
+            height: mm(INNER_SIZE),
+            borderColor: rgb(COLOR_CYAN.r, COLOR_CYAN.g, COLOR_CYAN.b),
+            borderWidth: 0.5,
+          });
+
+          // チェック欄区切り（シアン）
+          page.drawLine({
+            start: { x: mm(pos.x), y: toY(pos.y + CELL_SIZE + CHECK_HEIGHT) },
+            end: { x: mm(pos.x + CELL_SIZE), y: toY(pos.y + CELL_SIZE + CHECK_HEIGHT) },
+            color: rgb(COLOR_CYAN.r, COLOR_CYAN.g, COLOR_CYAN.b),
+            thickness: 0.5,
+          });
+
+          // チェック欄外枠
+          page.drawRectangle({
+            x: mm(pos.x),
+            y: toY(pos.y + CELL_SIZE + CHECK_HEIGHT),
+            width: mm(CELL_SIZE),
+            height: mm(CHECK_HEIGHT),
+            borderColor: rgb(0, 0, 0),
+            borderWidth: 0.5,
+          });
+
+          // チェック欄にシアンで✓サンプル（スキャン時に除去される）
+          const checkY = pos.y + CELL_SIZE;
+          const checkMarkWidth = 5;
+          const cx = pos.x + (CELL_SIZE - checkMarkWidth) / 2;
+          const cy = checkY + CHECK_HEIGHT / 2;
+          // ✓ を2本の線で描画
+          page.drawLine({
+            start: { x: mm(cx), y: toY(cy) },
+            end: { x: mm(cx + 2), y: toY(cy + 1.2) },
+            color: rgb(COLOR_CYAN.r, COLOR_CYAN.g, COLOR_CYAN.b),
+            thickness: 0.8,
+          });
+          page.drawLine({
+            start: { x: mm(cx + 2), y: toY(cy + 1.2) },
+            end: { x: mm(cx + 5), y: toY(cy - 1) },
+            color: rgb(COLOR_CYAN.r, COLOR_CYAN.g, COLOR_CYAN.b),
+            thickness: 0.8,
           });
         }
       }
-
-      // 2つのマス
-      for (let cellIdx = 0; cellIdx < 2; cellIdx++) {
-        const pos = getCellPosition(row, col, cellIdx);
-
-        // 外枠（黒）
-        page.drawRectangle({
-          x: mm(pos.x),
-          y: toY(pos.y + CELL_SIZE),
-          width: mm(CELL_SIZE),
-          height: mm(CELL_SIZE),
-          borderColor: rgb(0, 0, 0),
-          borderWidth: 0.5,
-        });
-
-        // 内枠（シアン）
-        const innerOffset = (CELL_SIZE - INNER_SIZE) / 2;
-        page.drawRectangle({
-          x: mm(pos.x + innerOffset),
-          y: toY(pos.y + innerOffset + INNER_SIZE),
-          width: mm(INNER_SIZE),
-          height: mm(INNER_SIZE),
-          borderColor: rgb(COLOR_CYAN.r, COLOR_CYAN.g, COLOR_CYAN.b),
-          borderWidth: 0.5,
-        });
-
-        // チェック欄区切り（シアン）
-        page.drawLine({
-          start: { x: mm(pos.x), y: toY(pos.y + CELL_SIZE + CHECK_HEIGHT) },
-          end: { x: mm(pos.x + CELL_SIZE), y: toY(pos.y + CELL_SIZE + CHECK_HEIGHT) },
-          color: rgb(COLOR_CYAN.r, COLOR_CYAN.g, COLOR_CYAN.b),
-          thickness: 0.5,
-        });
-
-        // チェック欄外枠
-        page.drawRectangle({
-          x: mm(pos.x),
-          y: toY(pos.y + CELL_SIZE + CHECK_HEIGHT),
-          width: mm(CELL_SIZE),
-          height: mm(CHECK_HEIGHT),
-          borderColor: rgb(0, 0, 0),
-          borderWidth: 0.5,
-        });
-
-        // チェック欄にシアンで✓サンプル（スキャン時に除去される）
-        const checkY = pos.y + CELL_SIZE;
-        const checkMarkWidth = 5;
-        const cx = pos.x + (CELL_SIZE - checkMarkWidth) / 2;
-        const cy = checkY + CHECK_HEIGHT / 2;
-        // ✓ を2本の線で描画
-        page.drawLine({
-          start: { x: mm(cx), y: toY(cy) },
-          end: { x: mm(cx + 2), y: toY(cy + 1.2) },
-          color: rgb(COLOR_CYAN.r, COLOR_CYAN.g, COLOR_CYAN.b),
-          thickness: 0.8,
-        });
-        page.drawLine({
-          start: { x: mm(cx + 2), y: toY(cy + 1.2) },
-          end: { x: mm(cx + 5), y: toY(cy - 1) },
-          color: rgb(COLOR_CYAN.r, COLOR_CYAN.g, COLOR_CYAN.b),
-          thickness: 0.8,
-        });
-      }
     }
+
+    // --- 中心マーカー ---
+    // 白い境界（1mm）で周囲をクリアし、6mm × 6mm の黒い塗りつぶし四角を描画
+    const cmBorder = 1; // mm
+    page.drawRectangle({
+      x: mm(CENTER_MARKER_X - cmBorder),
+      y: toY(CENTER_MARKER_Y + CENTER_MARKER_SIZE + cmBorder),
+      width: mm(CENTER_MARKER_SIZE + cmBorder * 2),
+      height: mm(CENTER_MARKER_SIZE + cmBorder * 2),
+      color: rgb(1, 1, 1),
+    });
+    page.drawRectangle({
+      x: mm(CENTER_MARKER_X),
+      y: toY(CENTER_MARKER_Y + CENTER_MARKER_SIZE),
+      width: mm(CENTER_MARKER_SIZE),
+      height: mm(CENTER_MARKER_SIZE),
+      color: rgb(0, 0, 0),
+    });
   }
 
   return pdfDoc.save();

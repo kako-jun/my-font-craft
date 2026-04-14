@@ -24,7 +24,11 @@ pub const BODY_START_Y: f64 = 28.0;
 // グリッド
 pub const COLS: usize = 4;
 pub const ROWS: usize = 12;
-pub const CHARS_PER_PAGE: usize = COLS * ROWS; // 各文字に2マスあるのでセル総数は CHARS_PER_PAGE * 2
+/// 中心マーカーが1セル分を占有するため 4×12 - 1 = 47
+pub const CHARS_PER_PAGE: usize = COLS * ROWS - 1;
+/// 中心マーカーに占有されるセル位置
+pub const SKIPPED_ROW: usize = 6;
+pub const SKIPPED_COL: usize = 2;
 pub const COL_WIDTH: f64 = 47.0;
 pub const ROW_HEIGHT: f64 = 20.0;
 
@@ -41,11 +45,12 @@ pub const QR_Y: f64 = 267.0;
 pub const QR_SIZE: f64 = 15.0;
 
 // グレースケールバー（マーカー quiet zone を避けて配置）
+// 最も黒い step(0) がマーカー探索領域(25%)の端に来るよう、本文開始位置から描画
 pub const GRAY_BAR_STEPS: usize = 10;
 pub const GRAY_BAR_STEP_SIZE: f64 = 5.0;
 pub const GRAY_BAR_LEFT_X: f64 = 2.0;
 pub const GRAY_BAR_RIGHT_X: f64 = 203.0;
-pub const GRAY_BAR_TOP_Y: f64 = 22.0;    // マーカー下端(11mm)から11mm離す
+pub const GRAY_BAR_TOP_Y: f64 = 28.0;    // BODY_START_Y に合わせる（マーカー下端から17mm）
 pub const GRAY_BAR_BOTTOM_Y: f64 = 272.0;
 
 // シアンサンプル
@@ -69,8 +74,9 @@ pub const MARKER_BL: MarkerDef = MarkerDef { x: 3.0, y: 289.0, filled: false };
 pub const MARKER_BR: MarkerDef = MarkerDef { x: 201.0, y: 289.0, filled: false };
 
 /// 中心マーカー（検証・レンズ歪み検出用、塗りつぶし四角）
-pub const CENTER_MARKER_X: f64 = 101.0;
-pub const CENTER_MARKER_Y: f64 = 144.5;
+/// 4隅マーカー中心の幾何学的中心 = (106, 150) に合わせる
+pub const CENTER_MARKER_X: f64 = 103.0; // 106 - SIZE/2
+pub const CENTER_MARKER_Y: f64 = 147.0; // 150 - SIZE/2
 pub const CENTER_MARKER_SIZE: f64 = 6.0;
 
 /// 四隅マーカー中心座標（mm）
@@ -113,36 +119,25 @@ pub fn get_sample_position(row: usize, col: usize) -> (f64, f64) {
     (x, y)
 }
 
-/// 中心マーカーやQRコード領域と重なるセルをスキップするかどうか
+/// 中心マーカーに占有されたセルかどうかを判定
 pub fn is_skipped_cell(row: usize, col: usize) -> bool {
-    // 中心マーカー領域: (101, 144.5) サイズ6mm
-    // row=5, col=1 あたりが中心マーカーに最も近い
-    // セル位置を計算して中心マーカーと重なるかチェック
-    for cell_idx in 0..2 {
-        let (cx, cy) = get_cell_position(row, col, cell_idx);
-        // 中心マーカーとの重なりチェック
-        let overlaps_center = cx < CENTER_MARKER_X + CENTER_MARKER_SIZE
-            && cx + CELL_SIZE > CENTER_MARKER_X
-            && cy < CENTER_MARKER_Y + CENTER_MARKER_SIZE
-            && cy + CELL_SIZE > CENTER_MARKER_Y;
-        if overlaps_center {
-            return true;
-        }
-    }
-    // QRコードとの重なりチェック
-    let (sx, sy) = get_sample_position(row, col);
-    let cell_right = sx + SAMPLE_WIDTH + CELL_GAP + 2.0 * (CELL_SIZE + CELL_GAP);
-    let cell_bottom = sy + ROW_HEIGHT;
-    let overlaps_qr = sx < QR_X + QR_SIZE
-        && cell_right > QR_X
-        && sy < QR_Y + QR_SIZE
-        && cell_bottom > QR_Y;
-    overlaps_qr
+    row == SKIPPED_ROW && col == SKIPPED_COL
 }
 
-// NOTE: 中心マーカー追加時は CHARS_PER_PAGE を1減らす波及変更が必要
-// （QRコード、ページ割り当て、TypeScript側テンプレート生成を含む）
-// 実写テストで中心マーカーの必要性を確認してから対応する
+/// グリッド上の (row, col) を文字インデックス（0〜46）に変換
+/// スキップセルの場合は None を返す
+pub fn grid_to_char_index(row: usize, col: usize) -> Option<usize> {
+    if is_skipped_cell(row, col) {
+        return None;
+    }
+    let linear = row * COLS + col;
+    let skip_linear = SKIPPED_ROW * COLS + SKIPPED_COL;
+    if linear < skip_linear {
+        Some(linear)
+    } else {
+        Some(linear - 1)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -190,8 +185,8 @@ mod tests {
     }
 
     #[test]
-    fn cell_position_all_48_chars() {
-        // 全48文字×2マスがTS版と一致することを確認
+    fn cell_position_all_chars() {
+        // 全セル×2マスがTS版と一致することを確認（スキップセル含む）
         for row in 0..ROWS {
             for col in 0..COLS {
                 for ci in 0..2 {
@@ -204,6 +199,32 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn chars_per_page_is_47() {
+        assert_eq!(CHARS_PER_PAGE, 47);
+    }
+
+    #[test]
+    fn skipped_cell_is_excluded() {
+        assert!(is_skipped_cell(SKIPPED_ROW, SKIPPED_COL));
+        assert!(!is_skipped_cell(0, 0));
+        assert!(!is_skipped_cell(SKIPPED_ROW, 0));
+    }
+
+    #[test]
+    fn grid_to_char_index_covers_47() {
+        let mut count = 0;
+        for row in 0..ROWS {
+            for col in 0..COLS {
+                if let Some(idx) = grid_to_char_index(row, col) {
+                    assert!(idx < CHARS_PER_PAGE, "idx={idx} out of range");
+                    count += 1;
+                }
+            }
+        }
+        assert_eq!(count, CHARS_PER_PAGE);
     }
 
     #[test]

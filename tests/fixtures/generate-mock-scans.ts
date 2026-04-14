@@ -43,6 +43,8 @@ import {
   CYAN_SAMPLE_X,
   CYAN_SAMPLE_Y,
   CYAN_SAMPLE_SIZE,
+  isSkippedCell,
+  gridToCharIndex,
 } from '../../src/lib/template/layout';
 
 // ひらがな（characters.ts と同じ順序）
@@ -235,67 +237,76 @@ async function generatePage(pageIdx: number, chars: string[]): Promise<Buffer> {
   }
 
   // --- 文字マス ---
-  for (let i = 0; i < chars.length; i++) {
-    const row = Math.floor(i / COLS);
-    const col = i % COLS;
-    const char = chars[i];
+  for (let row = 0; row < ROWS; row++) {
+    for (let col = 0; col < COLS; col++) {
+      // 中心マーカーが占有するセルはスキップ
+      if (isSkippedCell(row, col)) {
+        continue;
+      }
 
-    // 2つのマス
-    for (let cellIdx = 0; cellIdx < 2; cellIdx++) {
-      const pos = getCellPosition(row, col, cellIdx);
+      const charIdx = gridToCharIndex(row, col);
+      if (charIdx === null || charIdx >= chars.length) {
+        continue;
+      }
+      const char = chars[charIdx];
 
-      // 外枠（黒）
-      ctx.strokeStyle = '#000000';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(px(pos.x), px(pos.y), px(CELL_SIZE), px(CELL_SIZE));
+      // 2つのマス
+      for (let cellIdx = 0; cellIdx < 2; cellIdx++) {
+        const pos = getCellPosition(row, col, cellIdx);
 
-      // 内枠（シアン）
-      const innerOffset = (CELL_SIZE - INNER_SIZE) / 2;
-      ctx.strokeStyle = '#CCFFFF';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(
-        px(pos.x + innerOffset),
-        px(pos.y + innerOffset),
-        px(INNER_SIZE),
-        px(INNER_SIZE),
-      );
-
-      // チェック欄区切り（シアン）
-      ctx.beginPath();
-      ctx.moveTo(px(pos.x), px(pos.y + CELL_SIZE));
-      ctx.lineTo(px(pos.x + CELL_SIZE), px(pos.y + CELL_SIZE));
-      ctx.strokeStyle = '#CCFFFF';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-
-      // チェック欄外枠
-      ctx.strokeStyle = '#000000';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(px(pos.x), px(pos.y + CELL_SIZE), px(CELL_SIZE), px(CHECK_HEIGHT));
-
-      // --- 文字を描画（1つ目のマスにのみ書く。2つ目は空欄） ---
-      if (cellIdx === 0) {
-        const fontSize = px(INNER_SIZE * 0.75);
-        ctx.fillStyle = '#000000';
-        ctx.font = `${fontSize}px "Hiragino Sans", "Noto Sans CJK JP", sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        const cx = px(pos.x + innerOffset) + px(INNER_SIZE) / 2;
-        const cy = px(pos.y + innerOffset) + px(INNER_SIZE) / 2;
-        ctx.fillText(char, cx, cy);
-        ctx.textAlign = 'start';
-        ctx.textBaseline = 'alphabetic';
-
-        // チェック欄に✓を描画（黒で。シアン除去後も残る）
-        const checkCx = px(pos.x + 3);
-        const checkCy = px(pos.y + CELL_SIZE + CHECK_HEIGHT / 2);
+        // 外枠（黒）
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 2;
+        ctx.strokeRect(px(pos.x), px(pos.y), px(CELL_SIZE), px(CELL_SIZE));
+
+        // 内枠（シアン）
+        const innerOffset = (CELL_SIZE - INNER_SIZE) / 2;
+        ctx.strokeStyle = '#CCFFFF';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(
+          px(pos.x + innerOffset),
+          px(pos.y + innerOffset),
+          px(INNER_SIZE),
+          px(INNER_SIZE),
+        );
+
+        // チェック欄区切り（シアン）
         ctx.beginPath();
-        ctx.moveTo(checkCx, checkCy);
-        ctx.lineTo(checkCx + px(2), checkCy + px(1.2));
-        ctx.lineTo(checkCx + px(5), checkCy - px(1));
+        ctx.moveTo(px(pos.x), px(pos.y + CELL_SIZE));
+        ctx.lineTo(px(pos.x + CELL_SIZE), px(pos.y + CELL_SIZE));
+        ctx.strokeStyle = '#CCFFFF';
+        ctx.lineWidth = 1;
         ctx.stroke();
+
+        // チェック欄外枠
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(px(pos.x), px(pos.y + CELL_SIZE), px(CELL_SIZE), px(CHECK_HEIGHT));
+
+        // --- 文字を描画（1つ目のマスにのみ書く。2つ目は空欄） ---
+        if (cellIdx === 0) {
+          const fontSize = px(INNER_SIZE * 0.75);
+          ctx.fillStyle = '#000000';
+          ctx.font = `${fontSize}px "Hiragino Sans", "Noto Sans CJK JP", sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          const cx = px(pos.x + innerOffset) + px(INNER_SIZE) / 2;
+          const cy = px(pos.y + innerOffset) + px(INNER_SIZE) / 2;
+          ctx.fillText(char, cx, cy);
+          ctx.textAlign = 'start';
+          ctx.textBaseline = 'alphabetic';
+
+          // チェック欄に✓を描画（黒で。シアン除去後も残る）
+          const checkCx = px(pos.x + 3);
+          const checkCy = px(pos.y + CELL_SIZE + CHECK_HEIGHT / 2);
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(checkCx, checkCy);
+          ctx.lineTo(checkCx + px(2), checkCy + px(1.2));
+          ctx.lineTo(checkCx + px(5), checkCy - px(1));
+          ctx.stroke();
+        }
       }
     }
   }

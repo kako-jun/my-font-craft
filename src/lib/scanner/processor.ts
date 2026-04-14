@@ -12,6 +12,7 @@ import {
   PAGE_WIDTH,
   PAGE_HEIGHT,
   COLS,
+  ROWS,
   CELL_SIZE,
   CHECK_HEIGHT,
   INNER_SIZE,
@@ -24,6 +25,8 @@ import {
   GRAY_BAR_RIGHT_X,
   GRAY_BAR_TOP_Y,
   GRAY_BAR_BOTTOM_Y,
+  isSkippedCell,
+  gridToCharIndex,
   getCellPosition,
 } from '../template/layout';
 import { getCharactersForPage } from '../../data/characters';
@@ -431,83 +434,88 @@ export async function processImages(
 
     // 各文字を処理（QRに文字リストがあればそれを使用、なければページ番号から導出）
     const pageChars = qr.chars ?? getCharactersForPage(qr.pg - 1);
-    for (let ci = 0; ci < pageChars.length; ci++) {
-      const row = Math.floor(ci / COLS);
-      const col = ci % COLS;
-      const char = pageChars[ci];
-      const unicode = char.codePointAt(0)!;
+    for (let row = 0; row < ROWS; row++) {
+      for (let col = 0; col < COLS; col++) {
+        // 中心マーカーが占有するセルはスキップ
+        if (isSkippedCell(row, col)) continue;
 
-      // 2つのマスを評価
-      const cells: {
-        imageData: ImageData;
-        checkMark: 'check' | 'cross' | 'empty';
-        index: number;
-      }[] = [];
+        const charIndex = gridToCharIndex(row, col);
+        if (charIndex === null || charIndex >= pageChars.length) continue;
+        const char = pageChars[charIndex];
+        const unicode = char.codePointAt(0)!;
 
-      for (let cellIdx = 0; cellIdx < 2; cellIdx++) {
-        const cellData = extractCell(corrected, row, col, cellIdx);
-        if (!cellData || isEmpty(cellData)) continue;
+        // 2つのマスを評価
+        const cells: {
+          imageData: ImageData;
+          checkMark: 'check' | 'cross' | 'empty';
+          index: number;
+        }[] = [];
 
-        const check = analyzeCheckMark(corrected, row, col, cellIdx);
-        if (check === 'cross') continue;
+        for (let cellIdx = 0; cellIdx < 2; cellIdx++) {
+          const cellData = extractCell(corrected, row, col, cellIdx);
+          if (!cellData || isEmpty(cellData)) continue;
 
-        cells.push({ imageData: cellData, checkMark: check, index: cellIdx });
-      }
+          const check = analyzeCheckMark(corrected, row, col, cellIdx);
+          if (check === 'cross') continue;
 
-      if (cells.length === 0) {
+          cells.push({ imageData: cellData, checkMark: check, index: cellIdx });
+        }
+
+        if (cells.length === 0) {
+          callbacks.onGlyphStatus?.({
+            char,
+            unicode,
+            pageIndex: qr.pg,
+            row,
+            col,
+            status: 'empty',
+          });
+          continue;
+        }
+
+        // 採用判定
+        const checked = cells.filter((c) => c.checkMark === 'check');
+        const adopted = checked.length > 0 ? checked : [cells[cells.length - 1]];
+
+        // セル画像のData URLを生成（UI表示用）
+        const adoptedCell = adopted[0];
+        let cellImageDataUrl: string | undefined;
+        try {
+          const cellCanvas = document.createElement('canvas');
+          cellCanvas.width = adoptedCell.imageData.width;
+          cellCanvas.height = adoptedCell.imageData.height;
+          cellCanvas.getContext('2d')!.putImageData(adoptedCell.imageData, 0, 0);
+          cellImageDataUrl = cellCanvas.toDataURL('image/png');
+        } catch {
+          /* Node.js環境ではスキップ */
+        }
+
         callbacks.onGlyphStatus?.({
           char,
           unicode,
           pageIndex: qr.pg,
           row,
           col,
-          status: 'empty',
+          status: 'found',
+          cellImageDataUrl,
         });
-        continue;
-      }
 
-      // 採用判定
-      const checked = cells.filter((c) => c.checkMark === 'check');
-      const adopted = checked.length > 0 ? checked : [cells[cells.length - 1]];
+        for (let ai = 0; ai < adopted.length; ai++) {
+          const cell = adopted[ai];
+          const paths = vectorizeGlyph(cell.imageData);
 
-      // セル画像のData URLを生成（UI表示用）
-      const adoptedCell = adopted[0];
-      let cellImageDataUrl: string | undefined;
-      try {
-        const cellCanvas = document.createElement('canvas');
-        cellCanvas.width = adoptedCell.imageData.width;
-        cellCanvas.height = adoptedCell.imageData.height;
-        cellCanvas.getContext('2d')!.putImageData(adoptedCell.imageData, 0, 0);
-        cellImageDataUrl = cellCanvas.toDataURL('image/png');
-      } catch {
-        /* Node.js環境ではスキップ */
-      }
+          const name =
+            ai === 0
+              ? `uni${unicode.toString(16).toUpperCase().padStart(4, '0')}`
+              : `uni${unicode.toString(16).toUpperCase().padStart(4, '0')}.alt${ai}`;
 
-      callbacks.onGlyphStatus?.({
-        char,
-        unicode,
-        pageIndex: qr.pg,
-        row,
-        col,
-        status: 'found',
-        cellImageDataUrl,
-      });
-
-      for (let ai = 0; ai < adopted.length; ai++) {
-        const cell = adopted[ai];
-        const paths = vectorizeGlyph(cell.imageData);
-
-        const name =
-          ai === 0
-            ? `uni${unicode.toString(16).toUpperCase().padStart(4, '0')}`
-            : `uni${unicode.toString(16).toUpperCase().padStart(4, '0')}.alt${ai}`;
-
-        glyphs.push({
-          name,
-          unicode: ai === 0 ? unicode : undefined,
-          paths,
-          advanceWidth: 1000,
-        });
+          glyphs.push({
+            name,
+            unicode: ai === 0 ? unicode : undefined,
+            paths,
+            advanceWidth: 1000,
+          });
+        }
       }
     }
   }
