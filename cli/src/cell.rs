@@ -258,7 +258,7 @@ fn judge_adoption(slots: &[SlotResult]) -> (Vec<usize>, String) {
 }
 
 /// チェック欄の解析: 黒ピクセル密度で ✓/×/空欄 を判定
-/// Phase 1 (MVP): 密度ベースの簡易判定
+/// Sauvola適応的二値化で黒ピクセルを判定
 fn analyze_check_mark(check_img: &RgbaImage) -> (CheckMark, f64) {
     let w = check_img.width();
     let h = check_img.height();
@@ -266,19 +266,11 @@ fn analyze_check_mark(check_img: &RgbaImage) -> (CheckMark, f64) {
         return (CheckMark::Empty, 0.0);
     }
 
-    let mut black_count = 0u32;
-    let total = w * h;
+    let gray = rgba_to_gray(check_img);
+    let binary = sauvola_binarize(&gray, w, h, SAUVOLA_K, SAUVOLA_WINDOW);
 
-    for y in 0..h {
-        for x in 0..w {
-            let p = check_img.get_pixel(x, y);
-            let lum = (p[0] as f64 * 0.299 + p[1] as f64 * 0.587 + p[2] as f64 * 0.114) as u8;
-            if lum < 128 {
-                black_count += 1;
-            }
-        }
-    }
-
+    let total = (w * h) as u32;
+    let black_count = binary.iter().filter(|&&v| v == 0).count() as u32;
     let density = black_count as f64 / total as f64;
 
     // 閾値:
@@ -296,7 +288,7 @@ fn analyze_check_mark(check_img: &RgbaImage) -> (CheckMark, f64) {
     (mark, density)
 }
 
-/// 内側領域の黒ピクセル率を計測
+/// 内側領域の黒ピクセル率を計測（Sauvola適応的二値化）
 fn measure_inner_black_ratio(img: &RgbaImage, margin_ratio: f64) -> f64 {
     let w = img.width();
     let h = img.height();
@@ -309,15 +301,18 @@ fn measure_inner_black_ratio(img: &RgbaImage, margin_ratio: f64) -> f64 {
         return 0.0;
     }
 
+    // 画像全体でSauvola二値化（局所的な閾値を正しく計算するため）
+    let gray = rgba_to_gray(img);
+    let binary = sauvola_binarize(&gray, w, h, SAUVOLA_K, SAUVOLA_WINDOW);
+
+    // 内側領域のみカウント
     let mut black_count = 0u32;
     let mut total = 0u32;
 
     for y in margin_y..inner_h {
         for x in margin_x..inner_w {
             total += 1;
-            let p = img.get_pixel(x, y);
-            let lum = (p[0] as f64 * 0.299 + p[1] as f64 * 0.587 + p[2] as f64 * 0.114) as u8;
-            if lum < 128 {
+            if binary[(y * w + x) as usize] == 0 {
                 black_count += 1;
             }
         }
@@ -328,6 +323,104 @@ fn measure_inner_black_ratio(img: &RgbaImage, margin_ratio: f64) -> f64 {
     } else {
         0.0
     }
+}
+
+// ── Sauvola 適応的二値化 ──
+
+/// Sauvola法パラメータ
+const SAUVOLA_K: f64 = 0.2;       // 感度パラメータ（文書画像の標準値）
+const SAUVOLA_WINDOW: u32 = 15;   // 局所ウィンドウの一辺（300DPI、セル153×153px程度に適切）
+
+/// RGBA画像をグレースケール配列に変換
+fn rgba_to_gray(img: &RgbaImage) -> Vec<u8> {
+    let w = img.width();
+    let h = img.height();
+    let mut gray = Vec::with_capacity((w * h) as usize);
+    for y in 0..h {
+        for x in 0..w {
+            let p = img.get_pixel(x, y);
+            let lum = (p[0] as f64 * 0.299 + p[1] as f64 * 0.587 + p[2] as f64 * 0.114) as u8;
+            gray.push(lum);
+        }
+    }
+    gray
+}
+
+/// Sauvola法による適応的二値化
+/// Integral Image（累積和テーブル）で局所平均・分散をO(1)計算
+/// 閾値: T = mean * (1 + k * (std_dev / R - 1))
+fn sauvola_binarize(gray: &[u8], w: u32, h: u32, k: f64, window_size: u32) -> Vec<u8> {
+    let r_const = 128.0;
+    let half = (window_size / 2) as i32;
+
+    let n = (w * h) as usize;
+    if n == 0 {
+        return vec![];
+    }
+
+    // Integral Image（累積和）と Integral Image^2（二乗累積和）を構築
+    let mut sum = vec![0i64; n];
+    let mut sq_sum = vec![0i64; n];
+
+    for y in 0..h {
+        for x in 0..w {
+            let idx = (y * w + x) as usize;
+            let val = gray[idx] as i64;
+            let val_sq = val * val;
+
+            let left = if x > 0 { sum[idx - 1] } else { 0 };
+            let up = if y > 0 { sum[((y - 1) * w + x) as usize] } else { 0 };
+            let diag = if x > 0 && y > 0 { sum[((y - 1) * w + x - 1) as usize] } else { 0 };
+            sum[idx] = val + left + up - diag;
+
+            let left_sq = if x > 0 { sq_sum[idx - 1] } else { 0 };
+            let up_sq = if y > 0 { sq_sum[((y - 1) * w + x) as usize] } else { 0 };
+            let diag_sq = if x > 0 && y > 0 { sq_sum[((y - 1) * w + x - 1) as usize] } else { 0 };
+            sq_sum[idx] = val_sq + left_sq + up_sq - diag_sq;
+        }
+    }
+
+    // 各ピクセルの閾値を計算
+    let mut binary = vec![255u8; n]; // デフォルト白
+
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            let x0 = (x - half).max(0);
+            let y0 = (y - half).max(0);
+            let x1 = (x + half).min(w as i32 - 1);
+            let y1 = (y + half).min(h as i32 - 1);
+
+            let count = ((x1 - x0 + 1) * (y1 - y0 + 1)) as f64;
+
+            let s = rect_sum(&sum, w, x0, y0, x1, y1) as f64;
+            let s2 = rect_sum(&sq_sum, w, x0, y0, x1, y1) as f64;
+
+            let mean = s / count;
+            let variance = (s2 / count - mean * mean).max(0.0);
+            let std_dev = variance.sqrt();
+
+            // Sauvola閾値: T = mean * (1 + k * (std/R - 1))
+            let threshold = mean * (1.0 + k * (std_dev / r_const - 1.0));
+
+            let idx = (y as u32 * w + x as u32) as usize;
+            let val = gray[idx] as f64;
+            if val < threshold {
+                binary[idx] = 0; // 黒
+            }
+        }
+    }
+
+    binary
+}
+
+/// Integral Imageから矩形領域の合計値を取得
+fn rect_sum(integral: &[i64], w: u32, x0: i32, y0: i32, x1: i32, y1: i32) -> i64 {
+    let w = w as i32;
+    let br = integral[(y1 * w + x1) as usize];
+    let tl = if x0 > 0 && y0 > 0 { integral[((y0 - 1) * w + x0 - 1) as usize] } else { 0 };
+    let top = if y0 > 0 { integral[((y0 - 1) * w + x1) as usize] } else { 0 };
+    let left = if x0 > 0 { integral[(y1 * w + x0 - 1) as usize] } else { 0 };
+    br + tl - top - left
 }
 
 /// 領域切り出し
@@ -596,9 +689,11 @@ mod tests {
 
     #[test]
     fn inner_ratio_all_black() {
+        // 均一黒画像: Sauvolaではコントラストがないため「背景」と判定 → 黒比率0
+        // これはSauvola法の正しい挙動（固定閾値とは異なる）
         let img = make_uniform_image(100, 100, Rgba([0, 0, 0, 255]));
         let ratio = measure_inner_black_ratio(&img, 0.2);
-        assert!((ratio - 1.0).abs() < 0.01, "ratio={ratio} should be ~1.0");
+        assert!((ratio - 0.0).abs() < 0.01, "ratio={ratio} should be ~0.0 (Sauvola: uniform=no contrast)");
     }
 
     #[test]
@@ -617,5 +712,89 @@ mod tests {
         let img = RgbaImage::new(0, 0);
         let ratio = measure_inner_black_ratio(&img, 0.2);
         assert_eq!(ratio, 0.0);
+    }
+
+    // ── Sauvola 二値化テスト ──
+
+    #[test]
+    fn sauvola_uniform_white() {
+        // 均一白画像 → 全白（黒ピクセルなし）
+        let w = 50u32;
+        let h = 50u32;
+        let gray = vec![255u8; (w * h) as usize];
+        let binary = sauvola_binarize(&gray, w, h, SAUVOLA_K, SAUVOLA_WINDOW);
+        let black_count = binary.iter().filter(|&&v| v == 0).count();
+        assert_eq!(black_count, 0, "均一白画像は全白であるべき");
+    }
+
+    #[test]
+    fn sauvola_uniform_black() {
+        // 均一黒画像 → Sauvolaでは均一領域にコントラストがないため全白になる
+        // （mean=0, threshold=0, val<threshold は偽）
+        // これはSauvola法の正しい挙動: 均一領域は「背景」と判定される
+        let w = 50u32;
+        let h = 50u32;
+        let gray = vec![0u8; (w * h) as usize];
+        let binary = sauvola_binarize(&gray, w, h, SAUVOLA_K, SAUVOLA_WINDOW);
+        let black_count = binary.iter().filter(|&&v| v == 0).count();
+        assert_eq!(black_count, 0, "均一黒画像はSauvolaでは全白（コントラストなし）");
+    }
+
+    #[test]
+    fn sauvola_detects_text_on_both_halves() {
+        // 左半分が暗い背景(100) + 暗い文字(30)、右半分が明るい背景(230) + 暗い文字(30)
+        // Sauvolaの本領: 両方の「文字」部分を黒として検出する
+        let w = 100u32;
+        let h = 50u32;
+        let mut gray = vec![0u8; (w * h) as usize];
+
+        for y in 0..h {
+            for x in 0..w {
+                let idx = (y * w + x) as usize;
+                if x < 50 {
+                    // 左半分: 暗い背景
+                    gray[idx] = 100;
+                } else {
+                    // 右半分: 明るい背景
+                    gray[idx] = 230;
+                }
+            }
+        }
+
+        // 左半分に「文字」（暗いピクセル）を配置
+        for y in 20..30 {
+            for x in 20..30 {
+                gray[(y * w + x) as usize] = 30;
+            }
+        }
+
+        // 右半分に「文字」（暗いピクセル）を配置
+        for y in 20..30 {
+            for x in 70..80 {
+                gray[(y * w + x) as usize] = 30;
+            }
+        }
+
+        let binary = sauvola_binarize(&gray, w, h, SAUVOLA_K, SAUVOLA_WINDOW);
+
+        // 左半分の文字領域に黒ピクセルがある
+        let left_text_black = (20..30u32).flat_map(|y| (20..30u32).map(move |x| (y, x)))
+            .filter(|&(y, x)| binary[(y * w + x) as usize] == 0)
+            .count();
+
+        // 右半分の文字領域に黒ピクセルがある
+        let right_text_black = (20..30u32).flat_map(|y| (70..80u32).map(move |x| (y, x)))
+            .filter(|&(y, x)| binary[(y * w + x) as usize] == 0)
+            .count();
+
+        assert!(left_text_black > 50, "左半分の文字を検出すべき（検出={left_text_black}/100）");
+        assert!(right_text_black > 50, "右半分の文字を検出すべき（検出={right_text_black}/100）");
+    }
+
+    #[test]
+    fn sauvola_empty_image() {
+        // 0x0画像 → 空のVecを返す
+        let binary = sauvola_binarize(&[], 0, 0, SAUVOLA_K, SAUVOLA_WINDOW);
+        assert!(binary.is_empty());
     }
 }
