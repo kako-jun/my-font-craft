@@ -140,6 +140,9 @@ fn draw_cell_grid(img: &mut RgbaImage) {
 
     for row in 0..layout::ROWS {
         for col in 0..layout::COLS {
+            if layout::is_skipped_cell(row, col) {
+                continue;
+            }
             for cell_idx in 0..2 {
                 let (mm_x, mm_y) = layout::get_cell_position(row, col, cell_idx);
                 let px_x = layout::mm_to_px(mm_x).round() as u32;

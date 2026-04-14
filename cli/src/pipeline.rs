@@ -124,10 +124,18 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
         .map_err(|e| format!("保存エラー: {e}"))?;
     println!("  → 08_cyan_removed.png 保存完了");
 
+    // ステップ9.5: 罫線残骸除去（08b_grid_removed）
+    println!("\n=== ステップ9.5: 罫線残骸除去 ===");
+    let grid_removed = erase_grid_lines(&cyan_removed);
+    grid_removed
+        .save(output_dir.join("08b_grid_removed.png"))
+        .map_err(|e| format!("保存エラー: {e}"))?;
+    println!("  → 08b_grid_removed.png 保存完了");
+
     // ステップ10: セル切り出し + チェック欄解析 + 採用判定（09_cells）
     println!("\n=== ステップ10: セル切り出し + 採用判定 ===");
     let cells_dir = output_dir.join("09_cells");
-    cell::extract_and_judge(&cyan_removed, &cells_dir)?;
+    cell::extract_and_judge(&grid_removed, &cells_dir)?;
 
     println!("\n=== パイプライン完了 ===");
     Ok(())
@@ -551,6 +559,95 @@ fn rotate_small_angle(img: &RgbaImage, degrees: f64) -> RgbaImage {
     }
 
     out
+}
+
+/// 罫線残骸除去: レイアウト定数から罫線位置を算出し、±2px を白で塗りつぶす
+/// 台形補正済み画像では罫線位置はレイアウトから正確に決まる
+fn erase_grid_lines(img: &RgbaImage) -> RgbaImage {
+    let mut out = img.clone();
+    let line_margin = 2u32; // ±2px
+
+    for row in 0..layout::ROWS {
+        for col in 0..layout::COLS {
+            if layout::is_skipped_cell(row, col) {
+                continue;
+            }
+
+            for cell_idx in 0..2 {
+                let (mm_x, mm_y) = layout::get_cell_position(row, col, cell_idx);
+
+                // 外枠 (CELL_SIZE × CELL_SIZE = 15mm × 15mm)
+                erase_horizontal_line(&mut out, mm_x, mm_y, layout::CELL_SIZE, line_margin);
+                erase_horizontal_line(&mut out, mm_x, mm_y + layout::CELL_SIZE, layout::CELL_SIZE, line_margin);
+                erase_vertical_line(&mut out, mm_x, mm_y, layout::CELL_SIZE, line_margin);
+                erase_vertical_line(&mut out, mm_x + layout::CELL_SIZE, mm_y, layout::CELL_SIZE, line_margin);
+
+                // 内枠 (INNER_SIZE × INNER_SIZE = 10mm × 10mm, 中央配置)
+                let inner_offset = (layout::CELL_SIZE - layout::INNER_SIZE) / 2.0;
+                let ix = mm_x + inner_offset;
+                let iy = mm_y + inner_offset;
+                erase_horizontal_line(&mut out, ix, iy, layout::INNER_SIZE, line_margin);
+                erase_horizontal_line(&mut out, ix, iy + layout::INNER_SIZE, layout::INNER_SIZE, line_margin);
+                erase_vertical_line(&mut out, ix, iy, layout::INNER_SIZE, line_margin);
+                erase_vertical_line(&mut out, ix + layout::INNER_SIZE, iy, layout::INNER_SIZE, line_margin);
+
+                // チェック欄枠 (CELL_SIZE × CHECK_HEIGHT = 15mm × 3mm, 外枠の直下)
+                // 外枠下辺と共有する上辺は省略（冪等だが無駄）
+                let check_y = mm_y + layout::CELL_SIZE;
+                erase_horizontal_line(&mut out, mm_x, check_y + layout::CHECK_HEIGHT, layout::CELL_SIZE, line_margin);
+                erase_vertical_line(&mut out, mm_x, check_y, layout::CHECK_HEIGHT, line_margin);
+                erase_vertical_line(&mut out, mm_x + layout::CELL_SIZE, check_y, layout::CHECK_HEIGHT, line_margin);
+            }
+
+            // 見本文字エリア枠 (SAMPLE_WIDTH × CELL_SIZE = 10mm × 15mm)
+            let (sx, sy) = layout::get_sample_position(row, col);
+            erase_horizontal_line(&mut out, sx, sy, layout::SAMPLE_WIDTH, line_margin);
+            erase_horizontal_line(&mut out, sx, sy + layout::CELL_SIZE, layout::SAMPLE_WIDTH, line_margin);
+            erase_vertical_line(&mut out, sx, sy, layout::CELL_SIZE, line_margin);
+            erase_vertical_line(&mut out, sx + layout::SAMPLE_WIDTH, sy, layout::CELL_SIZE, line_margin);
+        }
+    }
+
+    println!("  罫線残骸除去完了");
+    out
+}
+
+/// 水平罫線を白で塗りつぶす（y_mm の位置を ±margin_px の帯で消す）
+fn erase_horizontal_line(img: &mut RgbaImage, x_mm: f64, y_mm: f64, width_mm: f64, margin_px: u32) {
+    let white = Rgba([255, 255, 255, 255]);
+    let x_start = layout::mm_to_px(x_mm).round() as i32;
+    let y_center = layout::mm_to_px(y_mm).round() as i32;
+    let w_px = layout::mm_to_px(width_mm).round() as i32;
+
+    let y_lo = (y_center - margin_px as i32).max(0) as u32;
+    let y_hi = ((y_center + margin_px as i32) as u32).min(img.height().saturating_sub(1));
+    let x_lo = x_start.max(0) as u32;
+    let x_hi = ((x_start + w_px) as u32).min(img.width());
+
+    for y in y_lo..=y_hi {
+        for x in x_lo..x_hi {
+            img.put_pixel(x, y, white);
+        }
+    }
+}
+
+/// 垂直罫線を白で塗りつぶす（x_mm の位置を ±margin_px の帯で消す）
+fn erase_vertical_line(img: &mut RgbaImage, x_mm: f64, y_mm: f64, height_mm: f64, margin_px: u32) {
+    let white = Rgba([255, 255, 255, 255]);
+    let x_center = layout::mm_to_px(x_mm).round() as i32;
+    let y_start = layout::mm_to_px(y_mm).round() as i32;
+    let h_px = layout::mm_to_px(height_mm).round() as i32;
+
+    let x_lo = (x_center - margin_px as i32).max(0) as u32;
+    let x_hi = ((x_center + margin_px as i32) as u32).min(img.width().saturating_sub(1));
+    let y_lo = y_start.max(0) as u32;
+    let y_hi = ((y_start + h_px) as u32).min(img.height());
+
+    for y in y_lo..y_hi {
+        for x in x_lo..=x_hi {
+            img.put_pixel(x, y, white);
+        }
+    }
 }
 
 fn draw_cross(img: &mut RgbaImage, cx: i32, cy: i32, size: i32, color: Rgba<u8>) {

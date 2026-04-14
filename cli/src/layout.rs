@@ -233,4 +233,13 @@ mod tests {
         assert!((mm_to_px(25.4) - 300.0).abs() < 1e-9);
         assert!((mm_to_px(0.0) - 0.0).abs() < 1e-9);
     }
+
+    #[test]
+    fn skipped_cell_correct() {
+        assert!(is_skipped_cell(6, 2));
+        assert!(!is_skipped_cell(5, 2));
+        assert!(!is_skipped_cell(6, 1));
+        assert!(!is_skipped_cell(0, 0));
+        assert!(!is_skipped_cell(11, 3));
+    }
 }

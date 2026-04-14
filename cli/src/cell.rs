@@ -50,6 +50,9 @@ pub fn extract_and_judge(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CharR
 
     for row in 0..layout::ROWS {
         for col in 0..layout::COLS {
+            if layout::is_skipped_cell(row, col) {
+                continue;
+            }
             let mut slots = Vec::new();
 
             for cell_idx in 0..2 {
