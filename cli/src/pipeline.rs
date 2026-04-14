@@ -57,17 +57,40 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
         .map_err(|e| format!("保存エラー: {e}"))?;
     println!("  → 04_oriented.png 保存完了");
 
-    // ステップ5+6: マーカー4点から直接ホモグラフィー変換（外挿廃止）
+    // ステップ5+6: マーカー4点から直接ホモグラフィー変換（外挿廃止）+ 反復収束
     println!("\n=== ステップ5+6: マーカー直接ホモグラフィー変換 ===");
-    let corrected = perspective::homography_warp_from_markers(&oriented_img, &oriented_markers);
+    let mut corrected = perspective::homography_warp_from_markers(&oriented_img, &oriented_markers);
+
+    // 反復台形補正（最大3回）
+    let max_iterations = 3;
+    let residual_threshold_mm = 1.0;
+
+    for iteration in 0..max_iterations {
+        println!("\n=== ステップ6.5: 補正品質チェック (反復{}) ===", iteration + 1);
+        match verify_correction_quality(&corrected, output_dir) {
+            Some((max_residual_mm, re_detected)) => {
+                if max_residual_mm <= residual_threshold_mm {
+                    println!("  ✓ 残差 {max_residual_mm:.2}mm — 収束");
+                    break;
+                }
+                if iteration == max_iterations - 1 {
+                    println!("  ⚠ {max_iterations}回で収束せず（残差 {max_residual_mm:.2}mm）");
+                    break;
+                }
+                println!("  反復{}: 残差 {max_residual_mm:.2}mm — 再補正", iteration + 1);
+                corrected = perspective::homography_refine(&corrected, &re_detected);
+            }
+            None => {
+                println!("  マーカー再検出失敗 — 反復中断");
+                break;
+            }
+        }
+    }
+
     corrected
         .save(output_dir.join("05_corrected.png"))
         .map_err(|e| format!("保存エラー: {e}"))?;
     println!("  → 05_corrected.png 保存完了");
-
-    // ステップ6.5: 補正品質チェック（マーカー再検出+残差計測）
-    println!("\n=== ステップ6.5: 補正品質チェック ===");
-    verify_correction_quality(&corrected, output_dir);
 
     // ステップ6.6: 中心マーカー検証
     println!("\n=== ステップ6.6: 中心マーカー検証 ===");
@@ -308,7 +331,8 @@ fn remove_cyan(img: &RgbaImage) -> RgbaImage {
 }
 
 /// 補正品質チェック: 補正後画像でマーカーを再検出し、期待座標との残差を計測
-fn verify_correction_quality(corrected: &RgbaImage, output_dir: &Path) {
+/// 戻り値: Some((最大残差mm, 再検出マーカー4点)) または None（再検出失敗時）
+fn verify_correction_quality(corrected: &RgbaImage, output_dir: &Path) -> Option<(f64, [marker::DetectedMarker; 4])> {
     let gray = image::DynamicImage::ImageRgba8(corrected.clone()).into_luma8();
     let threshold = marker::otsu_threshold(&gray);
     let binary = marker::binarize(&gray, threshold);
@@ -374,10 +398,13 @@ fn verify_correction_quality(corrected: &RgbaImage, output_dir: &Path) {
             }
             let _ = overlay.save(output_dir.join("05b_residual.png"));
             println!("  → 05b_residual.png 保存完了 (緑=期待, 赤=検出)");
+
+            Some((max_mm, detected))
         }
         Err(e) => {
             println!("  ⚠ 補正後マーカー再検出失敗: {e}");
             println!("  台形補正の精度を確認できません");
+            None
         }
     }
 }

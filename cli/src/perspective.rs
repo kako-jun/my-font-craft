@@ -159,6 +159,49 @@ pub fn sample_bilinear(img: &RgbaImage, x: f64, y: f64) -> Rgba<u8> {
     Rgba(out)
 }
 
+/// 補正後画像上のマーカー検出位置 → 期待位置のリファインメントホモグラフィー
+/// detected は補正後画像上のマーカー位置。期待位置はレイアウト定数から計算。
+/// detected → expected の変換で img を再ワープする。
+pub fn homography_refine(img: &RgbaImage, detected: &[DetectedMarker; 4]) -> RgbaImage {
+    let target_w = layout::image_width();
+    let target_h = layout::image_height();
+
+    // 補正後画像上の検出位置（ずれている）
+    let src = [
+        (detected[0].cx, detected[0].cy),
+        (detected[1].cx, detected[1].cy),
+        (detected[2].cx, detected[2].cy),
+        (detected[3].cx, detected[3].cy),
+    ];
+
+    // 期待されるマーカー中心座標（レイアウト定数から計算）
+    let marker_defs = [layout::MARKER_TL, layout::MARKER_TR, layout::MARKER_BL, layout::MARKER_BR];
+    let dst: [(f64, f64); 4] = std::array::from_fn(|i| {
+        let (cx, cy) = layout::marker_center(&marker_defs[i]);
+        (layout::mm_to_px(cx), layout::mm_to_px(cy))
+    });
+
+    println!("  リファインメント変換:");
+    for i in 0..4 {
+        println!("    マーカー[{i}]: ({:.1},{:.1}) → ({:.1},{:.1})", src[i].0, src[i].1, dst[i].0, dst[i].1);
+    }
+
+    // ホモグラフィー行列（dst → src 方向、逆変換用）
+    let h = compute_homography(&dst, &src);
+
+    let mut out = RgbaImage::new(target_w, target_h);
+
+    for dy in 0..target_h {
+        for dx in 0..target_w {
+            let (sx, sy) = apply_homography(&h, dx as f64, dy as f64);
+            let pixel = sample_bilinear(img, sx, sy);
+            out.put_pixel(dx, dy, pixel);
+        }
+    }
+
+    out
+}
+
 /// ホモグラフィー行列を適用: (x, y) → (x', y')
 fn apply_homography(h: &[f64; 9], x: f64, y: f64) -> (f64, f64) {
     let w = h[6] * x + h[7] * y + h[8];
