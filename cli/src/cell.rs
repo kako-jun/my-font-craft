@@ -269,7 +269,7 @@ fn analyze_check_mark(check_img: &RgbaImage) -> (CheckMark, f64) {
     let gray = rgba_to_gray(check_img);
     let binary = sauvola_binarize(&gray, w, h, SAUVOLA_K, SAUVOLA_WINDOW);
 
-    let total = (w * h) as u32;
+    let total = w * h;
     let black_count = binary.iter().filter(|&&v| v == 0).count() as u32;
     let density = black_count as f64 / total as f64;
 
@@ -295,9 +295,9 @@ fn measure_inner_black_ratio(img: &RgbaImage, margin_ratio: f64) -> f64 {
     let margin_x = (w as f64 * margin_ratio).round() as u32;
     let margin_y = (h as f64 * margin_ratio).round() as u32;
 
-    let inner_w = w.saturating_sub(margin_x);
-    let inner_h = h.saturating_sub(margin_y);
-    if margin_x >= inner_w || margin_y >= inner_h {
+    let end_x = w.saturating_sub(margin_x);
+    let end_y = h.saturating_sub(margin_y);
+    if margin_x >= end_x || margin_y >= end_y {
         return 0.0;
     }
 
@@ -309,8 +309,8 @@ fn measure_inner_black_ratio(img: &RgbaImage, margin_ratio: f64) -> f64 {
     let mut black_count = 0u32;
     let mut total = 0u32;
 
-    for y in margin_y..inner_h {
-        for x in margin_x..inner_w {
+    for y in margin_y..end_y {
+        for x in margin_x..end_x {
             total += 1;
             if binary[(y * w + x) as usize] == 0 {
                 black_count += 1;
@@ -796,5 +796,18 @@ mod tests {
         // 0x0画像 → 空のVecを返す
         let binary = sauvola_binarize(&[], 0, 0, SAUVOLA_K, SAUVOLA_WINDOW);
         assert!(binary.is_empty());
+    }
+
+    #[test]
+    fn rect_sum_single_pixel_at_origin() {
+        // 3x3画像: 全ピクセル値1のIntegral Image
+        // sum = [[1,2,3],[2,4,6],[3,6,9]]
+        let integral: Vec<i64> = vec![1, 2, 3, 2, 4, 6, 3, 6, 9];
+        // (0,0)〜(0,0)の1ピクセル = 1
+        assert_eq!(rect_sum(&integral, 3, 0, 0, 0, 0), 1);
+        // (0,0)〜(2,2)の全体 = 9
+        assert_eq!(rect_sum(&integral, 3, 0, 0, 2, 2), 9);
+        // (1,1)〜(2,2)の右下4ピクセル = 4
+        assert_eq!(rect_sum(&integral, 3, 1, 1, 2, 2), 4);
     }
 }
