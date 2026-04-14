@@ -1,6 +1,14 @@
 // 四隅マーカー検出と台形補正
 
-import { PAGE_WIDTH, PAGE_HEIGHT, MARKERS, MARKER_SIZE } from '../template/layout';
+import {
+  PAGE_WIDTH,
+  PAGE_HEIGHT,
+  MARKERS,
+  MARKER_SIZE,
+  CENTER_MARKER_X,
+  CENTER_MARKER_Y,
+  CENTER_MARKER_SIZE,
+} from '../template/layout';
 
 export interface Point {
   x: number;
@@ -28,7 +36,7 @@ export function detectMarkers(canvas: HTMLCanvasElement): Corners | null {
   const threshold = computeOtsuThreshold(data, w * h);
 
   // 四隅の領域で最大のコンパクトなブロブ（＝マーカー）を見つける
-  const margin = Math.floor(Math.min(w, h) * 0.15);
+  const margin = Math.floor(Math.min(w, h) * 0.25);
   const topLeft = findMarkerBlob(data, w, h, 0, 0, margin, margin, threshold);
   const topRight = findMarkerBlob(data, w, h, w - margin, 0, margin, margin, threshold);
   const bottomLeft = findMarkerBlob(data, w, h, 0, h - margin, margin, margin, threshold);
@@ -47,6 +55,17 @@ interface Blob {
   minY: number;
   maxX: number;
   maxY: number;
+}
+
+// マーカーの期待ピクセルサイズを画像幅から概算
+function markerPixelSize(imgW: number): number {
+  return (MARKER_SIZE / PAGE_WIDTH) * imgW;
+}
+
+// 塗りつぶし円の期待面積
+function expectedFilledArea(imgW: number): number {
+  const r = markerPixelSize(imgW) / 2;
+  return Math.PI * r * r;
 }
 
 // 連結成分ラベリング（4連結）でブロブを見つけ、マーカーらしいものを返す
@@ -138,8 +157,12 @@ function findMarkerBlob(
     }
   }
 
+  // 面積上限: 期待面積の5倍を超えるブロブはマーカーではない
+  const maxBlobArea = expectedFilledArea(imgW) * 5;
+
   // マーカーらしいブロブを選別:
   // - 面積が十分（ノイズ排除）: 最低100px
+  // - 面積上限（巨大ブロブ排除）
   // - コンパクト（格子線排除）: 幅と高さの比率が0.3〜3.0
   // - 充填率（格子線の交差排除）: outline マーカーは低充填率なので閾値を緩めに
   const candidates: Blob[] = [];
@@ -149,7 +172,13 @@ function findMarkerBlob(
     const aspect = blobW / blobH;
     const fillRatio = blob.area / (blobW * blobH);
 
-    if (blob.area >= 100 && aspect >= 0.3 && aspect <= 3.0 && fillRatio > 0.05) {
+    if (
+      blob.area >= 100 &&
+      blob.area <= maxBlobArea &&
+      aspect >= 0.3 &&
+      aspect <= 3.0 &&
+      fillRatio > 0.05
+    ) {
       blob.cx /= blob.area;
       blob.cy /= blob.area;
       candidates.push(blob);
@@ -158,7 +187,7 @@ function findMarkerBlob(
 
   if (candidates.length === 0) return null;
 
-  // コーナーに最も近いブロブを選択（グレースケールバー等との混同を回避）
+  // コーナーに最も近いブロブをシードとして選択
   const cornerX = rx + (rx === 0 ? 0 : rw);
   const cornerY = ry + (ry === 0 ? 0 : rh);
   candidates.sort((a, b) => {
@@ -166,8 +195,27 @@ function findMarkerBlob(
     const distB = (b.cx - cornerX) ** 2 + (b.cy - cornerY) ** 2;
     return distA - distB;
   });
-  const best = candidates[0];
-  return { x: best.cx, y: best.cy };
+  const seed = candidates[0];
+
+  // マージ処理: シードの重心からマージ半径内のブロブを集めて加重重心を計算
+  const mergeRadius = markerPixelSize(imgW) * 1.0;
+  const mergeRadiusSq = mergeRadius * mergeRadius;
+
+  let totalArea = 0;
+  let sumX = 0;
+  let sumY = 0;
+  for (const blob of candidates) {
+    const dx = blob.cx - seed.cx;
+    const dy = blob.cy - seed.cy;
+    if (dx * dx + dy * dy <= mergeRadiusSq) {
+      sumX += blob.cx * blob.area;
+      sumY += blob.cy * blob.area;
+      totalArea += blob.area;
+    }
+  }
+
+  if (totalArea === 0) return null;
+  return { x: sumX / totalArea, y: sumY / totalArea };
 }
 
 function computeOtsuThreshold(data: Uint8ClampedArray, pixelCount: number): number {
@@ -380,4 +428,141 @@ export function detectOrientation(corners: Corners, canvas: HTMLCanvasElement): 
   }
 
   return cornerToRotation(densest.corner);
+}
+
+// 中心マーカー検出
+// ページ中央付近の黒い塗りつぶし矩形を検出し、その重心を返す
+export function detectCenterMarker(canvas: HTMLCanvasElement): Point | null {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  const w = canvas.width;
+  const h = canvas.height;
+
+  // ピクセルスケール: mm→pixel
+  const scale = w / PAGE_WIDTH;
+
+  // 期待位置（ピクセル）
+  const expectedCx = (CENTER_MARKER_X + CENTER_MARKER_SIZE / 2) * scale;
+  const expectedCy = (CENTER_MARKER_Y + CENTER_MARKER_SIZE / 2) * scale;
+
+  // 探索領域: ページ中央 ±10%
+  const searchMarginX = w * 0.1;
+  const searchMarginY = h * 0.1;
+  const rx = Math.max(0, Math.floor(expectedCx - searchMarginX));
+  const ry = Math.max(0, Math.floor(expectedCy - searchMarginY));
+  const rw = Math.min(w, Math.ceil(expectedCx + searchMarginX)) - rx;
+  const rh = Math.min(h, Math.ceil(expectedCy + searchMarginY)) - ry;
+
+  const imgData = ctx.getImageData(rx, ry, rw, rh);
+  const data = imgData.data;
+  const threshold = computeOtsuThreshold(ctx.getImageData(0, 0, w, h).data, w * h);
+
+  // 二値化
+  const binary = new Uint8Array(rw * rh);
+  for (let y = 0; y < rh; y++) {
+    for (let x = 0; x < rw; x++) {
+      const i = (y * rw + x) * 4;
+      const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      binary[y * rw + x] = gray < threshold ? 1 : 0;
+    }
+  }
+
+  // 連結成分ラベリング（4連結）
+  const labels = new Int32Array(rw * rh);
+  labels.fill(-1);
+  const parent = new Int32Array(rw * rh);
+  for (let i = 0; i < parent.length; i++) parent[i] = i;
+
+  function find(a: number): number {
+    while (parent[a] !== a) {
+      parent[a] = parent[parent[a]];
+      a = parent[a];
+    }
+    return a;
+  }
+  function union(a: number, b: number) {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent[rb] = ra;
+  }
+
+  let nextLabel = 0;
+  for (let y = 0; y < rh; y++) {
+    for (let x = 0; x < rw; x++) {
+      const idx = y * rw + x;
+      if (!binary[idx]) continue;
+      const up = y > 0 ? labels[(y - 1) * rw + x] : -1;
+      const left = x > 0 ? labels[y * rw + (x - 1)] : -1;
+      if (up >= 0 && left >= 0) {
+        labels[idx] = up;
+        union(up, left);
+      } else if (up >= 0) {
+        labels[idx] = up;
+      } else if (left >= 0) {
+        labels[idx] = left;
+      } else {
+        labels[idx] = nextLabel++;
+      }
+    }
+  }
+
+  // ブロブ統計
+  const blobMap = new Map<number, Blob>();
+  for (let y = 0; y < rh; y++) {
+    for (let x = 0; x < rw; x++) {
+      const idx = y * rw + x;
+      if (labels[idx] < 0) continue;
+      const root = find(labels[idx]);
+      let blob = blobMap.get(root);
+      if (!blob) {
+        blob = { cx: 0, cy: 0, area: 0, minX: x, minY: y, maxX: x, maxY: y };
+        blobMap.set(root, blob);
+      }
+      blob.cx += rx + x;
+      blob.cy += ry + y;
+      blob.area++;
+      blob.minX = Math.min(blob.minX, x);
+      blob.minY = Math.min(blob.minY, y);
+      blob.maxX = Math.max(blob.maxX, x);
+      blob.maxY = Math.max(blob.maxY, y);
+    }
+  }
+
+  // 期待面積: CENTER_MARKER_SIZE^2 のピクセル換算
+  const expectedArea = CENTER_MARKER_SIZE * scale * (CENTER_MARKER_SIZE * scale);
+
+  // フィルタ: 面積 20%〜500%、アスペクト比 0.5〜2.0、充填率 > 0.5
+  const candidates: Blob[] = [];
+  for (const blob of blobMap.values()) {
+    const blobW = blob.maxX - blob.minX + 1;
+    const blobH = blob.maxY - blob.minY + 1;
+    const aspect = blobW / blobH;
+    const fillRatio = blob.area / (blobW * blobH);
+
+    if (
+      blob.area >= expectedArea * 0.2 &&
+      blob.area <= expectedArea * 5.0 &&
+      aspect >= 0.5 &&
+      aspect <= 2.0 &&
+      fillRatio > 0.5
+    ) {
+      blob.cx /= blob.area;
+      blob.cy /= blob.area;
+      candidates.push(blob);
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  // ページ中心に最も近い候補を選択
+  const pageCx = w / 2;
+  const pageCy = h / 2;
+  candidates.sort((a, b) => {
+    const distA = (a.cx - pageCx) ** 2 + (a.cy - pageCy) ** 2;
+    const distB = (b.cx - pageCx) ** 2 + (b.cy - pageCy) ** 2;
+    return distA - distB;
+  });
+
+  return { x: candidates[0].cx, y: candidates[0].cy };
 }
