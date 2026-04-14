@@ -12,16 +12,31 @@ import * as path from 'node:path';
 import opentype from 'opentype.js';
 
 import { readQRFromImageData, readQRFromCanvas } from '../../src/lib/scanner/qr-reader';
-import { detectMarkers, extrapolatePageCorners, perspectiveTransform, detectOrientation, rotateCanvas } from '../../src/lib/scanner/marker-detector';
+import {
+  detectMarkers,
+  extrapolatePageCorners,
+  perspectiveTransform,
+  detectOrientation,
+  rotateCanvas,
+} from '../../src/lib/scanner/marker-detector';
 import { getCharactersForPage, HIRAGANA } from '../../src/data/characters';
 import { vectorizeGlyph } from '../../src/lib/vectorizer/contour';
 import { buildFont, type VectorGlyph } from '../../src/lib/font/builder';
 import {
-  mm, PAGE_WIDTH, PAGE_HEIGHT,
-  COLS, CELL_SIZE, INNER_SIZE,
-  CYAN_SAMPLE_X, CYAN_SAMPLE_Y, CYAN_SAMPLE_SIZE,
+  mm,
+  PAGE_WIDTH,
+  PAGE_HEIGHT,
+  COLS,
+  CELL_SIZE,
+  INNER_SIZE,
+  CYAN_SAMPLE_X,
+  CYAN_SAMPLE_Y,
+  CYAN_SAMPLE_SIZE,
+  SKIPPED_ROW,
+  SKIPPED_COL,
   getCellPosition,
 } from '../../src/lib/template/layout';
+import { CHARS_PER_PAGE } from '../../src/data/characters';
 
 const MOCK_DIR = path.join(import.meta.dirname, '..', 'fixtures', 'mock-scans');
 
@@ -37,10 +52,14 @@ function readCyanSample(canvas: any): [number, number, number] {
   const sw = Math.max(1, Math.round(mm(CYAN_SAMPLE_SIZE) * scaleX));
   const sh = Math.max(1, Math.round(mm(CYAN_SAMPLE_SIZE) * scaleY));
   const data = ctx.getImageData(sx, sy, sw, sh).data;
-  let r = 0, g = 0, b = 0;
+  let r = 0,
+    g = 0,
+    b = 0;
   const count = data.length / 4;
   for (let i = 0; i < data.length; i += 4) {
-    r += data[i]; g += data[i + 1]; b += data[i + 2];
+    r += data[i];
+    g += data[i + 1];
+    b += data[i + 2];
   }
   return [Math.round(r / count), Math.round(g / count), Math.round(b / count)];
 }
@@ -55,7 +74,9 @@ function removeCyan(canvas: any, cr: number, cg: number, cb: number) {
     const dg = data[i + 1] - cg;
     const db = data[i + 2] - cb;
     if (Math.sqrt(dr * dr + dg * dg + db * db) < tolerance) {
-      data[i] = 255; data[i + 1] = 255; data[i + 2] = 255;
+      data[i] = 255;
+      data[i + 1] = 255;
+      data[i + 2] = 255;
     }
   }
   ctx.putImageData(imgData, 0, 0);
@@ -129,12 +150,14 @@ describe('Full Pipeline: Mock Scans → Font', () => {
       // ALL_CHARACTERS（全文字リスト）から取得する。
       // 模擬画像の QR は totalPages=2 でひらがなのみを想定しているので、
       // ページ番号から直接ひらがなリストを使う。
-      const start = (qr!.pg - 1) * 48;
-      const pageChars = HIRAGANA.slice(start, start + 48);
+      const start = (qr!.pg - 1) * CHARS_PER_PAGE;
+      const pageChars = HIRAGANA.slice(start, start + CHARS_PER_PAGE);
 
       for (let ci = 0; ci < pageChars.length; ci++) {
-        const row = Math.floor(ci / COLS);
-        const col = ci % COLS;
+        // スキップセル（中心マーカー）を考慮したグリッド位置計算
+        const linearIdx = ci < SKIPPED_ROW * COLS + SKIPPED_COL ? ci : ci + 1;
+        const row = Math.floor(linearIdx / COLS);
+        const col = linearIdx % COLS;
         const char = pageChars[ci];
         const unicode = char.codePointAt(0)!;
 
@@ -151,8 +174,8 @@ describe('Full Pipeline: Mock Scans → Font', () => {
     }
 
     // 抽出されなかった文字を特定
-    const extractedUnicodes = new Set(glyphs.map(g => g.unicode));
-    const missing = HIRAGANA.filter(ch => !extractedUnicodes.has(ch.codePointAt(0)!));
+    const extractedUnicodes = new Set(glyphs.map((g) => g.unicode));
+    const missing = HIRAGANA.filter((ch) => !extractedUnicodes.has(ch.codePointAt(0)!));
     if (missing.length > 0) {
       console.log(`Missing ${missing.length} chars: ${missing.join(' ')}`);
     }
