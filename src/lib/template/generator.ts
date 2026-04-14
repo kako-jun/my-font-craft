@@ -179,7 +179,7 @@ async function generateTemplatePDFFromChars(
     // QRコード
     const qrPayload: Record<string, unknown> = {
       p: 'mfc',
-      v: 1,
+      v: 2,
       pg: pageIdx + 1,
       t: totalPages,
       m: 2,
@@ -218,7 +218,7 @@ async function generateTemplatePDFFromChars(
 
     // --- 四隅マーカー ---
     for (const [, marker] of Object.entries(MARKERS)) {
-      drawStarMarker(page, mm(marker.x), toY(marker.y), mm(MARKER_SIZE), marker.filled);
+      drawCircleMarker(page, mm(marker.x), toY(marker.y), mm(MARKER_SIZE), marker.filled);
     }
 
     // 左右縦グレースケールバー
@@ -435,51 +435,35 @@ async function renderTextToImage(
   return { data, widthPx: width, heightPx: height };
 }
 
-// ドット絵風の星マーカー（十字型、バウンディングボックス: x〜x+size, y-size〜y）
-function drawStarMarker(
+// 円形マーカー（塗りつぶし / 枠線のみ）
+// x, y はバウンディングボックス左上のPDF座標（左下原点）
+// PDF座標では y が上方向に増加するため、y はボックス上端（＝大きい値）
+function drawCircleMarker(
   page: ReturnType<PDFDocument['addPage']>,
   x: number,
   y: number,
   size: number,
   filled: boolean,
 ) {
-  const unit = size / 5;
+  const centerX = x + size / 2;
+  const centerY = y - size / 2;
+  const radius = size / 2;
   const c = rgb(0, 0, 0);
 
-  // 十字をバウンディングボックスの中央に配置
-  // 縦棒: x方向は中央3unit、y方向は全高(5unit)
-  // 横棒: x方向は全幅(5unit)、y方向は中央3unit
   if (filled) {
-    page.drawRectangle({
-      x: x + unit,
-      y: y - size,
-      width: unit * 3,
-      height: size,
-      color: c,
-    });
-    page.drawRectangle({
-      x,
-      y: y - unit * 4,
-      width: size,
-      height: unit * 3,
+    page.drawCircle({
+      x: centerX,
+      y: centerY,
+      size: radius,
       color: c,
     });
   } else {
-    page.drawRectangle({
-      x: x + unit,
-      y: y - size,
-      width: unit * 3,
-      height: size,
+    page.drawCircle({
+      x: centerX,
+      y: centerY,
+      size: radius,
       borderColor: c,
-      borderWidth: 0.5,
-    });
-    page.drawRectangle({
-      x,
-      y: y - unit * 4,
-      width: size,
-      height: unit * 3,
-      borderColor: c,
-      borderWidth: 0.5,
+      borderWidth: 1.0,
     });
   }
 }
