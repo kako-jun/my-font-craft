@@ -113,6 +113,15 @@ pub fn get_sample_position(row: usize, col: usize) -> (f64, f64) {
     (x, y)
 }
 
+/// 中心マーカーに占有されたセルかどうかを判定
+pub fn is_skipped_cell(row: usize, col: usize) -> bool {
+    row == SKIPPED_ROW && col == SKIPPED_COL
+}
+
+/// 中心マーカーに占有されるセル位置
+pub const SKIPPED_ROW: usize = 6;
+pub const SKIPPED_COL: usize = 2;
+
 // NOTE: 中心マーカー追加時は CHARS_PER_PAGE を1減らす波及変更が必要
 // （QRコード、ページ割り当て、TypeScript側テンプレート生成を含む）
 // 実写テストで中心マーカーの必要性を確認してから対応する
