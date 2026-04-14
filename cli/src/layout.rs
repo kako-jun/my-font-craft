@@ -113,6 +113,33 @@ pub fn get_sample_position(row: usize, col: usize) -> (f64, f64) {
     (x, y)
 }
 
+/// 中心マーカーやQRコード領域と重なるセルをスキップするかどうか
+pub fn is_skipped_cell(row: usize, col: usize) -> bool {
+    // 中心マーカー領域: (101, 144.5) サイズ6mm
+    // row=5, col=1 あたりが中心マーカーに最も近い
+    // セル位置を計算して中心マーカーと重なるかチェック
+    for cell_idx in 0..2 {
+        let (cx, cy) = get_cell_position(row, col, cell_idx);
+        // 中心マーカーとの重なりチェック
+        let overlaps_center = cx < CENTER_MARKER_X + CENTER_MARKER_SIZE
+            && cx + CELL_SIZE > CENTER_MARKER_X
+            && cy < CENTER_MARKER_Y + CENTER_MARKER_SIZE
+            && cy + CELL_SIZE > CENTER_MARKER_Y;
+        if overlaps_center {
+            return true;
+        }
+    }
+    // QRコードとの重なりチェック
+    let (sx, sy) = get_sample_position(row, col);
+    let cell_right = sx + SAMPLE_WIDTH + CELL_GAP + 2.0 * (CELL_SIZE + CELL_GAP);
+    let cell_bottom = sy + ROW_HEIGHT;
+    let overlaps_qr = sx < QR_X + QR_SIZE
+        && cell_right > QR_X
+        && sy < QR_Y + QR_SIZE
+        && cell_bottom > QR_Y;
+    overlaps_qr
+}
+
 // NOTE: 中心マーカー追加時は CHARS_PER_PAGE を1減らす波及変更が必要
 // （QRコード、ページ割り当て、TypeScript側テンプレート生成を含む）
 // 実写テストで中心マーカーの必要性を確認してから対応する
