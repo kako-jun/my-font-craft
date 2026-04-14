@@ -25,7 +25,7 @@ describe('QR Reader', () => {
 
     expect(qr).not.toBeNull();
     expect(qr!.p).toBe('mfc');
-    expect(qr!.v).toBe(1);
+    expect(qr!.v).toBe(2);
     expect(qr!.pg).toBe(1);
     expect(qr!.t).toBe(2); // ひらがな83文字 ÷ 48 = 2ページ
     expect(qr!.m).toBe(2);

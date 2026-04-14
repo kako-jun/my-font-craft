@@ -146,30 +146,29 @@ const canvasW = px(PAGE_WIDTH);
 const canvasH = px(PAGE_HEIGHT);
 
 /**
- * 星形マーカーを描画（十字型で近似、generator.ts と同じロジック）
+ * 円形マーカーを描画（generator.ts と同じロジック）
  */
-function drawStarMarker(
+function drawCircleMarker(
   ctx: CanvasRenderingContext2D,
   xMm: number,
   yMm: number,
   sizeMm: number,
   filled: boolean,
 ) {
-  const unit = sizeMm / 5;
+  const centerX = px(xMm + sizeMm / 2);
+  const centerY = px(yMm + sizeMm / 2);
+  const radius = px(sizeMm / 2);
+
   ctx.fillStyle = '#000000';
   ctx.strokeStyle = '#000000';
-  ctx.lineWidth = 1;
+  ctx.lineWidth = 2;
 
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
   if (filled) {
-    // 縦棒
-    ctx.fillRect(px(xMm + unit), px(yMm), px(unit * 3), px(sizeMm));
-    // 横棒
-    ctx.fillRect(px(xMm), px(yMm + unit), px(sizeMm), px(unit * 3));
+    ctx.fill();
   } else {
-    // 縦棒（枠線のみ）
-    ctx.strokeRect(px(xMm + unit), px(yMm), px(unit * 3), px(sizeMm));
-    // 横棒（枠線のみ）
-    ctx.strokeRect(px(xMm), px(yMm + unit), px(sizeMm), px(unit * 3));
+    ctx.stroke();
   }
 }
 
@@ -195,7 +194,7 @@ async function generatePage(pageIdx: number, chars: string[]): Promise<Buffer> {
   // QRコード
   const qrData = JSON.stringify({
     p: 'mfc',
-    v: 1,
+    v: 2,
     pg: pageIdx + 1,
     t: totalPages,
     m: 2,
@@ -233,7 +232,7 @@ async function generatePage(pageIdx: number, chars: string[]): Promise<Buffer> {
 
   // --- 四隅マーカー ---
   for (const marker of Object.values(MARKERS)) {
-    drawStarMarker(ctx, marker.x, marker.y, MARKER_SIZE, marker.filled);
+    drawCircleMarker(ctx, marker.x, marker.y, MARKER_SIZE, marker.filled);
   }
 
   // --- 文字マス ---

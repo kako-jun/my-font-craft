@@ -1,6 +1,14 @@
 // 四隅マーカー検出と台形補正
 
-import { PAGE_WIDTH, PAGE_HEIGHT, MARKERS, MARKER_SIZE } from '../template/layout';
+import {
+  PAGE_WIDTH,
+  PAGE_HEIGHT,
+  MARKERS,
+  MARKER_SIZE,
+  CENTER_MARKER_X,
+  CENTER_MARKER_Y,
+  CENTER_MARKER_SIZE,
+} from '../template/layout';
 
 export interface Point {
   x: number;
@@ -28,7 +36,7 @@ export function detectMarkers(canvas: HTMLCanvasElement): Corners | null {
   const threshold = computeOtsuThreshold(data, w * h);
 
   // 四隅の領域で最大のコンパクトなブロブ（＝マーカー）を見つける
-  const margin = Math.floor(Math.min(w, h) * 0.15);
+  const margin = Math.floor(Math.min(w, h) * 0.25);
   const topLeft = findMarkerBlob(data, w, h, 0, 0, margin, margin, threshold);
   const topRight = findMarkerBlob(data, w, h, w - margin, 0, margin, margin, threshold);
   const bottomLeft = findMarkerBlob(data, w, h, 0, h - margin, margin, margin, threshold);
@@ -49,36 +57,23 @@ interface Blob {
   maxY: number;
 }
 
-// 連結成分ラベリング（4連結）でブロブを見つけ、マーカーらしいものを返す
-function findMarkerBlob(
-  data: Uint8ClampedArray,
-  imgW: number,
-  imgH: number,
-  rx: number,
-  ry: number,
-  rw: number,
-  rh: number,
-  threshold: number,
-): Point | null {
-  const endX = Math.min(rx + rw, imgW);
-  const endY = Math.min(ry + rh, imgH);
-  const regionW = endX - rx;
-  const regionH = endY - ry;
+// マーカーの期待ピクセルサイズを画像幅から概算
+function markerPixelSize(imgW: number): number {
+  return (MARKER_SIZE / PAGE_WIDTH) * imgW;
+}
 
-  // 領域内の二値画像を作成
-  const binary = new Uint8Array(regionW * regionH);
-  for (let y = 0; y < regionH; y++) {
-    for (let x = 0; x < regionW; x++) {
-      const i = ((ry + y) * imgW + (rx + x)) * 4;
-      const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
-      binary[y * regionW + x] = gray < threshold ? 1 : 0;
-    }
-  }
+// 四隅マーカーの期待最大面積（塗りつぶし円の面積）
+function expectedMarkerArea(imgW: number): number {
+  const r = markerPixelSize(imgW) / 2;
+  return Math.PI * r * r;
+}
 
-  // 連結成分ラベリング（4連結、union-find）
-  const labels = new Int32Array(regionW * regionH);
+// 連結成分ラベリング（4連結 union-find）で二値画像からブロブを抽出する共通関数
+// rx, ry: 元画像上でのオフセット（ブロブ座標を元画像座標系で返すため）
+function extractBlobs(binary: Uint8Array, w: number, h: number, rx: number, ry: number): Blob[] {
+  const labels = new Int32Array(w * h);
   labels.fill(-1);
-  const parent = new Int32Array(regionW * regionH);
+  const parent = new Int32Array(w * h);
   for (let i = 0; i < parent.length; i++) parent[i] = i;
 
   function find(a: number): number {
@@ -95,13 +90,13 @@ function findMarkerBlob(
   }
 
   let nextLabel = 0;
-  for (let y = 0; y < regionH; y++) {
-    for (let x = 0; x < regionW; x++) {
-      const idx = y * regionW + x;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = y * w + x;
       if (!binary[idx]) continue;
 
-      const up = y > 0 ? labels[(y - 1) * regionW + x] : -1;
-      const left = x > 0 ? labels[y * regionW + (x - 1)] : -1;
+      const up = y > 0 ? labels[(y - 1) * w + x] : -1;
+      const left = x > 0 ? labels[y * w + (x - 1)] : -1;
 
       if (up >= 0 && left >= 0) {
         labels[idx] = up;
@@ -118,9 +113,9 @@ function findMarkerBlob(
 
   // ブロブ統計を集計
   const blobMap = new Map<number, Blob>();
-  for (let y = 0; y < regionH; y++) {
-    for (let x = 0; x < regionW; x++) {
-      const idx = y * regionW + x;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = y * w + x;
       if (labels[idx] < 0) continue;
       const root = find(labels[idx]);
       let blob = blobMap.get(root);
@@ -138,18 +133,62 @@ function findMarkerBlob(
     }
   }
 
-  // マーカーらしいブロブを選別:
-  // - 面積が十分（ノイズ排除）: 最低100px
-  // - コンパクト（格子線排除）: 幅と高さの比率が0.3〜3.0
-  // - 充填率（格子線の交差排除）: outline マーカーは低充填率なので閾値を緩めに
+  return Array.from(blobMap.values());
+}
+
+// RGBA画像データの指定領域を二値化
+function binarizeRegion(
+  data: Uint8ClampedArray,
+  imgW: number,
+  rx: number,
+  ry: number,
+  regionW: number,
+  regionH: number,
+  threshold: number,
+): Uint8Array {
+  const binary = new Uint8Array(regionW * regionH);
+  for (let y = 0; y < regionH; y++) {
+    for (let x = 0; x < regionW; x++) {
+      const i = ((ry + y) * imgW + (rx + x)) * 4;
+      const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      binary[y * regionW + x] = gray < threshold ? 1 : 0;
+    }
+  }
+  return binary;
+}
+
+// 四隅マーカー検出: 指定領域のブロブからマーカーを特定
+function findMarkerBlob(
+  data: Uint8ClampedArray,
+  imgW: number,
+  imgH: number,
+  rx: number,
+  ry: number,
+  rw: number,
+  rh: number,
+  threshold: number,
+): Point | null {
+  const endX = Math.min(rx + rw, imgW);
+  const endY = Math.min(ry + rh, imgH);
+  const regionW = endX - rx;
+  const regionH = endY - ry;
+
+  const binary = binarizeRegion(data, imgW, rx, ry, regionW, regionH, threshold);
+  const blobs = extractBlobs(binary, regionW, regionH, rx, ry);
+
+  // 面積上限: 期待面積の5倍を超えるブロブはマーカーではない
+  const maxBlobArea = expectedMarkerArea(imgW) * 5;
+
+  // マーカーらしいブロブを選別（Rust CLI と同一パラメータ）:
+  // - 面積: 30px以上 かつ 期待面積×5以下
+  // - アスペクト比: 0.2〜5.0（細長いバー・罫線を除外）
   const candidates: Blob[] = [];
-  for (const blob of blobMap.values()) {
+  for (const blob of blobs) {
     const blobW = blob.maxX - blob.minX + 1;
     const blobH = blob.maxY - blob.minY + 1;
     const aspect = blobW / blobH;
-    const fillRatio = blob.area / (blobW * blobH);
 
-    if (blob.area >= 100 && aspect >= 0.3 && aspect <= 3.0 && fillRatio > 0.05) {
+    if (blob.area >= 30 && blob.area <= maxBlobArea && aspect >= 0.2 && aspect <= 5.0) {
       blob.cx /= blob.area;
       blob.cy /= blob.area;
       candidates.push(blob);
@@ -158,7 +197,7 @@ function findMarkerBlob(
 
   if (candidates.length === 0) return null;
 
-  // コーナーに最も近いブロブを選択（グレースケールバー等との混同を回避）
+  // コーナーに最も近いブロブをシードとして選択
   const cornerX = rx + (rx === 0 ? 0 : rw);
   const cornerY = ry + (ry === 0 ? 0 : rh);
   candidates.sort((a, b) => {
@@ -166,8 +205,27 @@ function findMarkerBlob(
     const distB = (b.cx - cornerX) ** 2 + (b.cy - cornerY) ** 2;
     return distA - distB;
   });
-  const best = candidates[0];
-  return { x: best.cx, y: best.cy };
+  const seed = candidates[0];
+
+  // マージ処理: シードの重心からマージ半径内のブロブを集めて加重重心を計算
+  const mergeRadius = markerPixelSize(imgW) * 1.0;
+  const mergeRadiusSq = mergeRadius * mergeRadius;
+
+  let totalArea = 0;
+  let sumX = 0;
+  let sumY = 0;
+  for (const blob of candidates) {
+    const dx = blob.cx - seed.cx;
+    const dy = blob.cy - seed.cy;
+    if (dx * dx + dy * dy <= mergeRadiusSq) {
+      sumX += blob.cx * blob.area;
+      sumY += blob.cy * blob.area;
+      totalArea += blob.area;
+    }
+  }
+
+  if (totalArea === 0) return null;
+  return { x: sumX / totalArea, y: sumY / totalArea };
 }
 
 function computeOtsuThreshold(data: Uint8ClampedArray, pixelCount: number): number {
@@ -207,7 +265,7 @@ function computeOtsuThreshold(data: Uint8ClampedArray, pixelCount: number): numb
   return bestThreshold;
 }
 
-// ���ャンバスを指定角度（90/180/270）で回転
+// キャンバスを指定角度（90/180/270）で回転
 export function rotateCanvas(canvas: HTMLCanvasElement, degrees: number): HTMLCanvasElement {
   const dst = document.createElement('canvas');
   const swap = degrees === 90 || degrees === 270;
@@ -327,8 +385,8 @@ export function detectOrientation(corners: Corners, canvas: HTMLCanvasElement): 
 
   // マーカーの画像上のサイズを推定（ページ幅に対するマーカーサイズの比率から）
   const dx = corners.topRight.x - corners.topLeft.x;
-  const markerPixelSize = (MARKER_SIZE / (MARKERS.topRight.x - MARKERS.topLeft.x)) * dx;
-  const r = Math.max(10, Math.round(markerPixelSize / 2));
+  const mPixelSize = (MARKER_SIZE / (MARKERS.topRight.x - MARKERS.topLeft.x)) * dx;
+  const r = Math.max(10, Math.round(mPixelSize / 2));
 
   // マーカー周辺の黒ピクセル密度を計測（塗りつぶし vs 枠線のみ を区別）
   function blackPixelDensity(point: Point): number {
@@ -380,4 +438,78 @@ export function detectOrientation(corners: Corners, canvas: HTMLCanvasElement): 
   }
 
   return cornerToRotation(densest.corner);
+}
+
+// 中心マーカー検出（#39 レンズ歪み補正の基盤）
+// ページ中央付近の塗りつぶし正方形マーカーを検出し、その重心を返す
+export function detectCenterMarker(canvas: HTMLCanvasElement, threshold?: number): Point | null {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  const w = canvas.width;
+  const h = canvas.height;
+
+  // ピクセルスケール: mm→pixel
+  const scale = w / PAGE_WIDTH;
+
+  // 期待位置（ピクセル）
+  const expectedCx = (CENTER_MARKER_X + CENTER_MARKER_SIZE / 2) * scale;
+  const expectedCy = (CENTER_MARKER_Y + CENTER_MARKER_SIZE / 2) * scale;
+
+  // 探索領域: 期待位置 ±10%
+  const searchMarginX = w * 0.1;
+  const searchMarginY = h * 0.1;
+  const rx = Math.max(0, Math.floor(expectedCx - searchMarginX));
+  const ry = Math.max(0, Math.floor(expectedCy - searchMarginY));
+  const rw = Math.min(w, Math.ceil(expectedCx + searchMarginX)) - rx;
+  const rh = Math.min(h, Math.ceil(expectedCy + searchMarginY)) - ry;
+
+  const imgData = ctx.getImageData(rx, ry, rw, rh);
+  const th = threshold ?? computeOtsuThreshold(ctx.getImageData(0, 0, w, h).data, w * h);
+
+  // 二値化 + ブロブ抽出（共通関数を使用）
+  const binary = new Uint8Array(rw * rh);
+  for (let y = 0; y < rh; y++) {
+    for (let x = 0; x < rw; x++) {
+      const i = (y * rw + x) * 4;
+      const gray = (imgData.data[i] + imgData.data[i + 1] + imgData.data[i + 2]) / 3;
+      binary[y * rw + x] = gray < th ? 1 : 0;
+    }
+  }
+  const blobs = extractBlobs(binary, rw, rh, rx, ry);
+
+  // 期待面積: 正方形マーカー（CENTER_MARKER_SIZE²のピクセル換算）
+  const expectedArea = (CENTER_MARKER_SIZE * scale) ** 2;
+
+  // フィルタ: 面積 20%〜500%、アスペクト比 0.5〜2.0、充填率 > 0.5
+  const candidates: Blob[] = [];
+  for (const blob of blobs) {
+    const blobW = blob.maxX - blob.minX + 1;
+    const blobH = blob.maxY - blob.minY + 1;
+    const aspect = blobW / blobH;
+    const fillRatio = blob.area / (blobW * blobH);
+
+    if (
+      blob.area >= expectedArea * 0.2 &&
+      blob.area <= expectedArea * 5.0 &&
+      aspect >= 0.5 &&
+      aspect <= 2.0 &&
+      fillRatio > 0.5
+    ) {
+      blob.cx /= blob.area;
+      blob.cy /= blob.area;
+      candidates.push(blob);
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  // 期待位置に最も近い候補を選択
+  candidates.sort((a, b) => {
+    const distA = (a.cx - expectedCx) ** 2 + (a.cy - expectedCy) ** 2;
+    const distB = (b.cx - expectedCx) ** 2 + (b.cy - expectedCy) ** 2;
+    return distA - distB;
+  });
+
+  return { x: candidates[0].cx, y: candidates[0].cy };
 }
