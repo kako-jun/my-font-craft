@@ -44,7 +44,7 @@ export const GRAY_BAR_STEP_SIZE = 5; // 各ステップ 5mm幅
 
 // 左バー: ページ左端の余白内（マーカーより外側）
 export const GRAY_BAR_LEFT_X = 2;
-export const GRAY_BAR_TOP_Y = 22; // topマーカー下端(11mm)から余白を空けて開始
+export const GRAY_BAR_TOP_Y = 28; // BODY_START_Y に合わせる（マーカー下端から17mm）
 export const GRAY_BAR_BOTTOM_Y = 272; // 本文領域下端付近（bottomマーカーy=289よりも上）
 
 // 右バー: ページ右端の余白内
