@@ -113,14 +113,14 @@ pub fn get_sample_position(row: usize, col: usize) -> (f64, f64) {
     (x, y)
 }
 
+/// 中心マーカーに占有されるセル位置
+pub const SKIPPED_ROW: usize = 6;
+pub const SKIPPED_COL: usize = 2;
+
 /// 中心マーカーに占有されたセルかどうかを判定
 pub fn is_skipped_cell(row: usize, col: usize) -> bool {
     row == SKIPPED_ROW && col == SKIPPED_COL
 }
-
-/// 中心マーカーに占有されるセル位置
-pub const SKIPPED_ROW: usize = 6;
-pub const SKIPPED_COL: usize = 2;
 
 // NOTE: 中心マーカー追加時は CHARS_PER_PAGE を1減らす波及変更が必要
 // （QRコード、ページ割り当て、TypeScript側テンプレート生成を含む）
@@ -193,5 +193,14 @@ mod tests {
         // 25.4mm = 1inch = 300px at 300dpi
         assert!((mm_to_px(25.4) - 300.0).abs() < 1e-9);
         assert!((mm_to_px(0.0) - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn skipped_cell_correct() {
+        assert!(is_skipped_cell(6, 2));
+        assert!(!is_skipped_cell(5, 2));
+        assert!(!is_skipped_cell(6, 1));
+        assert!(!is_skipped_cell(0, 0));
+        assert!(!is_skipped_cell(11, 3));
     }
 }
