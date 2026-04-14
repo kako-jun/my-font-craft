@@ -1,6 +1,6 @@
 // ページ四隅外挿 + 射影変換（ホモグラフィー行列）
 use image::{RgbaImage, Rgba};
-use crate::layout;
+use crate::{log, layout};
 use crate::marker::DetectedMarker;
 
 /// マーカー4点から直接ホモグラフィーを計算して射影変換
@@ -24,9 +24,9 @@ pub fn homography_warp_from_markers(img: &RgbaImage, markers: &[DetectedMarker; 
         (layout::mm_to_px(cx), layout::mm_to_px(cy))
     });
 
-    println!("  射影変換(マーカー直接ホモグラフィー): {}x{} → {target_w}x{target_h}", img.width(), img.height());
+    log!("  射影変換(マーカー直接ホモグラフィー): {}x{} → {target_w}x{target_h}", img.width(), img.height());
     for i in 0..4 {
-        println!("    マーカー[{i}]: ({:.1},{:.1}) → ({:.1},{:.1})", src[i].0, src[i].1, dst[i].0, dst[i].1);
+        log!("    マーカー[{i}]: ({:.1},{:.1}) → ({:.1},{:.1})", src[i].0, src[i].1, dst[i].0, dst[i].1);
     }
 
     // ホモグラフィー行列を求める（dst → src 方向、逆変換用）
@@ -181,9 +181,9 @@ pub fn homography_refine(img: &RgbaImage, detected: &[DetectedMarker; 4]) -> Rgb
         (layout::mm_to_px(cx), layout::mm_to_px(cy))
     });
 
-    println!("  リファインメント変換:");
+    log!("  リファインメント変換:");
     for i in 0..4 {
-        println!("    マーカー[{i}]: ({:.1},{:.1}) → ({:.1},{:.1})", src[i].0, src[i].1, dst[i].0, dst[i].1);
+        log!("    マーカー[{i}]: ({:.1},{:.1}) → ({:.1},{:.1})", src[i].0, src[i].1, dst[i].0, dst[i].1);
     }
 
     // ホモグラフィー行列（dst → src 方向、逆変換用）
