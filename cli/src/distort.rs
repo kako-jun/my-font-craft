@@ -2,6 +2,7 @@
 // スマホ撮影をシミュレート: 回転 + 台形変形 + グレー背景 + 余白
 
 use image::{RgbaImage, Rgba};
+use crate::log;
 use std::path::Path;
 
 /// 画像に擬似歪みを加える
@@ -19,8 +20,8 @@ pub fn distort_image(
     let src_w = img.width() as f64;
     let src_h = img.height() as f64;
 
-    println!("入力画像: {}x{}", img.width(), img.height());
-    println!("歪みパラメータ: 回転={rotate_deg}° 台形={trapezoid_strength} 余白={padding}px");
+    log!("入力画像: {}x{}", img.width(), img.height());
+    log!("歪みパラメータ: 回転={rotate_deg}° 台形={trapezoid_strength} 余白={padding}px");
 
     // 出力キャンバスサイズ（余白込み）
     let out_w = img.width() + padding * 2;
@@ -71,11 +72,11 @@ pub fn distort_image(
         (cx + x, cy + y)
     }).collect();
 
-    println!("出力四隅:");
-    println!("  TL=({:.1}, {:.1})", dst_corners[0].0, dst_corners[0].1);
-    println!("  TR=({:.1}, {:.1})", dst_corners[1].0, dst_corners[1].1);
-    println!("  BL=({:.1}, {:.1})", dst_corners[2].0, dst_corners[2].1);
-    println!("  BR=({:.1}, {:.1})", dst_corners[3].0, dst_corners[3].1);
+    log!("出力四隅:");
+    log!("  TL=({:.1}, {:.1})", dst_corners[0].0, dst_corners[0].1);
+    log!("  TR=({:.1}, {:.1})", dst_corners[1].0, dst_corners[1].1);
+    log!("  BL=({:.1}, {:.1})", dst_corners[2].0, dst_corners[2].1);
+    log!("  BR=({:.1}, {:.1})", dst_corners[3].0, dst_corners[3].1);
 
     // 逆変換: 出力の各ピクセルに対して元画像の座標を算出（双線形マッピング）
     let (tl, tr, bl, br) = (dst_corners[0], dst_corners[1], dst_corners[2], dst_corners[3]);
@@ -106,7 +107,7 @@ pub fn distort_image(
     out.save(output_path)
         .map_err(|e| format!("画像保存エラー: {e}"))?;
 
-    println!("歪み画像保存: {} ({}x{})", output_path.display(), out_w, out_h);
+    log!("歪み画像保存: {} ({}x{})", output_path.display(), out_w, out_h);
     Ok(())
 }
 

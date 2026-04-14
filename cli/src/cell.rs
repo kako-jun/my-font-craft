@@ -1,10 +1,13 @@
 // セル切り出し + チェック欄解析 + 採用判定
 use image::{RgbaImage, Rgba};
-use crate::layout;
+use serde::{Serialize, Deserialize};
+use crate::{log, layout};
+
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 
 /// チェック欄の状態
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum CheckMark {
     Check,  // ✓
     Cross,  // ×
@@ -12,8 +15,7 @@ pub enum CheckMark {
 }
 
 /// 1マスの解析結果
-#[derive(Debug)]
-#[allow(dead_code)] // パイプライン後段で使用予定
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SlotResult {
     pub cell_index: usize,   // 0=左, 1=右
     pub is_empty: bool,
@@ -23,8 +25,7 @@ pub struct SlotResult {
 }
 
 /// 1文字（2マス）の採用判定結果
-#[derive(Debug)]
-#[allow(dead_code)] // パイプライン後段で使用予定
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CharResult {
     pub row: usize,
     pub col: usize,
@@ -33,15 +34,14 @@ pub struct CharResult {
     pub adoption_reason: String, // 採用理由（デバッグ用）
 }
 
-/// 全48文字を処理: セル切り出し → チェック欄解析 → 採用判定
+/// CLI用: 全48文字を処理してファイルに保存
+#[cfg(not(target_arch = "wasm32"))]
 pub fn extract_and_judge(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CharResult>, String> {
     std::fs::create_dir_all(output_dir)
         .map_err(|e| format!("セル出力ディレクトリ作成エラー: {e}"))?;
 
-    // 外枠の枠線(0.5pt≈0.18mm)を避けて内側を切り出す
-    // 台形補正の残差+サンプリング太り分も考慮して1.0mm内側 → 13mm×13mm
-    let border_margin = 1.0; // mm
-    let crop_size = layout::CELL_SIZE - border_margin * 2.0; // 13mm
+    let border_margin = 1.0;
+    let crop_size = layout::CELL_SIZE - border_margin * 2.0;
     let crop_size_px = layout::mm_to_px(crop_size).round() as u32;
 
     let mut results = Vec::new();
@@ -58,36 +58,30 @@ pub fn extract_and_judge(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CharR
             for cell_idx in 0..2 {
                 let (mm_x, mm_y) = layout::get_cell_position(row, col, cell_idx);
 
-                // 外枠の枠線を除いた内側を切り出し（枠線から1mm内側 = 13mm×13mm）
                 let crop_px_x = layout::mm_to_px(mm_x + border_margin).round() as u32;
                 let crop_px_y = layout::mm_to_px(mm_y + border_margin).round() as u32;
                 let cell_img = crop_region(img, crop_px_x, crop_px_y, crop_size_px, crop_size_px);
 
-                // 空判定: 内側60%領域で黒ピクセル2%未満=空
                 let black_ratio = measure_inner_black_ratio(&cell_img, 0.2);
                 let is_empty = black_ratio < 0.02;
 
-                // チェック欄切り出し（セル下部の3mm領域、枠線を除く）
                 let check_px_x = layout::mm_to_px(mm_x + border_margin).round() as u32;
                 let check_px_y = layout::mm_to_px(mm_y + layout::CELL_SIZE + border_margin * 0.5).round() as u32;
                 let check_w = layout::mm_to_px(layout::CELL_SIZE - border_margin * 2.0).round() as u32;
                 let check_h = layout::mm_to_px(layout::CHECK_HEIGHT - border_margin).round() as u32;
                 let check_img = crop_region(img, check_px_x, check_px_y, check_w, check_h);
 
-                // チェック欄解析
                 let (check_mark, check_density) = analyze_check_mark(&check_img);
 
-                // セル画像を保存
                 let filename = format!("R{row:02}C{col:02}_I{cell_idx}.png");
                 cell_img.save(output_dir.join(&filename))
                     .map_err(|e| format!("セル保存エラー {filename}: {e}"))?;
 
-                // チェック欄画像も保存
                 let check_filename = format!("R{row:02}C{col:02}_I{cell_idx}_check.png");
                 check_img.save(output_dir.join(&check_filename))
                     .map_err(|e| format!("チェック欄保存エラー {check_filename}: {e}"))?;
 
-                println!(
+                log!(
                     "  R{row:02}C{col:02}_I{cell_idx}: black={:.1}% {} check={:?}({:.1}%)",
                     black_ratio * 100.0,
                     if is_empty { "空" } else { "非空" },
@@ -104,7 +98,6 @@ pub fn extract_and_judge(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CharR
                 });
             }
 
-            // 採用判定（docs/template-spec.md の採用ルールに従う）
             let (adopted, reason) = judge_adoption(&slots);
 
             if adopted.is_empty() {
@@ -114,7 +107,7 @@ pub fn extract_and_judge(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CharR
             }
 
             if !adopted.is_empty() || slots.iter().any(|s| !s.is_empty) {
-                println!(
+                log!(
                     "  → R{row:02}C{col:02} 採用: {:?} ({})",
                     adopted, reason
                 );
@@ -131,8 +124,102 @@ pub fn extract_and_judge(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CharR
         }
     }
 
-    println!("\n  文字サマリー: 採用={total_adopted}, 空={total_empty}, 合計={}", results.len());
+    log!("\n  文字サマリー: 採用={total_adopted}, 空={total_empty}, 合計={}", results.len());
     Ok(results)
+}
+
+/// WASM用: 全48文字を処理（ファイル保存なし）
+pub fn extract_and_judge_in_memory(img: &RgbaImage) -> Result<Vec<CharResult>, String> {
+    let border_margin = 1.0;
+    let crop_size = layout::CELL_SIZE - border_margin * 2.0;
+    let crop_size_px = layout::mm_to_px(crop_size).round() as u32;
+
+    let mut results = Vec::new();
+    let mut total_adopted = 0usize;
+    let mut total_empty = 0usize;
+
+    for row in 0..layout::ROWS {
+        for col in 0..layout::COLS {
+            if layout::is_skipped_cell(row, col) {
+                continue;
+            }
+            let mut slots = Vec::new();
+
+            for cell_idx in 0..2 {
+                let (mm_x, mm_y) = layout::get_cell_position(row, col, cell_idx);
+
+                let crop_px_x = layout::mm_to_px(mm_x + border_margin).round() as u32;
+                let crop_px_y = layout::mm_to_px(mm_y + border_margin).round() as u32;
+                let cell_img = crop_region(img, crop_px_x, crop_px_y, crop_size_px, crop_size_px);
+
+                let black_ratio = measure_inner_black_ratio(&cell_img, 0.2);
+                let is_empty = black_ratio < 0.02;
+
+                let check_px_x = layout::mm_to_px(mm_x + border_margin).round() as u32;
+                let check_px_y = layout::mm_to_px(mm_y + layout::CELL_SIZE + border_margin * 0.5).round() as u32;
+                let check_w = layout::mm_to_px(layout::CELL_SIZE - border_margin * 2.0).round() as u32;
+                let check_h = layout::mm_to_px(layout::CHECK_HEIGHT - border_margin).round() as u32;
+                let check_img = crop_region(img, check_px_x, check_px_y, check_w, check_h);
+
+                let (check_mark, check_density) = analyze_check_mark(&check_img);
+
+                log!(
+                    "  R{row:02}C{col:02}_I{cell_idx}: black={:.1}% {} check={:?}({:.1}%)",
+                    black_ratio * 100.0,
+                    if is_empty { "空" } else { "非空" },
+                    check_mark,
+                    check_density * 100.0,
+                );
+
+                slots.push(SlotResult {
+                    cell_index: cell_idx,
+                    is_empty,
+                    black_ratio,
+                    check_mark,
+                    check_density,
+                });
+            }
+
+            let (adopted, reason) = judge_adoption(&slots);
+
+            if adopted.is_empty() {
+                total_empty += 1;
+            } else {
+                total_adopted += 1;
+            }
+
+            if !adopted.is_empty() || slots.iter().any(|s| !s.is_empty) {
+                log!(
+                    "  → R{row:02}C{col:02} 採用: {:?} ({})",
+                    adopted, reason
+                );
+            }
+
+            let slots_arr = [slots.remove(0), slots.remove(0)];
+            results.push(CharResult {
+                row,
+                col,
+                slots: slots_arr,
+                adopted,
+                adoption_reason: reason,
+            });
+        }
+    }
+
+    log!("  文字サマリー: 採用={total_adopted}, 空={total_empty}, 合計={}", results.len());
+    Ok(results)
+}
+
+/// セル画像を切り出して返す（WASM用）
+pub fn extract_cell_image(img: &RgbaImage, row: usize, col: usize, cell_index: usize) -> RgbaImage {
+    let border_margin = 1.0;
+    let crop_size = layout::CELL_SIZE - border_margin * 2.0;
+    let crop_size_px = layout::mm_to_px(crop_size).round() as u32;
+
+    let (mm_x, mm_y) = layout::get_cell_position(row, col, cell_index);
+    let crop_px_x = layout::mm_to_px(mm_x + border_margin).round() as u32;
+    let crop_px_y = layout::mm_to_px(mm_y + border_margin).round() as u32;
+    crop_region(img, crop_px_x, crop_px_y, crop_size_px, crop_size_px)
 }
 
 /// 採用判定: docs/template-spec.md の採用ルール

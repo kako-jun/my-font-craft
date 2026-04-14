@@ -1,6 +1,6 @@
 /// 二値化 + マーカー検出
 use image::{GrayImage, Luma, RgbaImage, Rgba};
-use crate::layout;
+use crate::{log, layout};
 
 /// 大津の方法で閾値を算出
 pub fn otsu_threshold(gray: &GrayImage) -> u8 {
@@ -239,7 +239,7 @@ pub fn detect_markers(binary: &GrayImage) -> Result<[DetectedMarker; 4], String>
             })
             .collect();
 
-        println!(
+        log!(
             "  {} 探索領域: ({},{})..({},{}) ブロブ数={} フィルタ後={}",
             name, x0, y0, x1, y1, blobs.len(), filtered.len()
         );
@@ -284,7 +284,7 @@ pub fn detect_markers(binary: &GrayImage) -> Result<[DetectedMarker; 4], String>
         let centroid_x = total_sum_x / total_area as f64;
         let centroid_y = total_sum_y / total_area as f64;
 
-        println!(
+        log!(
             "  {name} マーカー: centroid=({centroid_x:.1}, {centroid_y:.1}) area={total_area} merged={merged_count}ブロブ",
         );
         markers.push(DetectedMarker {
@@ -345,7 +345,7 @@ pub fn detect_center_marker(binary: &GrayImage) -> Option<DetectedMarker> {
     });
 
     best.map(|b| {
-        println!(
+        log!(
             "  中心マーカー検出: centroid=({:.1}, {:.1}) area={} fill_ratio={:.2}",
             b.center_x(), b.center_y(), b.area, b.fill_ratio()
         );
@@ -425,7 +425,7 @@ pub fn detect_orientation(
         }
 
         let density = if total > 0 { black_count as f64 / total as f64 } else { 0.0 };
-        println!("  マーカー[{i}]: 密度={density:.3} (黒={black_count}/{total})");
+        log!("  マーカー[{i}]: 密度={density:.3} (黒={black_count}/{total})");
         densities.push((i, density));
     }
 
@@ -445,7 +445,7 @@ pub fn detect_orientation(
         _ => unreachable!(),
     };
 
-    println!("  filled マーカー位置: [{tl_index}], 回転角度: {rotation}°");
+    log!("  filled マーカー位置: [{tl_index}], 回転角度: {rotation}°");
 
     Ok((tl_index, rotation))
 }

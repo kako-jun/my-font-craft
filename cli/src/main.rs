@@ -1,14 +1,5 @@
-#[allow(dead_code)]
-mod layout;
-mod template;
-mod pipeline;
-mod marker;
-mod perspective;
-mod qr;
-mod cell;
-mod distort;
-
 use clap::{Parser, Subcommand};
+use mfc::{template, pipeline, distort};
 use std::path::PathBuf;
 
 #[derive(Parser)]
