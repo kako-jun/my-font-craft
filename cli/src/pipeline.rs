@@ -584,6 +584,9 @@ fn apply_orthogonality_correction_wasm(img: RgbaImage) -> RgbaImage {
             log!("  直交性は良好（補正不要）");
             return img;
         }
+        if angle.abs() > 5.0 {
+            log!("  ⚠ 残留角度 {:.2}° が大きすぎます — 台形補正が失敗している可能性があります", angle.abs());
+        }
         log!("  → {:.3}° の微小回転補正を適用", -angle);
         rotate_small_angle(&img, angle)
     } else {
@@ -605,6 +608,9 @@ fn apply_orthogonality_correction_cli(img: RgbaImage, output_dir: &Path) -> Rgba
         if angle.abs() < 0.05 {
             log!("  ✓ 直交性は良好（補正不要）");
             return img;
+        }
+        if angle.abs() > 5.0 {
+            log!("  ⚠ 残留角度 {:.2}° が大きすぎます — 台形補正が失敗している可能性があります", angle.abs());
         }
         log!("  → {:.3}° の微小回転補正を適用", -angle);
         let corrected = rotate_small_angle(&img, angle);
