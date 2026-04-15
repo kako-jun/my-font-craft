@@ -267,6 +267,11 @@ fn analyze_check_mark(check_img: &RgbaImage) -> (CheckMark, f64) {
     }
 
     let gray = rgba_to_gray(check_img);
+    let gray = if detect_moire(&gray, w, h) {
+        median_filter_3x3(&gray, w, h)
+    } else {
+        gray
+    };
     let gray = apply_clahe(&gray, w, h);
     let binary = sauvola_binarize(&gray, w, h, SAUVOLA_K, SAUVOLA_WINDOW);
     let binary = morphological_open_close(&binary, w, h);
@@ -305,6 +310,11 @@ fn measure_inner_black_ratio(img: &RgbaImage, margin_ratio: f64) -> f64 {
 
     // 画像全体でSauvola二値化（局所的な閾値を正しく計算するため）
     let gray = rgba_to_gray(img);
+    let gray = if detect_moire(&gray, w, h) {
+        median_filter_3x3(&gray, w, h)
+    } else {
+        gray
+    };
     let gray = apply_clahe(&gray, w, h);
     let binary = sauvola_binarize(&gray, w, h, SAUVOLA_K, SAUVOLA_WINDOW);
     let binary = morphological_open_close(&binary, w, h);
@@ -636,6 +646,78 @@ pub(crate) fn morphological_open_close(binary: &[u8], w: u32, h: u32) -> Vec<u8>
     let opened = morphological_dilate(&morphological_erode(binary, w, h), w, h);
     // Closing: Dilate → Erode
     morphological_erode(&morphological_dilate(&opened, w, h), w, h)
+}
+
+// ── モアレパターン検出・除去 ──
+
+/// ラプラシアンフィルタで高周波成分を抽出し、分散が閾値以上ならモアレありと判定
+fn detect_moire(gray: &[u8], w: u32, h: u32) -> bool {
+    if w < 3 || h < 3 {
+        return false;
+    }
+    let w = w as usize;
+    let h = h as usize;
+
+    // ラプラシアンカーネル: [[0,-1,0],[-1,4,-1],[0,-1,0]]
+    let mut sum: f64 = 0.0;
+    let mut sum_sq: f64 = 0.0;
+    let count = ((w - 2) * (h - 2)) as f64;
+
+    for y in 1..h - 1 {
+        for x in 1..w - 1 {
+            let center = gray[y * w + x] as f64;
+            let top = gray[(y - 1) * w + x] as f64;
+            let bottom = gray[(y + 1) * w + x] as f64;
+            let left = gray[y * w + (x - 1)] as f64;
+            let right = gray[y * w + (x + 1)] as f64;
+            let lap = 4.0 * center - top - bottom - left - right;
+            sum += lap;
+            sum_sq += lap * lap;
+        }
+    }
+
+    if count <= 0.0 {
+        return false;
+    }
+
+    let mean = sum / count;
+    let variance = sum_sq / count - mean * mean;
+    variance >= 500.0
+}
+
+/// 3×3メディアンフィルタ。境界では利用可能なピクセルのみで計算
+fn median_filter_3x3(gray: &[u8], w: u32, h: u32) -> Vec<u8> {
+    if w == 0 || h == 0 {
+        return vec![];
+    }
+    let w = w as usize;
+    let h = h as usize;
+    let mut out = vec![0u8; w * h];
+
+    for y in 0..h {
+        for x in 0..w {
+            let mut neighbors = Vec::with_capacity(9);
+            for dy in 0..3usize {
+                let ny = y + dy;
+                if ny < 1 || ny - 1 >= h {
+                    continue;
+                }
+                let ny = ny - 1;
+                for dx in 0..3usize {
+                    let nx = x + dx;
+                    if nx < 1 || nx - 1 >= w {
+                        continue;
+                    }
+                    let nx = nx - 1;
+                    neighbors.push(gray[ny * w + nx]);
+                }
+            }
+            neighbors.sort_unstable();
+            out[y * w + x] = neighbors[neighbors.len() / 2];
+        }
+    }
+
+    out
 }
 
 #[cfg(test)]
@@ -1153,5 +1235,54 @@ mod tests {
         // 1x1
         let result = apply_clahe(&[200], 1, 1);
         assert_eq!(result.len(), 1);
+    }
+
+    // ── モアレ検出・除去テスト ──
+
+    #[test]
+    fn detect_moire_uniform() {
+        // 均一画像はモアレなし
+        let w = 64u32;
+        let h = 64u32;
+        let gray = vec![128u8; (w * h) as usize];
+        assert!(!detect_moire(&gray, w, h), "均一画像はモアレなしであるべき");
+    }
+
+    #[test]
+    fn detect_moire_stripe_pattern() {
+        // 縞模様画像はモアレあり判定
+        let w = 64u32;
+        let h = 64u32;
+        let gray: Vec<u8> = (0..(w * h))
+            .map(|i| {
+                let x = i % w;
+                if x % 2 == 0 { 0 } else { 255 }
+            })
+            .collect();
+        assert!(detect_moire(&gray, w, h), "縞模様画像はモアレありであるべき");
+    }
+
+    #[test]
+    fn median_filter_removes_salt_pepper() {
+        // ソルト&ペッパーノイズをメディアンフィルタが除去
+        let w = 8u32;
+        let h = 8u32;
+        let mut gray = vec![128u8; (w * h) as usize];
+        // ノイズを注入（内側のピクセル）
+        gray[(3 * w + 3) as usize] = 255; // salt
+        gray[(4 * w + 4) as usize] = 0;   // pepper
+
+        let result = median_filter_3x3(&gray, w, h);
+        assert_eq!(result.len(), (w * h) as usize);
+        // ノイズが除去され、周囲と同じ値（128）になるべき
+        assert_eq!(result[(3 * w + 3) as usize], 128, "ソルトノイズが除去されるべき");
+        assert_eq!(result[(4 * w + 4) as usize], 128, "ペッパーノイズが除去されるべき");
+    }
+
+    #[test]
+    fn median_filter_empty() {
+        // 空画像で空Vec
+        let result = median_filter_3x3(&[], 0, 0);
+        assert!(result.is_empty(), "空画像は空Vecを返すべき");
     }
 }
