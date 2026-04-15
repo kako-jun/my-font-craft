@@ -1,7 +1,7 @@
 /// テスト画像生成（generate サブコマンド）
 /// A4 300dpi のテンプレートPNG相当を直接描画する
 use image::{RgbaImage, Rgba};
-use crate::{log, layout};
+use crate::layout;
 use crate::qr;
 use std::path::Path;
 

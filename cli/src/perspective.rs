@@ -1,6 +1,6 @@
 // ページ四隅外挿 + 射影変換（ホモグラフィー行列）
 use image::{RgbaImage, Rgba};
-use crate::{log, layout};
+use crate::layout;
 use crate::marker::DetectedMarker;
 
 /// マーカー4点から直接ホモグラフィーを計算して射影変換

@@ -2,7 +2,6 @@
 // スマホ撮影をシミュレート: 回転 + 台形変形 + グレー背景 + 余白
 
 use image::{RgbaImage, Rgba};
-use crate::log;
 use std::path::Path;
 
 /// 画像に擬似歪みを加える

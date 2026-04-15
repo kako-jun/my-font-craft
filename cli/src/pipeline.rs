@@ -1,7 +1,7 @@
 /// 画像処理パイプライン（process サブコマンド + WASM用エントリポイント）
 use image::{DynamicImage, GrayImage, RgbaImage, Rgba};
 use serde::{Serialize, Deserialize};
-use crate::{log, layout, marker, perspective, qr, cell};
+use crate::{layout, marker, perspective, qr, cell};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;

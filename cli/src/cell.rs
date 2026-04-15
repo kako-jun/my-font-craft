@@ -1,7 +1,7 @@
 // セル切り出し + チェック欄解析 + 採用判定
 use image::{RgbaImage, Rgba};
 use serde::{Serialize, Deserialize};
-use crate::{log, layout};
+use crate::layout;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;

@@ -1,6 +1,6 @@
 /// 二値化 + マーカー検出
 use image::{GrayImage, Luma, RgbaImage, Rgba};
-use crate::{log, layout};
+use crate::layout;
 
 /// 大津の方法で閾値を算出
 pub fn otsu_threshold(gray: &GrayImage) -> u8 {
