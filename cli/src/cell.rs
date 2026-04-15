@@ -1138,4 +1138,20 @@ mod tests {
             "CLAHEでダイナミックレンジが広がるべき: input={input_range}, output={output_range}"
         );
     }
+
+    #[test]
+    fn clahe_tiny_image() {
+        // タイルサイズが0になるような極小画像でパニックしないこと
+        let gray = vec![128u8; 9]; // 3x3
+        let result = apply_clahe(&gray, 3, 3);
+        assert_eq!(result.len(), 9);
+
+        // 0x0
+        let result = apply_clahe(&[], 0, 0);
+        assert!(result.is_empty());
+
+        // 1x1
+        let result = apply_clahe(&[200], 1, 1);
+        assert_eq!(result.len(), 1);
+    }
 }
