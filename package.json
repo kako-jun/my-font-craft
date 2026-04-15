@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "npm run wasm:build && vite build",
-    "wasm:ensure-rust": "which rustup || (curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && . $HOME/.cargo/env && rustup target add wasm32-unknown-unknown)",
-    "wasm:install": "which wasm-pack || cargo install wasm-pack",
+    "wasm:ensure-rust": "which rustup || (unset RUSTUP_VERSION && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable && . $HOME/.cargo/env && rustup target add wasm32-unknown-unknown)",
+    "wasm:install": ". $HOME/.cargo/env 2>/dev/null; which wasm-pack || cargo install wasm-pack",
     "wasm:build": "npm run wasm:ensure-rust && . $HOME/.cargo/env 2>/dev/null; npm run wasm:install && cd cli && wasm-pack build --target web --out-dir ../src/wasm",
     "preview": "vite preview",
     "deploy": "wrangler pages deploy dist",
