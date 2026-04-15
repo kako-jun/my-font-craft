@@ -140,9 +140,17 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
         Err(e) => log!("  QR読み取り失敗（続行）: {e}"),
     }
 
+    // ステップ7.5: ホワイトバランス補正
+    log!("\n=== ステップ7.5: ホワイトバランス補正 ===");
+    let wb_corrected = correct_white_balance(&corrected);
+    wb_corrected
+        .save(output_dir.join("07a_white_balanced.png"))
+        .map_err(|e| format!("保存エラー: {e}"))?;
+    log!("  → 07a_white_balanced.png 保存完了");
+
     // ステップ8: 影補正
     log!("\n=== ステップ8: 影補正 ===");
-    let shadow_corrected = correct_shadow(&corrected);
+    let shadow_corrected = correct_shadow(&wb_corrected);
     shadow_corrected
         .save(output_dir.join("07_shadow_corrected.png"))
         .map_err(|e| format!("保存エラー: {e}"))?;
@@ -258,9 +266,13 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
         }
     };
 
+    // ステップ7.5: ホワイトバランス補正
+    log!("=== ホワイトバランス補正 ===");
+    let wb_corrected = correct_white_balance(&corrected);
+
     // ステップ8: 影補正
     log!("=== 影補正 ===");
-    let shadow_corrected = correct_shadow(&corrected);
+    let shadow_corrected = correct_shadow(&wb_corrected);
 
     // ステップ9: シアン除去
     log!("=== シアン除去 ===");
@@ -699,6 +711,89 @@ fn correct_shadow(img: &RgbaImage) -> RgbaImage {
             let r = (p[0] as f64 * ratio).clamp(0.0, 255.0) as u8;
             let g = (p[1] as f64 * ratio).clamp(0.0, 255.0) as u8;
             let b = (p[2] as f64 * ratio).clamp(0.0, 255.0) as u8;
+            out.put_pixel(x, y, Rgba([r, g, b, p[3]]));
+        }
+    }
+
+    out
+}
+
+/// 領域のRGB各チャネル平均を計算
+fn sample_region_rgb(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> (f64, f64, f64) {
+    let mut sum_r = 0.0f64;
+    let mut sum_g = 0.0f64;
+    let mut sum_b = 0.0f64;
+    let mut count = 0u32;
+
+    for dy in 0..h {
+        for dx in 0..w {
+            let px = x + dx;
+            let py = y + dy;
+            if px < img.width() && py < img.height() {
+                let p = img.get_pixel(px, py);
+                sum_r += p[0] as f64;
+                sum_g += p[1] as f64;
+                sum_b += p[2] as f64;
+                count += 1;
+            }
+        }
+    }
+
+    if count > 0 {
+        (sum_r / count as f64, sum_g / count as f64, sum_b / count as f64)
+    } else {
+        (0.0, 0.0, 0.0)
+    }
+}
+
+/// ホワイトバランス補正: グレースケールバーの最明ステップからRGB補正係数を算出
+fn correct_white_balance(img: &RgbaImage) -> RgbaImage {
+    let bar_w_px = layout::mm_to_px(layout::GRAY_BAR_STEP_SIZE).round() as u32;
+    let left_x = layout::mm_to_px(layout::GRAY_BAR_LEFT_X).round() as u32;
+    let right_x = layout::mm_to_px(layout::GRAY_BAR_RIGHT_X).round() as u32;
+    let top_y = layout::mm_to_px(layout::GRAY_BAR_TOP_Y).round() as u32;
+    let bottom_y = layout::mm_to_px(layout::GRAY_BAR_BOTTOM_Y).round() as u32;
+    let total_h = bottom_y - top_y;
+    let step_h = total_h / layout::GRAY_BAR_STEPS as u32;
+
+    // ステップ9（最明部）の期待値: (9/10 * 255).round() = 230
+    let step_index = 9;
+    let expected = (step_index as f64 / layout::GRAY_BAR_STEPS as f64 * 255.0).round();
+    let y_start = top_y + step_index as u32 * step_h;
+
+    let (l_r, l_g, l_b) = sample_region_rgb(img, left_x, y_start, bar_w_px, step_h);
+    let (r_r, r_g, r_b) = sample_region_rgb(img, right_x, y_start, bar_w_px, step_h);
+
+    log!("=== ホワイトバランス補正 ===");
+    log!("  バーステップ[{step_index}]: 期待={expected:.0} 左RGB=({l_r:.1}, {l_g:.1}, {l_b:.1}) 右RGB=({r_r:.1}, {r_g:.1}, {r_b:.1})");
+
+    // 左右バーの補正係数を個別に計算し、平均する
+    let coeff_r_l = expected / l_r.max(1.0);
+    let coeff_g_l = expected / l_g.max(1.0);
+    let coeff_b_l = expected / l_b.max(1.0);
+    let coeff_r_r = expected / r_r.max(1.0);
+    let coeff_g_r = expected / r_g.max(1.0);
+    let coeff_b_r = expected / r_b.max(1.0);
+
+    let coeff_r = (coeff_r_l + coeff_r_r) / 2.0;
+    let coeff_g = (coeff_g_l + coeff_g_r) / 2.0;
+    let coeff_b = (coeff_b_l + coeff_b_r) / 2.0;
+
+    log!("  WB補正係数: R={coeff_r:.3} G={coeff_g:.3} B={coeff_b:.3}");
+
+    // 補正係数が極端な場合はスキップ
+    if coeff_r < 0.5 || coeff_r > 2.0 || coeff_g < 0.5 || coeff_g > 2.0 || coeff_b < 0.5 || coeff_b > 2.0 {
+        log!("  ⚠ 補正係数が極端なためスキップ");
+        return img.clone();
+    }
+
+    let mut out = img.clone();
+    for y in 0..img.height() {
+        for x in 0..img.width() {
+            let p = img.get_pixel(x, y);
+            let r = (p[0] as f64 * coeff_r).clamp(0.0, 255.0) as u8;
+            let g = (p[1] as f64 * coeff_g).clamp(0.0, 255.0) as u8;
+            let b = (p[2] as f64 * coeff_b).clamp(0.0, 255.0) as u8;
             out.put_pixel(x, y, Rgba([r, g, b, p[3]]));
         }
     }
