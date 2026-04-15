@@ -444,9 +444,9 @@ fn crop_region(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> RgbaImage {
 
 // ── モルフォロジカル処理 ──
 
-/// 3×3カーネルのErosion（膨張）: 近傍に白(255)があれば白にする
-/// 黒の孤立ノイズを除去する
-pub(crate) fn morphological_erode(binary: &[u8], w: u32, h: u32) -> Vec<u8> {
+/// 3×3カーネルのErosion（収縮）: 近傍に白(255)があれば白にする
+/// 黒領域を収縮させ、孤立黒ノイズを除去する
+fn morphological_erode(binary: &[u8], w: u32, h: u32) -> Vec<u8> {
     let n = (w * h) as usize;
     if n == 0 {
         return vec![];
@@ -477,9 +477,9 @@ pub(crate) fn morphological_erode(binary: &[u8], w: u32, h: u32) -> Vec<u8> {
     out
 }
 
-/// 3×3カーネルのDilation（収縮）: 近傍に黒(0)があれば黒にする
-/// 白の孤立ノイズを除去する
-pub(crate) fn morphological_dilate(binary: &[u8], w: u32, h: u32) -> Vec<u8> {
+/// 3×3カーネルのDilation（膨張）: 近傍に黒(0)があれば黒にする
+/// 黒領域を膨張させ、孤立白ノイズを埋める
+fn morphological_dilate(binary: &[u8], w: u32, h: u32) -> Vec<u8> {
     let n = (w * h) as usize;
     if n == 0 {
         return vec![];
