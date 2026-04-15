@@ -33,6 +33,47 @@ pub struct ProcessResult {
     pub corrected_height: u32,
 }
 
+// ── DPI算出 ──
+
+/// マーカー間のピクセル距離から実効DPIを算出
+fn estimate_dpi(markers: &[marker::DetectedMarker; 4]) -> f64 {
+    // markers[0]=TL, markers[1]=TR, markers[2]=BL, markers[3]=BR
+    // TL→TR: 198.0mm (水平)
+    let h_px = ((markers[1].cx - markers[0].cx).powi(2) + (markers[1].cy - markers[0].cy).powi(2)).sqrt();
+    let h_dpi = h_px / 198.0 * 25.4;
+
+    // TL→BL: 286.0mm (垂直)
+    let v_px = ((markers[2].cx - markers[0].cx).powi(2) + (markers[2].cy - markers[0].cy).powi(2)).sqrt();
+    let v_dpi = v_px / 286.0 * 25.4;
+
+    let avg_dpi = (h_dpi + v_dpi) / 2.0;
+
+    log!("  水平DPI: {h_dpi:.1} (TL→TR: {h_px:.1}px / 198.0mm)");
+    log!("  垂直DPI: {v_dpi:.1} (TL→BL: {v_px:.1}px / 286.0mm)");
+    log!("  平均DPI: {avg_dpi:.1}");
+
+    // アスペクト比異常の警告
+    let ratio = h_dpi / v_dpi;
+    if ratio < 0.9 || ratio > 1.1 {
+        log!("  ⚠ アスペクト比異常: 水平/垂直 = {ratio:.3} (期待: ≈1.0)");
+    }
+
+    avg_dpi
+}
+
+/// DPIに基づいて警告/エラーを判定
+fn check_dpi(dpi: f64) -> Result<(), String> {
+    if dpi < 150.0 {
+        return Err(format!("解像度が低すぎます ({dpi:.0} DPI)。もう少し近づけて撮影してください（推奨: 300DPI以上）"));
+    }
+    if dpi < 250.0 {
+        log!("  ⚠ 解像度が低めです ({dpi:.0} DPI)。処理は続行しますが品質が低下する可能性があります");
+    } else {
+        log!("  ✓ 解像度: {dpi:.0} DPI (OK)");
+    }
+    Ok(())
+}
+
 // ── CLI用パイプライン（ファイルI/O付き） ──
 
 /// CLI用パイプラインを実行（ファイル読み込み・デバッグ画像保存付き）
@@ -88,6 +129,11 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
         .save(output_dir.join("04_oriented.png"))
         .map_err(|e| format!("保存エラー: {e}"))?;
     log!("  → 04_oriented.png 保存完了");
+
+    // ステップ4.5: DPI算出
+    log!("\n=== ステップ4.5: DPI算出 ===");
+    let dpi = estimate_dpi(&oriented_markers);
+    check_dpi(dpi)?;
 
     // ステップ5+6: マーカー4点から直接ホモグラフィー変換（外挿廃止）+ 反復収束
     log!("\n=== ステップ5+6: マーカー直接ホモグラフィー変換 ===");
@@ -215,6 +261,11 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
     } else {
         (rgba.clone(), markers.clone())
     };
+
+    // ステップ4.5: DPI算出
+    log!("=== ステップ4.5: DPI算出 ===");
+    let dpi = estimate_dpi(&oriented_markers);
+    check_dpi(dpi)?;
 
     // ステップ5+6: ホモグラフィー変換 + 反復収束
     log!("=== ステップ5+6: ホモグラフィー変換 ===");
