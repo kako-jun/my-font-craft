@@ -268,6 +268,7 @@ fn analyze_check_mark(check_img: &RgbaImage) -> (CheckMark, f64) {
 
     let gray = rgba_to_gray(check_img);
     let binary = sauvola_binarize(&gray, w, h, SAUVOLA_K, SAUVOLA_WINDOW);
+    let binary = morphological_open_close(&binary, w, h);
 
     let total = w * h;
     let black_count = binary.iter().filter(|&&v| v == 0).count() as u32;
@@ -304,6 +305,7 @@ fn measure_inner_black_ratio(img: &RgbaImage, margin_ratio: f64) -> f64 {
     // 画像全体でSauvola二値化（局所的な閾値を正しく計算するため）
     let gray = rgba_to_gray(img);
     let binary = sauvola_binarize(&gray, w, h, SAUVOLA_K, SAUVOLA_WINDOW);
+    let binary = morphological_open_close(&binary, w, h);
 
     // 内側領域のみカウント
     let mut black_count = 0u32;
@@ -438,6 +440,81 @@ fn crop_region(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> RgbaImage {
         }
     }
     out
+}
+
+// ── モルフォロジカル処理 ──
+
+/// 3×3カーネルのErosion（収縮）: 近傍に白(255)があれば白にする
+/// 黒領域を収縮させ、孤立黒ノイズを除去する
+fn morphological_erode(binary: &[u8], w: u32, h: u32) -> Vec<u8> {
+    let n = (w * h) as usize;
+    if n == 0 {
+        return vec![];
+    }
+    let mut out = vec![0u8; n];
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            let mut has_white = false;
+            'kernel: for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let nx = x + dx;
+                    let ny = y + dy;
+                    if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 {
+                        // 画像外は白とみなす
+                        has_white = true;
+                        break 'kernel;
+                    }
+                    if binary[(ny as u32 * w + nx as u32) as usize] == 255 {
+                        has_white = true;
+                        break 'kernel;
+                    }
+                }
+            }
+            let idx = (y as u32 * w + x as u32) as usize;
+            out[idx] = if has_white { 255 } else { 0 };
+        }
+    }
+    out
+}
+
+/// 3×3カーネルのDilation（膨張）: 近傍に黒(0)があれば黒にする
+/// 黒領域を膨張させ、孤立白ノイズを埋める
+fn morphological_dilate(binary: &[u8], w: u32, h: u32) -> Vec<u8> {
+    let n = (w * h) as usize;
+    if n == 0 {
+        return vec![];
+    }
+    let mut out = vec![255u8; n];
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            let mut has_black = false;
+            'kernel: for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let nx = x + dx;
+                    let ny = y + dy;
+                    if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 {
+                        continue;
+                    }
+                    if binary[(ny as u32 * w + nx as u32) as usize] == 0 {
+                        has_black = true;
+                        break 'kernel;
+                    }
+                }
+            }
+            let idx = (y as u32 * w + x as u32) as usize;
+            out[idx] = if has_black { 0 } else { 255 };
+        }
+    }
+    out
+}
+
+/// Opening(Erode→Dilate)→Closing(Dilate→Erode)の一連処理
+/// Opening: 小さな黒ノイズを除去、Closing: 小さな白ノイズを埋める
+pub(crate) fn morphological_open_close(binary: &[u8], w: u32, h: u32) -> Vec<u8> {
+    // Opening: Erode → Dilate
+    let opened = morphological_dilate(&morphological_erode(binary, w, h), w, h);
+    // Closing: Dilate → Erode
+    morphological_erode(&morphological_dilate(&opened, w, h), w, h)
 }
 
 #[cfg(test)]
@@ -635,15 +712,25 @@ mod tests {
     #[test]
     fn check_mark_check_for_sparse_black() {
         // 密度5%程度 → Check（2%〜15%の範囲）
-        let mut img = make_uniform_image(100, 10, Rgba([255, 255, 255, 255]));
-        let total = 100 * 10;
-        let target_black = (total as f64 * 0.05) as u32;
-        let mut count = 0u32;
-        'outer: for y in 0..10 {
-            for x in 0..100 {
+        // モルフォロジカル処理に耐えるよう、3px以上の太さのブロックを配置
+        let mut img = make_uniform_image(100, 100, Rgba([255, 255, 255, 255]));
+        let total = 100 * 100;
+        let target_black = (total as f64 * 0.05) as usize;
+        // 5×5ブロックを複数配置（各25px、20ブロックで500px = 5%）
+        let mut count = 0usize;
+        'outer: for by in 0..4u32 {
+            for bx in 0..5u32 {
                 if count >= target_black { break 'outer; }
-                img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
-                count += 1;
+                for dy in 0..5u32 {
+                    for dx in 0..5u32 {
+                        let x = bx * 20 + dx + 2;
+                        let y = by * 20 + dy + 2;
+                        if x < 100 && y < 100 {
+                            img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+                            count += 1;
+                        }
+                    }
+                }
             }
         }
         let (mark, density) = analyze_check_mark(&img);
@@ -654,15 +741,25 @@ mod tests {
     #[test]
     fn check_mark_cross_for_dense_black() {
         // 密度20%程度 → Cross（>15%）
-        let mut img = make_uniform_image(100, 10, Rgba([255, 255, 255, 255]));
-        let total = 100 * 10;
-        let target_black = (total as f64 * 0.20) as u32;
-        let mut count = 0u32;
-        'outer: for y in 0..10 {
-            for x in 0..100 {
+        // モルフォロジカル処理に耐えるよう、太いブロックを配置
+        let mut img = make_uniform_image(100, 100, Rgba([255, 255, 255, 255]));
+        let total = 100 * 100;
+        let target_black = (total as f64 * 0.20) as usize;
+        // 10×10ブロックを複数配置（各100px、20ブロックで2000px = 20%）
+        let mut count = 0usize;
+        'outer: for by in 0..5u32 {
+            for bx in 0..5u32 {
                 if count >= target_black { break 'outer; }
-                img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
-                count += 1;
+                for dy in 0..10u32 {
+                    for dx in 0..10u32 {
+                        let x = bx * 20 + dx;
+                        let y = by * 20 + dy;
+                        if x < 100 && y < 100 {
+                            img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+                            count += 1;
+                        }
+                    }
+                }
             }
         }
         let (mark, density) = analyze_check_mark(&img);
@@ -809,5 +906,68 @@ mod tests {
         assert_eq!(rect_sum(&integral, 3, 0, 0, 2, 2), 9);
         // (1,1)〜(2,2)の右下4ピクセル = 4
         assert_eq!(rect_sum(&integral, 3, 1, 1, 2, 2), 4);
+    }
+
+    // ── モルフォロジカル処理テスト ──
+
+    #[test]
+    fn erode_removes_isolated_black_pixel() {
+        // 白背景に孤立1pxの黒点 → Erodeで消える
+        let w = 5u32;
+        let h = 5u32;
+        let mut binary = vec![255u8; (w * h) as usize];
+        binary[(2 * w + 2) as usize] = 0; // 中央に黒1px
+        let result = morphological_erode(&binary, w, h);
+        // 孤立黒点は周囲が白なので白に変わる
+        assert_eq!(result[(2 * w + 2) as usize], 255, "孤立黒点がErodeで消えるべき");
+        // 全体が白であること
+        assert!(result.iter().all(|&v| v == 255), "全ピクセルが白であるべき");
+    }
+
+    #[test]
+    fn dilate_removes_isolated_white_pixel() {
+        // 黒背景に孤立1pxの白点 → Dilateで消える
+        let w = 5u32;
+        let h = 5u32;
+        let mut binary = vec![0u8; (w * h) as usize];
+        binary[(2 * w + 2) as usize] = 255; // 中央に白1px
+        let result = morphological_dilate(&binary, w, h);
+        // 孤立白点は周囲が黒なので黒に変わる
+        assert_eq!(result[(2 * w + 2) as usize], 0, "孤立白点がDilateで消えるべき");
+        // 全体が黒であること
+        assert!(result.iter().all(|&v| v == 0), "全ピクセルが黒であるべき");
+    }
+
+    #[test]
+    fn open_close_removes_noise_preserves_stroke() {
+        // 白背景に太いストローク（3×3黒ブロック）+ 孤立黒ノイズ1px
+        let w = 10u32;
+        let h = 10u32;
+        let mut binary = vec![255u8; (w * h) as usize];
+
+        // 3×3の黒ブロック（太いストローク）を (3,3)-(5,5) に配置
+        for y in 3..6u32 {
+            for x in 3..6u32 {
+                binary[(y * w + x) as usize] = 0;
+            }
+        }
+        // 孤立黒ノイズ1px を (0,0) に配置
+        binary[0] = 0;
+
+        let result = morphological_open_close(&binary, w, h);
+
+        // 孤立ノイズは消えるべき
+        assert_eq!(result[0], 255, "孤立黒ノイズがOpeningで消えるべき");
+
+        // 太いストロークの中心は保持されるべき
+        assert_eq!(result[(4 * w + 4) as usize], 0, "ストローク中心は保持されるべき");
+    }
+
+    #[test]
+    fn morphological_empty_image() {
+        // 0x0画像 → 空のVecを返す
+        assert!(morphological_erode(&[], 0, 0).is_empty());
+        assert!(morphological_dilate(&[], 0, 0).is_empty());
+        assert!(morphological_open_close(&[], 0, 0).is_empty());
     }
 }
