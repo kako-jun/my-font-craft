@@ -64,7 +64,7 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
 
     // ステップ3: マーカー検出
     log!("\n=== ステップ3: マーカー検出 ===");
-    let markers = marker::detect_markers(&binary)?;
+    let markers = marker::detect_markers(&binary, &gray)?;
     let marker_img = marker::draw_marker_overlay(&rgba, &markers);
     marker_img
         .save(output_dir.join("03_markers.png"))
@@ -201,7 +201,7 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
 
     // ステップ3: マーカー検出
     log!("=== ステップ3: マーカー検出 ===");
-    let markers = marker::detect_markers(&binary)?;
+    let markers = marker::detect_markers(&binary, &gray)?;
 
     // ステップ4: 向き検出
     log!("=== ステップ4: 向き検出 ===");
@@ -348,7 +348,7 @@ fn verify_correction_quality_wasm(corrected: &RgbaImage) -> Option<(f64, [marker
     let threshold = marker::otsu_threshold(&gray);
     let binary = marker::binarize(&gray, threshold);
 
-    match marker::detect_markers(&binary) {
+    match marker::detect_markers(&binary, &gray) {
         Ok(detected) => {
             let expected = [
                 (layout::MARKER_TL, "TL"),
@@ -396,7 +396,7 @@ fn verify_correction_quality_cli(corrected: &RgbaImage, output_dir: &Path) -> Op
     let threshold = marker::otsu_threshold(&gray);
     let binary = marker::binarize(&gray, threshold);
 
-    match marker::detect_markers(&binary) {
+    match marker::detect_markers(&binary, &gray) {
         Ok(detected) => {
             let expected = [
                 (layout::MARKER_TL, "TL"),

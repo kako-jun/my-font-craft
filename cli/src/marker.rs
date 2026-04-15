@@ -193,9 +193,73 @@ pub struct DetectedMarker {
     pub area: u32,
 }
 
+/// パラボリック補間でマーカー中心をサブピクセル精度に精緻化
+/// グレースケール画像の輝度プロファイルから放物線の頂点を求める
+fn refine_center_parabolic(gray: &GrayImage, cx: f64, cy: f64) -> (f64, f64) {
+    let icx = cx.round() as i32;
+    let icy = cy.round() as i32;
+    let w = gray.width() as i32;
+    let h = gray.height() as i32;
+
+    // 境界チェック: 補間に必要な±1ピクセルと、ノイズ耐性のための±2行/列が必要
+    if icx < 2 || icy < 2 || icx >= w - 2 || icy >= h - 2 {
+        return (cx, cy);
+    }
+
+    // X方向: icy-2..=icy+2 の5行について放物線フィットし、中央値を取る
+    let mut dx_values: Vec<f64> = Vec::new();
+    for row_offset in -2i32..=2 {
+        let y = (icy + row_offset) as u32;
+        let left = gray.get_pixel((icx - 1) as u32, y)[0] as f64;
+        let center = gray.get_pixel(icx as u32, y)[0] as f64;
+        let right = gray.get_pixel((icx + 1) as u32, y)[0] as f64;
+        let denom = 2.0 * (left + right - 2.0 * center);
+        if denom.abs() > 1e-6 {
+            let dx = (left - right) / denom;
+            if dx.abs() < 1.0 {
+                dx_values.push(dx);
+            }
+        }
+    }
+
+    // Y方向: icx-2..=icx+2 の5列について放物線フィットし、中央値を取る
+    let mut dy_values: Vec<f64> = Vec::new();
+    for col_offset in -2i32..=2 {
+        let x = (icx + col_offset) as u32;
+        let top = gray.get_pixel(x, (icy - 1) as u32)[0] as f64;
+        let center = gray.get_pixel(x, icy as u32)[0] as f64;
+        let bottom = gray.get_pixel(x, (icy + 1) as u32)[0] as f64;
+        let denom = 2.0 * (top + bottom - 2.0 * center);
+        if denom.abs() > 1e-6 {
+            let dy = (top - bottom) / denom;
+            if dy.abs() < 1.0 {
+                dy_values.push(dy);
+            }
+        }
+    }
+
+    // 中央値を取得（ノイズ耐性）
+    let refined_x = if dx_values.is_empty() {
+        cx
+    } else {
+        dx_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        icx as f64 + dx_values[dx_values.len() / 2]
+    };
+
+    let refined_y = if dy_values.is_empty() {
+        cy
+    } else {
+        dy_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        icy as f64 + dy_values[dy_values.len() / 2]
+    };
+
+    (refined_x, refined_y)
+}
+
 /// 四隅マーカーを検出する。25%マージン領域を探索
 /// ブロブの面積・形状でフィルタし、重心（centroid）を返す
-pub fn detect_markers(binary: &GrayImage) -> Result<[DetectedMarker; 4], String> {
+/// パラボリック補間でサブピクセル精度に精緻化する
+pub fn detect_markers(binary: &GrayImage, gray: &GrayImage) -> Result<[DetectedMarker; 4], String> {
     let w = binary.width();
     let h = binary.height();
     let margin_x = (w as f64 * 0.25) as u32;
@@ -284,12 +348,17 @@ pub fn detect_markers(binary: &GrayImage) -> Result<[DetectedMarker; 4], String>
         let centroid_x = total_sum_x / total_area as f64;
         let centroid_y = total_sum_y / total_area as f64;
 
+        // パラボリック補間でサブピクセル精緻化
+        let (refined_x, refined_y) = refine_center_parabolic(gray, centroid_x, centroid_y);
+        let delta_x = (refined_x - centroid_x).abs();
+        let delta_y = (refined_y - centroid_y).abs();
+
         log!(
-            "  {name} マーカー: centroid=({centroid_x:.1}, {centroid_y:.1}) area={total_area} merged={merged_count}ブロブ",
+            "  {name} マーカー: centroid=({centroid_x:.1}, {centroid_y:.1}) → refined=({refined_x:.2}, {refined_y:.2}) Δ=({delta_x:.2}, {delta_y:.2}) area={total_area} merged={merged_count}ブロブ",
         );
         markers.push(DetectedMarker {
-            cx: centroid_x,
-            cy: centroid_y,
+            cx: refined_x,
+            cy: refined_y,
             area: total_area,
         });
     }
