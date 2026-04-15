@@ -267,6 +267,7 @@ fn analyze_check_mark(check_img: &RgbaImage) -> (CheckMark, f64) {
     }
 
     let gray = rgba_to_gray(check_img);
+    let gray = apply_clahe(&gray, w, h);
     let binary = sauvola_binarize(&gray, w, h, SAUVOLA_K, SAUVOLA_WINDOW);
     let binary = morphological_open_close(&binary, w, h);
 
@@ -304,6 +305,7 @@ fn measure_inner_black_ratio(img: &RgbaImage, margin_ratio: f64) -> f64 {
 
     // 画像全体でSauvola二値化（局所的な閾値を正しく計算するため）
     let gray = rgba_to_gray(img);
+    let gray = apply_clahe(&gray, w, h);
     let binary = sauvola_binarize(&gray, w, h, SAUVOLA_K, SAUVOLA_WINDOW);
     let binary = morphological_open_close(&binary, w, h);
 
@@ -325,6 +327,125 @@ fn measure_inner_black_ratio(img: &RgbaImage, margin_ratio: f64) -> f64 {
     } else {
         0.0
     }
+}
+
+// ── CLAHE（ローカルコントラスト正規化） ──
+
+const CLAHE_GRID: u32 = 4;   // タイル分割数
+const CLAHE_CLIP: f64 = 3.0; // クリッピング係数
+
+/// グレースケール画像にCLAHE（Contrast Limited Adaptive Histogram Equalization）を適用
+fn apply_clahe(gray: &[u8], w: u32, h: u32) -> Vec<u8> {
+    if w == 0 || h == 0 {
+        return vec![];
+    }
+
+    let grid = CLAHE_GRID;
+    let tile_w = w / grid;
+    let tile_h = h / grid;
+
+    if tile_w == 0 || tile_h == 0 {
+        return gray.to_vec();
+    }
+
+    // 各タイルのLUT（ルックアップテーブル）を計算
+    let mut luts = vec![[0u8; 256]; (grid * grid) as usize];
+
+    for ty in 0..grid {
+        for tx in 0..grid {
+            let x0 = tx * tile_w;
+            let y0 = ty * tile_h;
+            let x1 = if tx == grid - 1 { w } else { x0 + tile_w };
+            let y1 = if ty == grid - 1 { h } else { y0 + tile_h };
+
+            // ヒストグラム計算
+            let mut hist = [0u32; 256];
+            let mut pixel_count = 0u32;
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    hist[gray[(y * w + x) as usize] as usize] += 1;
+                    pixel_count += 1;
+                }
+            }
+
+            if pixel_count == 0 {
+                continue;
+            }
+
+            // クリッピング
+            let clip_limit = (CLAHE_CLIP * pixel_count as f64 / 256.0).max(1.0) as u32;
+            let mut excess = 0u32;
+            for bin in hist.iter_mut() {
+                if *bin > clip_limit {
+                    excess += *bin - clip_limit;
+                    *bin = clip_limit;
+                }
+            }
+            // 超過分を均等再配分
+            let per_bin = excess / 256;
+            let remainder = (excess % 256) as usize;
+            for (i, bin) in hist.iter_mut().enumerate() {
+                *bin += per_bin;
+                if i < remainder {
+                    *bin += 1;
+                }
+            }
+
+            // CDF計算 → LUT生成
+            let mut cdf = [0u32; 256];
+            cdf[0] = hist[0];
+            for i in 1..256 {
+                cdf[i] = cdf[i - 1] + hist[i];
+            }
+            let cdf_min = cdf.iter().copied().find(|&v| v > 0).unwrap_or(0);
+            let denom = pixel_count.saturating_sub(cdf_min);
+
+            let lut = &mut luts[(ty * grid + tx) as usize];
+            for i in 0..256 {
+                if denom == 0 {
+                    lut[i] = i as u8;
+                } else {
+                    lut[i] = ((cdf[i].saturating_sub(cdf_min) as f64 * 255.0 / denom as f64)
+                        .round()
+                        .clamp(0.0, 255.0)) as u8;
+                }
+            }
+        }
+    }
+
+    // バイリニア補間で最終出力を生成
+    let mut out = vec![0u8; (w * h) as usize];
+    for y in 0..h {
+        for x in 0..w {
+            let val = gray[(y * w + x) as usize] as usize;
+
+            // タイル中心座標を基準にした相対位置を計算
+            // タイル中心: (tx + 0.5) * tile_w
+            let fx = (x as f64 / tile_w as f64) - 0.5;
+            let fy = (y as f64 / tile_h as f64) - 0.5;
+
+            let tx0 = (fx.floor() as i32).clamp(0, grid as i32 - 1) as u32;
+            let ty0 = (fy.floor() as i32).clamp(0, grid as i32 - 1) as u32;
+            let tx1 = (tx0 + 1).min(grid - 1);
+            let ty1 = (ty0 + 1).min(grid - 1);
+
+            let ax = (fx - fx.floor()).clamp(0.0, 1.0);
+            let ay = (fy - fy.floor()).clamp(0.0, 1.0);
+
+            let v00 = luts[(ty0 * grid + tx0) as usize][val] as f64;
+            let v10 = luts[(ty0 * grid + tx1) as usize][val] as f64;
+            let v01 = luts[(ty1 * grid + tx0) as usize][val] as f64;
+            let v11 = luts[(ty1 * grid + tx1) as usize][val] as f64;
+
+            let top = v00 * (1.0 - ax) + v10 * ax;
+            let bot = v01 * (1.0 - ax) + v11 * ax;
+            let result = top * (1.0 - ay) + bot * ay;
+
+            out[(y * w + x) as usize] = result.round().clamp(0.0, 255.0) as u8;
+        }
+    }
+
+    out
 }
 
 // ── Sauvola 適応的二値化 ──
@@ -969,5 +1090,52 @@ mod tests {
         assert!(morphological_erode(&[], 0, 0).is_empty());
         assert!(morphological_dilate(&[], 0, 0).is_empty());
         assert!(morphological_open_close(&[], 0, 0).is_empty());
+    }
+
+    // ── CLAHE テスト ──
+
+    #[test]
+    fn clahe_uniform_image() {
+        // 均一画像（全ピクセル128）→ 出力も均一
+        let w = 64u32;
+        let h = 64u32;
+        let gray = vec![128u8; (w * h) as usize];
+        let result = apply_clahe(&gray, w, h);
+        assert_eq!(result.len(), (w * h) as usize);
+        let first = result[0];
+        assert!(result.iter().all(|&v| v == first), "均一画像のCLAHE出力は均一であるべき");
+    }
+
+    #[test]
+    fn clahe_preserves_dimensions() {
+        // 入出力のサイズが同じ
+        let w = 80u32;
+        let h = 60u32;
+        let gray: Vec<u8> = (0..(w * h)).map(|i| (i % 256) as u8).collect();
+        let result = apply_clahe(&gray, w, h);
+        assert_eq!(result.len(), gray.len(), "CLAHE出力サイズが入力と一致すべき");
+    }
+
+    #[test]
+    fn clahe_improves_contrast() {
+        // 低コントラスト画像（128±10）→ ダイナミックレンジが広がる
+        let w = 64u32;
+        let h = 64u32;
+        let gray: Vec<u8> = (0..(w * h))
+            .map(|i| (118 + (i % 21)) as u8) // 118..=138
+            .collect();
+        let input_min = *gray.iter().min().unwrap();
+        let input_max = *gray.iter().max().unwrap();
+        let input_range = input_max - input_min; // 20
+
+        let result = apply_clahe(&gray, w, h);
+        let output_min = *result.iter().min().unwrap();
+        let output_max = *result.iter().max().unwrap();
+        let output_range = output_max - output_min;
+
+        assert!(
+            output_range > input_range,
+            "CLAHEでダイナミックレンジが広がるべき: input={input_range}, output={output_range}"
+        );
     }
 }
