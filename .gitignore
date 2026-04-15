@@ -16,3 +16,9 @@ blob-report/
 # Rust CLI
 cli/target/
 debug_output/
+
+# WASM build output (CIでビルドするためコミットしない)
+src/wasm/*.wasm
+src/wasm/*.js
+src/wasm/*.d.ts
+src/wasm/package.json
