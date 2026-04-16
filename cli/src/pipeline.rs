@@ -97,11 +97,19 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
     let gray = DynamicImage::ImageRgba8(rgba.clone()).into_luma8();
     let threshold = marker::otsu_threshold(&gray);
     log!("  大津の閾値: {threshold}");
-    let binary = marker::binarize(&gray, threshold);
+    let mut binary = marker::binarize(&gray, threshold);
     binary
         .save(output_dir.join("02_binary.png"))
         .map_err(|e| format!("保存エラー: {e}"))?;
     log!("  → 02_binary.png 保存完了");
+
+    // ステップ2.5: 背景除去（実写画像対応）
+    log!("\n=== ステップ2.5: 背景除去 ===");
+    marker::mask_border_background(&mut binary);
+    binary
+        .save(output_dir.join("02b_masked.png"))
+        .map_err(|e| format!("保存エラー: {e}"))?;
+    log!("  → 02b_masked.png 保存完了（境界接触領域を白化）");
 
     // ステップ3: マーカー検出
     log!("\n=== ステップ3: マーカー検出 ===");
@@ -243,7 +251,12 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
     let gray = DynamicImage::ImageRgba8(rgba.clone()).into_luma8();
     let threshold = marker::otsu_threshold(&gray);
     log!("  大津の閾値: {threshold}");
-    let binary = marker::binarize(&gray, threshold);
+    let mut binary = marker::binarize(&gray, threshold);
+
+    // ステップ2.5: 背景除去（実写画像対応）
+    log!("=== ステップ2.5: 背景除去 ===");
+    marker::mask_border_background(&mut binary);
+    log!("  境界接触領域を白化");
 
     // ステップ3: マーカー検出
     log!("=== ステップ3: マーカー検出 ===");
@@ -905,36 +918,41 @@ fn sample_region_brightness(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> 
     }
 }
 
-/// シアン除去: シアンサンプルの平均色を読み取り、色距離80以内のピクセルを白化
+/// シアン除去: シアンサンプルの平均色を読み取り、紙色との差が十分あれば色距離基準で白化
+/// 実写画像ではカメラのホワイトバランスで紙全体がシアンがかるため、
+/// サンプル色≒紙色の場合はスキップする
 fn remove_cyan(img: &RgbaImage) -> RgbaImage {
     let sample_x = layout::mm_to_px(layout::CYAN_SAMPLE_X).round() as u32;
     let sample_y = layout::mm_to_px(layout::CYAN_SAMPLE_Y).round() as u32;
     let sample_size = layout::mm_to_px(layout::CYAN_SAMPLE_SIZE).round() as u32;
 
-    let mut sum_r = 0.0f64;
-    let mut sum_g = 0.0f64;
-    let mut sum_b = 0.0f64;
-    let mut count = 0u32;
+    // シアンサンプル色を取得
+    let (cyan_r, cyan_g, cyan_b) = sample_region_rgb(img, sample_x, sample_y, sample_size, sample_size);
 
-    for dy in 0..sample_size {
-        for dx in 0..sample_size {
-            let px = sample_x + dx;
-            let py = sample_y + dy;
-            if px < img.width() && py < img.height() {
-                let p = img.get_pixel(px, py);
-                sum_r += p[0] as f64;
-                sum_g += p[1] as f64;
-                sum_b += p[2] as f64;
-                count += 1;
-            }
-        }
+    // 紙色をセル内の空白エリアからサンプリング（ページ中央付近の既知の白領域）
+    let paper_x = layout::mm_to_px(100.0).round() as u32;
+    let paper_y = layout::mm_to_px(50.0).round() as u32;
+    let paper_size = layout::mm_to_px(5.0).round() as u32;
+    let (paper_r, paper_g, paper_b) = sample_region_rgb(img, paper_x, paper_y, paper_size, paper_size);
+
+    log!("  シアンサンプル平均色: R={cyan_r:.1} G={cyan_g:.1} B={cyan_b:.1}");
+    log!("  紙色（参照）: R={paper_r:.1} G={paper_g:.1} B={paper_b:.1}");
+
+    // シアンサンプルと紙色の距離を計算
+    let dr = cyan_r - paper_r;
+    let dg = cyan_g - paper_g;
+    let db = cyan_b - paper_b;
+    let cyan_paper_dist = (dr * dr + dg * dg + db * db).sqrt();
+    log!("  シアン-紙間距離: {cyan_paper_dist:.1}");
+
+    // 距離が小さすぎる場合（シアンが紙と区別できない場合）はスキップ
+    // 実写画像では環境光の影響でシアンサンプルと紙の色差が小さくなる
+    // 純シアン(R=204,G=255,B=255)と白(255,255,255)の距離≈72なので、
+    // 60未満なら実写の色被りと判断してスキップ
+    if cyan_paper_dist < 60.0 {
+        log!("  ⚠ シアンサンプルが紙色と近似 — シアン除去をスキップ");
+        return img.clone();
     }
-
-    let avg_r = if count > 0 { sum_r / count as f64 } else { 204.0 };
-    let avg_g = if count > 0 { sum_g / count as f64 } else { 255.0 };
-    let avg_b = if count > 0 { sum_b / count as f64 } else { 255.0 };
-
-    log!("  シアンサンプル平均色: R={avg_r:.1} G={avg_g:.1} B={avg_b:.1}");
 
     let threshold = 80.0f64;
     let mut out = img.clone();
@@ -943,9 +961,9 @@ fn remove_cyan(img: &RgbaImage) -> RgbaImage {
     for y in 0..img.height() {
         for x in 0..img.width() {
             let p = img.get_pixel(x, y);
-            let dr = p[0] as f64 - avg_r;
-            let dg = p[1] as f64 - avg_g;
-            let db = p[2] as f64 - avg_b;
+            let dr = p[0] as f64 - cyan_r;
+            let dg = p[1] as f64 - cyan_g;
+            let db = p[2] as f64 - cyan_b;
             let dist = (dr * dr + dg * dg + db * db).sqrt();
             if dist < threshold {
                 out.put_pixel(x, y, Rgba([255, 255, 255, 255]));

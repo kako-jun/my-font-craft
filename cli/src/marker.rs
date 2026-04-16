@@ -256,6 +256,55 @@ fn refine_center_parabolic(gray: &GrayImage, cx: f64, cy: f64) -> (f64, f64) {
     (refined_x, refined_y)
 }
 
+/// 画像境界に接触する黒領域を白で塗りつぶす（背景除去）
+/// 実写画像で紙の外側（机・背景）がマーカーと結合するのを防ぐ。
+/// 画像の4辺にある黒ピクセルから flood fill し、到達可能な黒ピクセルを全て白化する。
+pub fn mask_border_background(binary: &mut GrayImage) {
+    let w = binary.width();
+    let h = binary.height();
+    let mut stack: Vec<(u32, u32)> = Vec::new();
+
+    // 4辺の黒ピクセルをシードにする
+    for x in 0..w {
+        if binary.get_pixel(x, 0)[0] == 0 {
+            stack.push((x, 0));
+        }
+        if binary.get_pixel(x, h - 1)[0] == 0 {
+            stack.push((x, h - 1));
+        }
+    }
+    for y in 1..h - 1 {
+        if binary.get_pixel(0, y)[0] == 0 {
+            stack.push((0, y));
+        }
+        if binary.get_pixel(w - 1, y)[0] == 0 {
+            stack.push((w - 1, y));
+        }
+    }
+
+    // flood fill（4連結）
+    let white = Luma([255u8]);
+    // 先にシードを白化してキューに入れる
+    for &(x, y) in &stack {
+        binary.put_pixel(x, y, white);
+    }
+
+    while let Some((x, y)) = stack.pop() {
+        let neighbors = [
+            (x.wrapping_sub(1), y),
+            (x + 1, y),
+            (x, y.wrapping_sub(1)),
+            (x, y + 1),
+        ];
+        for (nx, ny) in neighbors {
+            if nx < w && ny < h && binary.get_pixel(nx, ny)[0] == 0 {
+                binary.put_pixel(nx, ny, white);
+                stack.push((nx, ny));
+            }
+        }
+    }
+}
+
 /// 四隅マーカーを検出する。25%マージン領域を探索
 /// ブロブの面積・形状でフィルタし、重心（centroid）を返す
 /// パラボリック補間でサブピクセル精度に精緻化する
