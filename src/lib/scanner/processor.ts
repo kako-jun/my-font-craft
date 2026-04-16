@@ -49,6 +49,19 @@ function correctedImageToCanvas(
   return canvas;
 }
 
+/**
+ * WASMからのエラーメッセージをユーザーフレンドリーな日本語に変換する
+ */
+export function translateWasmError(rawError: string): string {
+  // マーカー検出失敗
+  if (rawError.includes('マーカーが検出できませんでした')) {
+    return '用紙のマーカーを検出できませんでした。紙全体が写るよう、なるべく正面から撮影してください。';
+  }
+  // DPI不足: Rust側のメッセージにDPI値と推奨値が含まれているのでそのまま通す
+  // その他のRustエラーもそのまま返す
+  return rawError;
+}
+
 // メイン処理
 export async function processImages(
   files: File[],
@@ -90,7 +103,7 @@ export async function processImages(
     try {
       wasmResult = await processImageWasm(imageFiles[fi]);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = translateWasmError(e instanceof Error ? e.message : String(e));
       callbacks.onMessage({
         type: 'error',
         text: `ファイル "${imageFiles[fi].name}" の処理に失敗しました: ${msg}`,
