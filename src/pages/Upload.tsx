@@ -410,6 +410,26 @@ export default function Upload(props: Props) {
             <li>斜めに撮っても自動補正されます</li>
           </ul>
         </div>
+
+        <div class="card shooting-guide" style="margin-top:1rem">
+          <h4 class="shooting-guide__title">撮影のコツ</h4>
+          <div class="shooting-guide__item shooting-guide__item--good">
+            <span class="shooting-guide__icon shooting-guide__icon--good">&#x2713;</span>
+            <span>正面から、紙全体が収まるように撮影</span>
+          </div>
+          <div class="shooting-guide__item shooting-guide__item--bad">
+            <span class="shooting-guide__icon shooting-guide__icon--bad">&#x2717;</span>
+            <span>斜めすぎる — マーカーを検出できない場合があります</span>
+          </div>
+          <div class="shooting-guide__item shooting-guide__item--bad">
+            <span class="shooting-guide__icon shooting-guide__icon--bad">&#x2717;</span>
+            <span>近すぎる — 紙の一部が切れると文字を読み取れません</span>
+          </div>
+          <div class="shooting-guide__item shooting-guide__item--bad">
+            <span class="shooting-guide__icon shooting-guide__icon--bad">&#x2717;</span>
+            <span>遠すぎる — 解像度が低いと文字がぼやけます</span>
+          </div>
+        </div>
       </Show>
 
       {/* スキャン中のプログレスバー */}
