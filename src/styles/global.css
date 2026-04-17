@@ -412,6 +412,12 @@ body {
   opacity: 0.8;
 }
 
+.footer__build {
+  opacity: 0.6;
+  font-family: ui-monospace, 'SF Mono', 'Menlo', monospace;
+  font-size: 0.85em;
+}
+
 .footer__sub {
   font-size: 0.75rem;
   margin-top: 0.25rem;

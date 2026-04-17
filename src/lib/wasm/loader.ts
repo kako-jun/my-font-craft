@@ -10,6 +10,20 @@
 interface MfcWasm {
   default: (input?: string | URL | ArrayBuffer) => Promise<void>;
   process_image: (image_bytes: Uint8Array) => unknown;
+  build_info: () => string;
+}
+
+/** Rust 側 build_info() の JSON 形式 */
+export interface WasmBuildInfo {
+  sha: string;
+  unixTs: string;
+}
+
+let buildInfo: WasmBuildInfo | null = null;
+
+/** 初期化済みの WASM のビルド識別情報を返す（未初期化なら null） */
+export function getWasmBuildInfo(): WasmBuildInfo | null {
+  return buildInfo;
 }
 
 /** Rust側の ProcessedCell に対応 */
@@ -54,6 +68,13 @@ export async function initWasm(): Promise<void> {
     const mod = (await import('../../wasm/mfc.js')) as unknown as MfcWasm;
     await mod.default();
     wasmModule = mod;
+    try {
+      buildInfo = JSON.parse(mod.build_info()) as WasmBuildInfo;
+      const ts = new Date(Number(buildInfo.unixTs) * 1000).toISOString();
+      console.info(`[mfc] WASM build sha=${buildInfo.sha} built=${ts}`);
+    } catch (e) {
+      console.warn('[mfc] build_info() の取得に失敗:', e);
+    }
   })();
 
   await initPromise;

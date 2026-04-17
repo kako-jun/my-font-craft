@@ -2,10 +2,24 @@
 use wasm_bindgen::prelude::*;
 use crate::pipeline;
 
+/// ビルド時に build.rs から埋め込まれる識別子
+pub const BUILD_GIT_SHA: &str = env!("MFC_BUILD_GIT_SHA");
+pub const BUILD_UNIX_TS: &str = env!("MFC_BUILD_UNIX_TS");
+
 /// WASM初期化（パニックフック設定）
 #[wasm_bindgen(start)]
 pub fn init() {
     console_error_panic_hook::set_once();
+}
+
+/// ビルド識別情報を JSON 文字列で返す
+/// JS 側: `{"sha":"abc1234","unixTs":"1713340000"}`
+#[wasm_bindgen]
+pub fn build_info() -> String {
+    format!(
+        "{{\"sha\":\"{}\",\"unixTs\":\"{}\"}}",
+        BUILD_GIT_SHA, BUILD_UNIX_TS
+    )
 }
 
 /// 画像バイト列を受け取り、処理結果をJSONで返す

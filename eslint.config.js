@@ -4,7 +4,7 @@ import tsParser from '@typescript-eslint/parser';
 import globals from 'globals';
 
 export default [
-  { ignores: ['dist/**', 'node_modules/**'] },
+  { ignores: ['dist/**', 'node_modules/**', 'src/wasm/**'] },
   js.configs.recommended,
   {
     files: ['src/**/*.{ts,tsx}'],
