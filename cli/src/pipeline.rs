@@ -358,13 +358,12 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
     // 結果をProcessResult に変換
     let corrected_width = grid_removed.width();
     let corrected_height = grid_removed.height();
-    let corrected_image = grid_removed.into_raw();
 
     let mut cells = Vec::new();
     for cr in &char_results {
         let char_index = layout::grid_to_char_index(cr.row, cr.col);
         for slot in &cr.slots {
-            let cell_img = cell::extract_cell_image(&shadow_corrected, cr.row, cr.col, slot.cell_index);
+            let cell_img = cell::extract_cell_image(&grid_removed, cr.row, cr.col, slot.cell_index);
             let width = cell_img.width();
             let height = cell_img.height();
             let image_data = cell_img.into_raw();
@@ -384,6 +383,8 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
             });
         }
     }
+
+    let corrected_image = grid_removed.into_raw();
 
     Ok(ProcessResult {
         page_number,
