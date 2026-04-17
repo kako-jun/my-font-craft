@@ -12,6 +12,27 @@ export default function ScanResultGrid(props: Props) {
   const [modalImage, setModalImage] = createSignal<string | null>(null);
   const [modalTitle, setModalTitle] = createSignal('');
 
+  // 長押しで拡大。スマホでも動作させるため pointer イベントで実装
+  const LONG_PRESS_MS = 450;
+  let pressTimer: ReturnType<typeof setTimeout> | null = null;
+  let longPressFired = false;
+  const clearPressTimer = () => {
+    if (pressTimer !== null) {
+      clearTimeout(pressTimer);
+      pressTimer = null;
+    }
+  };
+  const startPress = (src: string | undefined, title: string) => {
+    longPressFired = false;
+    clearPressTimer();
+    if (!src) return;
+    pressTimer = setTimeout(() => {
+      longPressFired = true;
+      openModal(src, title);
+      pressTimer = null;
+    }, LONG_PRESS_MS);
+  };
+
   // ページごとにグループ化
   const pageGroups = createMemo(() => {
     const groups = new Map<number, GlyphStatus[]>();
@@ -134,27 +155,29 @@ export default function ScanResultGrid(props: Props) {
                         }}
                         title={
                           excluded()
-                            ? `${gs.char} — 除外中（クリックで復帰）`
+                            ? `${gs.char} — 除外中（タップで復帰 / 長押しで拡大）`
                             : canToggle()
-                              ? `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')}) — クリックで除外 / Shift+クリックで拡大`
-                              : `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')}) — クリックで拡大`
+                              ? `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')}) — タップで除外 / 長押しで拡大`
+                              : `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')}) — タップで拡大`
                         }
-                        onClick={(e) => {
+                        onPointerDown={() => {
+                          const title = `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')})`;
+                          startPress(gs.cellImageDataUrl, title);
+                        }}
+                        onPointerUp={() => clearPressTimer()}
+                        onPointerLeave={() => clearPressTimer()}
+                        onPointerCancel={() => clearPressTimer()}
+                        onClick={() => {
+                          // 長押しで拡大モーダルが開いた場合は後続のクリックを無視
+                          if (longPressFired) {
+                            longPressFired = false;
+                            return;
+                          }
                           if (canToggle()) {
-                            // Shift+クリックで拡大、通常クリックで除外トグル
-                            if (e.shiftKey && gs.cellImageDataUrl) {
-                              openModal(
-                                gs.cellImageDataUrl,
-                                `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')})`,
-                              );
-                            } else {
-                              props.onToggleExclude!(gs.char);
-                            }
+                            props.onToggleExclude!(gs.char);
                           } else if (gs.cellImageDataUrl) {
-                            openModal(
-                              gs.cellImageDataUrl,
-                              `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')})`,
-                            );
+                            const title = `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')})`;
+                            openModal(gs.cellImageDataUrl, title);
                           }
                         }}
                       >
