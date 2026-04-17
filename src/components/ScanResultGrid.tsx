@@ -109,6 +109,11 @@ export default function ScanResultGrid(props: Props) {
         <span class="scan-grid__stat">({stats().pct}%)</span>
       </div>
 
+      {/* 操作ヒント */}
+      <div class="scan-grid__hint">
+        マスを<strong>タップ</strong>で除外／復帰、<strong>長押し</strong>で拡大プレビュー
+      </div>
+
       {/* ページごとのセクション */}
       <For each={pageGroups()}>
         {([pageIndex, glyphs]) => {
