@@ -267,15 +267,62 @@ npm run deploy
 
 ---
 
+## WASM ビルド識別
+
+デプロイされている WASM がどの git コミット時点のものかを特定できるよう、ビルド時に識別情報を埋め込んでいる。
+
+### 仕組み
+
+1. `cli/build.rs` が short SHA を `cargo:rustc-env MFC_BUILD_GIT_SHA` として埋め込む。優先順位は `MFC_BUILD_GIT_SHA_OVERRIDE` → `CF_PAGES_COMMIT_SHA` → `GITHUB_SHA` → `git rev-parse --short=7 HEAD` → `"unknown"`（shallow clone や `.git` 不完全環境でもフォールバック可能）。UNIX タイムスタンプも併せて埋め込む
+2. `cli/src/wasm.rs` の `build_info()` が `{"sha":"xxx","unixTs":"yyy"}` を JSON 文字列で返す（`unixTs` は**秒単位の文字列**。ミリ秒ではないので JS で扱う際は `Number(unixTs) * 1000` で `Date` に渡す）
+3. JS 側 `src/lib/wasm/loader.ts` は WASM 初期化時にパースし、モジュールスコープの Solid シグナル `wasmBuildInfo` にセットする。あわせて以下も提供:
+   - `console.info('[mfc] WASM build sha=... built=...')` を出力
+   - `getWasmBuildInfo()` を外部公開（スナップショット取得）
+4. フッター（`src/components/Footer.tsx`）は `wasmBuildInfo` シグナルを subscribe するだけで、WASM ロードは**トリガーしない**。他所（Upload ページ等）で `initWasm()` が実行されると自動的にフッターに `build <sha> (YYYY-MM-DD)` が現れる
+5. エラーメッセージ（`src/lib/scanner/processor.ts::translateWasmError()`）は第2引数 `buildSha` を受け取り、渡されていれば末尾に `[build: sha]` を付与する（テスト容易性のため副作用なし）
+
+### 確認方法
+
+例示の SHA は `xxxxxxx` とする（実運用では `git rev-parse --short=7 HEAD` や CI 環境変数で取得された 7 桁 SHA が入る）。
+
+- **フッター右端**: トップページでは未表示。Upload ページを開いて WASM が初期化されると `build xxxxxxx (YYYY-MM-DD)` が現れる
+- **ブラウザ F12 コンソール**: WASM 初期化時に `[mfc] WASM build sha=... built=...` が出る
+- **エラー発生時**: トーストメッセージ末尾に `[build: xxxxxxx]` が付く
+
+### wasm-opt 無効化
+
+`Cargo.toml` に以下を設定:
+
+```toml
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+```
+
+理由: `wasm-pack` が binaryen v117 を GitHub から自動ダウンロードするが、環境によっては失敗する。`opt-level = "s"` + `lto = true` が既に効いているためサイズ増は限定的。
+
+#### 実測サイズ（mfc_bg.wasm、2026-04-17 時点）
+
+|                           |                raw |              gzip |
+| ------------------------- | -----------------: | ----------------: |
+| wasm-opt 無効（現状設定） |           1,860 KB |            626 KB |
+| wasm-opt -Os 適用         |           1,360 KB |            555 KB |
+| 差                        | **-500 KB (-26%)** | **-71 KB (-11%)** |
+
+gzip 転送後でも 71 KB 差があるため、将来的には binaryen を npm `binaryen` パッケージなどで明示導入し最適化を再有効化する価値がある（別 Issue 化推奨）。
+
+---
+
 ## ディレクトリ構成
 
 ```
 my-font-craft/
-├── cli/                     # Rust CLI（画像処理パイプライン）
-│   ├── Cargo.toml
+├── cli/                     # Rust CLI + WASM（画像処理パイプライン）
+│   ├── Cargo.toml           # wasm-opt=false 指定（binaryen自動DL失敗回避）
+│   ├── build.rs             # git SHA + UNIX タイムスタンプを env に埋め込み
 │   ├── generate-test-pdf.ts # テスト用PDF生成（layout.tsからimport）
 │   └── src/
 │       ├── main.rs          # CLIエントリーポイント（generate/process/distort）
+│       ├── wasm.rs          # WASMエントリ + build_info() 公開
 │       ├── layout.rs        # レイアウト定数（layout.tsと同期）
 │       ├── template.rs      # テンプレート画像生成
 │       ├── pipeline.rs      # 10段階画像処理パイプライン
