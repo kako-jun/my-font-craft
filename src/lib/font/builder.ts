@@ -1,6 +1,10 @@
 import opentype from 'opentype.js';
-import type { PathCommand } from '../vectorizer/contour';
+import type { WasmPathCommand } from '../wasm/loader';
 import type { GlyphStatus } from '../scanner/processor';
+
+// Rust 側から流れてくる型をそのまま使う。TS 独自の PathCommand は廃止
+// （以前は src/lib/vectorizer/contour.ts で定義されていた）
+export type PathCommand = WasmPathCommand;
 
 export interface VectorGlyph {
   name: string;
@@ -242,7 +246,7 @@ function convertToOpentypePath(pathGroups: PathCommand[][]): opentype.Path {
           path.lineTo(cmd.x, cmd.y);
           break;
         case 'C':
-          path.bezierCurveTo(cmd.cp1x!, cmd.cp1y!, cmd.cp2x!, cmd.cp2y!, cmd.x, cmd.y);
+          path.bezierCurveTo(cmd.cp1x, cmd.cp1y, cmd.cp2x, cmd.cp2y, cmd.x, cmd.y);
           break;
         case 'Z':
           path.closePath();
