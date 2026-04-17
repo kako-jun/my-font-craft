@@ -60,17 +60,31 @@ pub fn vectorize_glyph(img: &RgbaImage) -> Vec<Vec<PathCommand>> {
     // 1-4: 二値化（内部バイナリ: 1=黒(前景), 0=白(背景)）
     let binary = binarize_for_contour(img);
 
-    // 5: ランレングス抽出
+    // 4.5: 2倍アップスケール（nearest neighbor）— ドットを細かくしてギザギザを目立ちにくくする
+    const UPSCALE: u32 = 2;
+    let uw = w * UPSCALE;
+    let uh = h * UPSCALE;
+    let upscaled: Vec<u8> = {
+        let mut buf = vec![0u8; (uw * uh) as usize];
+        for y in 0..uh {
+            for x in 0..uw {
+                buf[(y * uw + x) as usize] = binary[((y / UPSCALE) * w + x / UPSCALE) as usize];
+            }
+        }
+        buf
+    };
+
+    // 5: ランレングス抽出（アップスケール後の座標で）
     let mut runs: Vec<(u32, u32, u32)> = Vec::new(); // (y, x_start, x_end)
-    for y in 0..h {
+    for y in 0..uh {
         let mut x = 0u32;
-        while x < w {
-            if binary[(y * w + x) as usize] != 1 {
+        while x < uw {
+            if upscaled[(y * uw + x) as usize] != 1 {
                 x += 1;
                 continue;
             }
             let run_start = x;
-            while x < w && binary[(y * w + x) as usize] == 1 {
+            while x < uw && upscaled[(y * uw + x) as usize] == 1 {
                 x += 1;
             }
             runs.push((y, run_start, x));
@@ -111,9 +125,9 @@ pub fn vectorize_glyph(img: &RgbaImage) -> Vec<Vec<PathCommand>> {
         rects.push((xs, y0, xe, y_end));
     }
 
-    // 7: フォント座標に変換してパス生成
-    let scale = GLYPH_HEIGHT / h as f64;
-    let offset_x = (UNITS_PER_EM - w as f64 * scale) / 2.0;
+    // 7: フォント座標に変換してパス生成（アップスケール後のサイズを基準にする）
+    let scale = GLYPH_HEIGHT / uh as f64;
+    let offset_x = (UNITS_PER_EM - uw as f64 * scale) / 2.0;
 
     let paths: Vec<Vec<PathCommand>> = rects
         .iter()
