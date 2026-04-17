@@ -1198,6 +1198,13 @@ fn erase_grid_lines(img: &RgbaImage) -> RgbaImage {
 }
 
 /// 水平罫線を白で塗りつぶす
+/// 白塗り対象ピクセルか判定: 暗い（= 黒インク）は保護する
+/// シアン枠は彩度が高くても輝度も高めなので、この閾値で除去できる
+fn is_overpaintable(p: &Rgba<u8>) -> bool {
+    let lum = p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114;
+    lum >= 150 * 1000 // 輝度 150/255 以上なら塗ってよい（黒インクは保護）
+}
+
 fn erase_horizontal_line(img: &mut RgbaImage, x_mm: f64, y_mm: f64, width_mm: f64, margin_px: u32) {
     let white = Rgba([255, 255, 255, 255]);
     let x_start = layout::mm_to_px(x_mm).round() as i32;
@@ -1211,7 +1218,10 @@ fn erase_horizontal_line(img: &mut RgbaImage, x_mm: f64, y_mm: f64, width_mm: f6
 
     for y in y_lo..=y_hi {
         for x in x_lo..x_hi {
-            img.put_pixel(x, y, white);
+            let p = *img.get_pixel(x, y);
+            if is_overpaintable(&p) {
+                img.put_pixel(x, y, white);
+            }
         }
     }
 }
@@ -1230,7 +1240,10 @@ fn erase_vertical_line(img: &mut RgbaImage, x_mm: f64, y_mm: f64, height_mm: f64
 
     for y in y_lo..y_hi {
         for x in x_lo..=x_hi {
-            img.put_pixel(x, y, white);
+            let p = *img.get_pixel(x, y);
+            if is_overpaintable(&p) {
+                img.put_pixel(x, y, white);
+            }
         }
     }
 }
