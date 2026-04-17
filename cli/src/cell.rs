@@ -10,7 +10,6 @@ use std::path::Path;
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum CheckMark {
     Check,  // ✓
-    Cross,  // ×
     Empty,  // 空欄
 }
 
@@ -224,40 +223,49 @@ pub fn extract_cell_image(img: &RgbaImage, row: usize, col: usize, cell_index: u
 
 /// 採用判定: docs/template-spec.md の採用ルール
 ///
-/// 1. ×マークのマスは除外
-/// 2. ✓マークのマスを採用（複数あれば全てバリエーションとして採用）
-/// 3. ✓も×もなければ、一番右の記入済みマスを採用
-/// 4. 両方空なら採用なし
+/// 1. 両方空欄 → 採用なし
+/// 2. 左のみ記入 → I0 採用
+/// 3. 右のみ記入 → I1 採用
+/// 4. 両方記入 かつ どちらにも✓なし → I1 採用
+/// 5. 両方記入 かつ 両方に✓ → I1 採用
+/// 6. 両方記入 かつ 片方だけ✓ → ✓のある方を採用
 fn judge_adoption(slots: &[SlotResult]) -> (Vec<usize>, String) {
-    // ×でない非空マスを抽出
-    let eligible: Vec<usize> = slots.iter()
-        .filter(|s| !s.is_empty && s.check_mark != CheckMark::Cross)
+    // 記入済み（非空）マスを抽出
+    let filled: Vec<usize> = slots.iter()
+        .filter(|s| !s.is_empty)
         .map(|s| s.cell_index)
         .collect();
 
-    if eligible.is_empty() {
-        return (vec![], "両方空 or 全て×".to_string());
+    if filled.is_empty() {
+        return (vec![], "両方空".to_string());
     }
 
-    // ✓付きマスを抽出
+    if filled.len() == 1 {
+        let idx = filled[0];
+        return (vec![idx], format!("片方のみ記入 → I{idx}を採用"));
+    }
+
+    // 両方記入済み。✓付きマスを数える
     let checked: Vec<usize> = slots.iter()
         .filter(|s| !s.is_empty && s.check_mark == CheckMark::Check)
         .map(|s| s.cell_index)
         .collect();
 
-    if !checked.is_empty() {
-        if checked.len() == 2 {
-            return (checked, "両方✓ → 2バリエーション".to_string());
-        }
-        return (checked.clone(), format!("I{}に✓", checked[0]));
+    if checked.len() == 1 {
+        let idx = checked[0];
+        return (vec![idx], format!("片方だけ✓ → I{idx}を採用"));
     }
 
-    // ✓なし → 一番右の記入済みマスを採用
-    let rightmost = *eligible.last().unwrap();
-    (vec![rightmost], format!("✓なし → 右(I{rightmost})を採用"))
+    // 両方✓ or 両方無印 → 右(I1)を採用
+    let reason = if checked.len() == 2 {
+        "両方✓ → 右(I1)を採用".to_string()
+    } else {
+        "✓なし → 右(I1)を採用".to_string()
+    };
+    (vec![1], reason)
 }
 
-/// チェック欄の解析: 黒ピクセル密度で ✓/×/空欄 を判定
+/// チェック欄の解析: 黒ピクセル密度で ✓/空欄 を判定
 /// Sauvola適応的二値化で黒ピクセルを判定
 fn analyze_check_mark(check_img: &RgbaImage) -> (CheckMark, f64) {
     let w = check_img.width();
@@ -282,12 +290,9 @@ fn analyze_check_mark(check_img: &RgbaImage) -> (CheckMark, f64) {
 
     // 閾値:
     // - 2%未満: 空欄（ノイズや格子線の残骸）
-    // - 2%〜15%: ✓（細い線）
-    // - 15%以上: ×（太い線、塗りつぶし）
+    // - 2%以上: ✓（記入あり）
     let mark = if density < 0.02 {
         CheckMark::Empty
-    } else if density > 0.15 {
-        CheckMark::Cross
     } else {
         CheckMark::Check
     };
@@ -746,22 +751,22 @@ mod tests {
         img
     }
 
-    // ── judge_adoption: 14パターン（template-spec.md 採用ルール表） ──
+    // ── judge_adoption: 新6ルール（template-spec.md 採用ルール表） ──
 
     #[test]
-    fn judge_both_filled_both_check() {
-        // I0記入✓, I1記入✓ → 両方採用(alt)
+    fn judge_both_filled_both_check_adopts_right() {
+        // I0記入✓, I1記入✓ → I1採用（両方✓は右優先）
         let slots = [
             make_slot(0, false, CheckMark::Check),
             make_slot(1, false, CheckMark::Check),
         ];
         let (adopted, _) = judge_adoption(&slots);
-        assert_eq!(adopted, vec![0, 1]);
+        assert_eq!(adopted, vec![1]);
     }
 
     #[test]
     fn judge_both_filled_i0_check_i1_empty_mark() {
-        // I0記入✓, I1記入空欄 → I0採用
+        // I0記入✓, I1記入空欄 → I0採用（片方だけ✓）
         let slots = [
             make_slot(0, false, CheckMark::Check),
             make_slot(1, false, CheckMark::Empty),
@@ -771,19 +776,8 @@ mod tests {
     }
 
     #[test]
-    fn judge_both_filled_i0_check_i1_cross() {
-        // I0記入✓, I1記入× → I0採用
-        let slots = [
-            make_slot(0, false, CheckMark::Check),
-            make_slot(1, false, CheckMark::Cross),
-        ];
-        let (adopted, _) = judge_adoption(&slots);
-        assert_eq!(adopted, vec![0]);
-    }
-
-    #[test]
     fn judge_both_filled_i0_empty_mark_i1_check() {
-        // I0記入空欄, I1記入✓ → I1採用
+        // I0記入空欄, I1記入✓ → I1採用（片方だけ✓）
         let slots = [
             make_slot(0, false, CheckMark::Empty),
             make_slot(1, false, CheckMark::Check),
@@ -794,57 +788,13 @@ mod tests {
 
     #[test]
     fn judge_both_filled_both_empty_mark() {
-        // I0記入空欄, I1記入空欄 → I1採用（右=後書き優先）
+        // I0記入空欄, I1記入空欄 → I1採用（✓なし → 右優先）
         let slots = [
             make_slot(0, false, CheckMark::Empty),
             make_slot(1, false, CheckMark::Empty),
         ];
         let (adopted, _) = judge_adoption(&slots);
         assert_eq!(adopted, vec![1]);
-    }
-
-    #[test]
-    fn judge_both_filled_i0_empty_mark_i1_cross() {
-        // I0記入空欄, I1記入× → I0採用（I1は×で除外）
-        let slots = [
-            make_slot(0, false, CheckMark::Empty),
-            make_slot(1, false, CheckMark::Cross),
-        ];
-        let (adopted, _) = judge_adoption(&slots);
-        assert_eq!(adopted, vec![0]);
-    }
-
-    #[test]
-    fn judge_both_filled_i0_cross_i1_empty_mark() {
-        // I0記入×, I1記入空欄 → I1採用（I0は×で除外）
-        let slots = [
-            make_slot(0, false, CheckMark::Cross),
-            make_slot(1, false, CheckMark::Empty),
-        ];
-        let (adopted, _) = judge_adoption(&slots);
-        assert_eq!(adopted, vec![1]);
-    }
-
-    #[test]
-    fn judge_both_filled_i0_cross_i1_check() {
-        // I0記入×, I1記入✓ → I1採用（I0は×で除外、I1に✓）
-        let slots = [
-            make_slot(0, false, CheckMark::Cross),
-            make_slot(1, false, CheckMark::Check),
-        ];
-        let (adopted, _) = judge_adoption(&slots);
-        assert_eq!(adopted, vec![1]);
-    }
-
-    #[test]
-    fn judge_both_filled_both_cross() {
-        // I0記入×, I1記入× → 採用なし
-        let slots = [
-            make_slot(0, false, CheckMark::Cross),
-            make_slot(1, false, CheckMark::Cross),
-        ];
-        let (adopted, _) = judge_adoption(&slots);
-        assert!(adopted.is_empty());
     }
 
     #[test]
@@ -881,17 +831,6 @@ mod tests {
     }
 
     #[test]
-    fn judge_i0_filled_cross_i1_empty() {
-        // I0記入×, I1空 → 採用なし（唯一の記入だが×）
-        let slots = [
-            make_slot(0, false, CheckMark::Cross),
-            make_slot(1, true, CheckMark::Empty),
-        ];
-        let (adopted, _) = judge_adoption(&slots);
-        assert!(adopted.is_empty());
-    }
-
-    #[test]
     fn judge_both_empty() {
         // I0空, I1空 → 採用なし（文字未記入）
         let slots = [
@@ -914,7 +853,7 @@ mod tests {
 
     #[test]
     fn check_mark_check_for_sparse_black() {
-        // 密度5%程度 → Check（2%〜15%の範囲）
+        // 密度5%程度 → Check（2%以上で Check）
         // モルフォロジカル処理に耐えるよう、3px以上の太さのブロックを配置
         let mut img = make_uniform_image(100, 100, Rgba([255, 255, 255, 255]));
         let total = 100 * 100;
@@ -938,36 +877,7 @@ mod tests {
         }
         let (mark, density) = analyze_check_mark(&img);
         assert_eq!(mark, CheckMark::Check);
-        assert!(density >= 0.02 && density <= 0.15, "density={density}");
-    }
-
-    #[test]
-    fn check_mark_cross_for_dense_black() {
-        // 密度20%程度 → Cross（>15%）
-        // モルフォロジカル処理に耐えるよう、太いブロックを配置
-        let mut img = make_uniform_image(100, 100, Rgba([255, 255, 255, 255]));
-        let total = 100 * 100;
-        let target_black = (total as f64 * 0.20) as usize;
-        // 10×10ブロックを複数配置（各100px、20ブロックで2000px = 20%）
-        let mut count = 0usize;
-        'outer: for by in 0..5u32 {
-            for bx in 0..5u32 {
-                if count >= target_black { break 'outer; }
-                for dy in 0..10u32 {
-                    for dx in 0..10u32 {
-                        let x = bx * 20 + dx;
-                        let y = by * 20 + dy;
-                        if x < 100 && y < 100 {
-                            img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
-                            count += 1;
-                        }
-                    }
-                }
-            }
-        }
-        let (mark, density) = analyze_check_mark(&img);
-        assert_eq!(mark, CheckMark::Cross);
-        assert!(density > 0.15, "density={density} should be > 0.15");
+        assert!(density >= 0.02, "density={density} should be >= 0.02");
     }
 
     #[test]

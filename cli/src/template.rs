@@ -247,32 +247,29 @@ fn draw_dummy_glyphs(img: &mut RgbaImage) {
     let black = Rgba([0, 0, 0, 255]);
     let inner_offset = (layout::CELL_SIZE - layout::INNER_SIZE) / 2.0;
 
-    // (row, col, cell_idx, fill_ratio, check_mark)
-    // check_mark: None=空欄, Some(true)=✓, Some(false)=×
-    let test_cells: &[(usize, usize, usize, f64, Option<bool>)] = &[
+    // (row, col, cell_idx, fill_ratio, has_check)
+    // has_check: false=空欄, true=✓
+    let test_cells: &[(usize, usize, usize, f64, bool)] = &[
         // Row0 Col0: 両方記入、マークなし → 右(I1)を採用
-        (0, 0, 0, 0.5, None),
-        (0, 0, 1, 0.5, None),
+        (0, 0, 0, 0.5, false),
+        (0, 0, 1, 0.5, false),
         // Row0 Col1: 左に✓ → 左(I0)を採用
-        (0, 1, 0, 0.5, Some(true)),
-        (0, 1, 1, 0.5, None),
-        // Row0 Col2: 両方✓ → 両方バリエーション採用
-        (0, 2, 0, 0.5, Some(true)),
-        (0, 2, 1, 0.5, Some(true)),
-        // Row0 Col3: 右に× → 左(I0)を採用
-        (0, 3, 0, 0.5, None),
-        (0, 3, 1, 0.5, Some(false)),
+        (0, 1, 0, 0.5, true),
+        (0, 1, 1, 0.5, false),
+        // Row0 Col2: 両方✓ → 右(I1)採用
+        (0, 2, 0, 0.5, true),
+        (0, 2, 1, 0.5, true),
         // Row1 Col0: 片方だけ記入 → それを採用
-        (1, 0, 0, 0.5, None),
-        // Row1 Col1: 左に×、右に記入 → 右(I1)を採用
-        (1, 1, 0, 0.5, Some(false)),
-        (1, 1, 1, 0.5, None),
+        (1, 0, 0, 0.5, false),
+        // Row1 Col1: 両方記入、右に✓ → 右(I1)を採用
+        (1, 1, 0, 0.5, false),
+        (1, 1, 1, 0.5, true),
         // Row1 Col2: 両方空 → 採用なし（何も描画しない）
         // Row1 Col3: 小さい文字の検出限界テスト
-        (1, 3, 0, 0.1, None),
+        (1, 3, 0, 0.1, false),
     ];
 
-    for &(row, col, cell_idx, fill_ratio, check_mark) in test_cells {
+    for &(row, col, cell_idx, fill_ratio, has_check) in test_cells {
         // 文字領域にダミー描画
         let (mm_x, mm_y) = layout::get_cell_position(row, col, cell_idx);
         let inner_px = layout::mm_to_px(layout::INNER_SIZE).round() as u32;
@@ -282,52 +279,34 @@ fn draw_dummy_glyphs(img: &mut RgbaImage) {
         let glyph_offset = (inner_px - glyph_size) / 2;
         fill_rect(img, px_x + glyph_offset, px_y + glyph_offset, glyph_size, glyph_size, black);
 
-        // チェック欄にマーク描画
-        if let Some(is_check) = check_mark {
+        // チェック欄にマーク描画（✓のみ）
+        if has_check {
             let cell_px = layout::mm_to_px(layout::CELL_SIZE).round() as u32;
             let check_h = layout::mm_to_px(layout::CHECK_HEIGHT).round() as u32;
             let check_x = layout::mm_to_px(mm_x).round() as u32;
             let check_y = layout::mm_to_px(mm_y + layout::CELL_SIZE).round() as u32;
 
-            if is_check {
-                // ✓マーク: チェック欄の中央に太いV字
-                let mid_x = check_x + cell_px / 2;
-                let mid_y = check_y + check_h / 2;
-                let arm = (check_h as i32).max(8);
-                // 左下がり短線
-                for i in 0..arm {
-                    for t in -2i32..=2 {
-                        let px = (mid_x as i32 - arm / 2 + i) as u32;
-                        let py = (mid_y as i32 - arm / 4 + i / 2 + t) as u32;
-                        if px < img.width() && py < img.height() {
-                            img.put_pixel(px, py, black);
-                        }
+            // ✓マーク: チェック欄の中央に太いV字
+            let mid_x = check_x + cell_px / 2;
+            let mid_y = check_y + check_h / 2;
+            let arm = (check_h as i32).max(8);
+            // 左下がり短線
+            for i in 0..arm {
+                for t in -2i32..=2 {
+                    let px = (mid_x as i32 - arm / 2 + i) as u32;
+                    let py = (mid_y as i32 - arm / 4 + i / 2 + t) as u32;
+                    if px < img.width() && py < img.height() {
+                        img.put_pixel(px, py, black);
                     }
                 }
-                // 右上がり長線
-                for i in 0..(arm * 2) {
-                    for t in -2i32..=2 {
-                        let px = (mid_x as i32 - arm / 2 + arm + i) as u32;
-                        let py = (mid_y as i32 + arm / 4 - i / 3 + t) as u32;
-                        if px < img.width() && py > 0 && py < img.height() {
-                            img.put_pixel(px, py, black);
-                        }
-                    }
-                }
-            } else {
-                // ×マーク: 太い対角線2本
-                let margin = 4u32;
-                let w = cell_px - margin * 2;
-                let h = check_h - margin;
-                for i in 0..w {
-                    let x1 = check_x + margin + i;
-                    let y1 = check_y + margin / 2 + (i * h / w);
-                    let y2 = check_y + check_h - margin / 2 - (i * h / w);
-                    for dy in 0..3 {
-                        if x1 < img.width() {
-                            if y1 + dy < img.height() { img.put_pixel(x1, y1 + dy, black); }
-                            if y2 + dy < img.height() { img.put_pixel(x1, y2 + dy, black); }
-                        }
+            }
+            // 右上がり長線
+            for i in 0..(arm * 2) {
+                for t in -2i32..=2 {
+                    let px = (mid_x as i32 - arm / 2 + arm + i) as u32;
+                    let py = (mid_y as i32 + arm / 4 - i / 3 + t) as u32;
+                    if px < img.width() && py > 0 && py < img.height() {
+                        img.put_pixel(px, py, black);
                     }
                 }
             }

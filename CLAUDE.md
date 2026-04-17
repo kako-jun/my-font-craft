@@ -86,7 +86,7 @@ my-font-craft/
 - 色補正（グレースケールバー基準）
 - シアン除去
 - マス切り出し
-- ✓/×/空欄 検出（AI使用）
+- ✓/空欄 検出（AI使用）
 
 詳細: [docs/image-processing.md](./docs/image-processing.md)
 
