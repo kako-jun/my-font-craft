@@ -116,7 +116,7 @@ const arrayBuffer = font.toArrayBuffer();
 
 Rust 側（`cli/src/vectorizer.rs`）がランレングス方式で生成した `PathCommand[][]` を
 opentype.js の Path オブジェクトに変換する。各パスは矩形（M→L→L→L→Z）で、
-二値化画像の黒ピクセル連続区間に対応する。
+二値化→2x アップスケール後の黒ピクセル連続区間に対応する。
 
 ```typescript
 // builder.ts での実際の変換

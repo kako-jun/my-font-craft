@@ -45,11 +45,11 @@ pub enum PathCommand {
 
 /// セル画像（RGBA）→ パス配列
 ///
-/// 1. グレー化
-/// 2. CLAHE
-/// 3. Sauvola 二値化（0=黒, 255=白）
-/// 4. モルフォロジ open-close
-/// 5. ランレングス変換 — 各行の黒ピクセル連続区間を四角形パスにする
+/// 1. グレー化 + CLAHE + Sauvola 二値化 + モルフォロジ open-close
+/// 2. 2x nearest-neighbor アップスケール（ドット細粒化）
+/// 3. ランレングス抽出（各行の黒ピクセル連続区間を検出）
+/// 4. 縦方向マージ（±2px 許容で隣接行のランを矩形に結合）
+/// 5. フォント座標変換（各矩形を M→L→L→L→Z の四角形パスに変換）
 pub fn vectorize_glyph(img: &RgbaImage) -> Vec<Vec<PathCommand>> {
     let w = img.width();
     let h = img.height();
@@ -60,7 +60,7 @@ pub fn vectorize_glyph(img: &RgbaImage) -> Vec<Vec<PathCommand>> {
     // 1-4: 二値化（内部バイナリ: 1=黒(前景), 0=白(背景)）
     let binary = binarize_for_contour(img);
 
-    // 4.5: 2倍アップスケール（nearest neighbor）— ドットを細かくしてギザギザを目立ちにくくする
+    // 2: 2倍アップスケール（nearest neighbor）— ドットを細かくしてギザギザを目立ちにくくする
     const UPSCALE: u32 = 2;
     let uw = w * UPSCALE;
     let uh = h * UPSCALE;
@@ -209,6 +209,7 @@ pub fn paths_to_svg(paths: &[Vec<PathCommand>]) -> String {
                 PathCommand::LineTo { x, y } => {
                     d.push_str(&format!("L{x:.0} {y:.0} ", y = vb_h as f64 - y));
                 }
+                // ランレングス方式では CurveTo は生成されないが、インポートフォントのパス表示用に残す
                 PathCommand::CurveTo { x, y, cp1x, cp1y, cp2x, cp2y } => {
                     d.push_str(&format!(
                         "C{cp1x:.0} {cp1y:.0} {cp2x:.0} {cp2y:.0} {x:.0} {y:.0} ",
@@ -288,5 +289,29 @@ mod tests {
             // ランレングス方式では各パスは5コマンド（M,L,L,L,Z）
             assert_eq!(path.len(), 5, "各ランは5コマンドの四角形");
         }
+    }
+
+    #[test]
+    fn vertical_merge_reduces_rect_count() {
+        // 白背景に縦10px×横40pxの縦棒を描画
+        // 縦マージにより40行のランが少数の矩形に結合されるはず
+        let mut img = make_image(100, 100, Rgba([255, 255, 255, 255]));
+        for y in 30..70 {
+            for x in 45..55 {
+                img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+            }
+        }
+        let paths = vectorize_glyph(&img);
+        // 2x アップスケール後は80行のランが出るが、同一幅なので縦マージで大幅に減るはず
+        // マージなしなら80パス、マージありなら数パスに収まる
+        assert!(
+            paths.len() < 20,
+            "縦マージにより矩形数は大幅に減るはず: 実際={}",
+            paths.len()
+        );
+        assert!(
+            !paths.is_empty(),
+            "黒ピクセルがあるのでパスは0にならない"
+        );
     }
 }
