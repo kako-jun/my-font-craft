@@ -60,8 +60,10 @@ export const MARKER_SIZE = 8;
 export const MARKERS = {
   topLeft: { x: 3, y: 3, filled: true },
   topRight: { x: 201, y: 3, filled: false },
-  bottomLeft: { x: 3, y: 289, filled: false },
-  bottomRight: { x: 201, y: 289, filled: false },
+  // 下側マーカーは y=289 だと丸の下端が印刷領域から 1px はみ出るため
+  // 300dpi で 1px (≈0.0847mm) 上にずらす
+  bottomLeft: { x: 3, y: 288.915, filled: false },
+  bottomRight: { x: 201, y: 288.915, filled: false },
 } as const;
 
 // 中心マーカー（4隅マーカー矩形の幾何学的中心に配置）
@@ -90,7 +92,8 @@ export function gridToCharIndex(row: number, col: number): number | null {
 
 // 色
 export const COLOR_BLACK = { r: 0, g: 0, b: 0 };
-export const COLOR_CYAN = { r: 0.8, g: 1, b: 1 };
+// #87: cyan を薄めに変更 (0.8→0.9)。次回印刷時から反映
+export const COLOR_CYAN = { r: 0.9, g: 1, b: 1 };
 export const COLOR_WHITE = { r: 1, g: 1, b: 1 };
 
 // 1文字セルの配置座標を計算

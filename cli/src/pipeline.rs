@@ -221,18 +221,29 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
         .map_err(|e| format!("保存エラー: {e}"))?;
     log!("  → 08_cyan_removed.png 保存完了");
 
+    // ステップ9.3: 紙白正規化 — erase 前に紙の地色を 255 に寄せる
+    // （erase 後だと白ストライプが支配的になりヒストグラムが偏る）
+    log!("\n=== ステップ9.3: 紙白正規化 ===");
+    let paper_normalized = normalize_paper_white(&cyan_removed);
+    paper_normalized
+        .save(output_dir.join("08a_normalized.png"))
+        .map_err(|e| format!("保存エラー: {e}"))?;
+    log!("  → 08a_normalized.png 保存完了");
+
     // ステップ9.5: 罫線残骸除去
     log!("\n=== ステップ9.5: 罫線残骸除去 ===");
-    let grid_removed = erase_grid_lines(&cyan_removed);
+    let grid_removed = erase_grid_lines(&paper_normalized);
     grid_removed
         .save(output_dir.join("08b_grid_removed.png"))
         .map_err(|e| format!("保存エラー: {e}"))?;
     log!("  → 08b_grid_removed.png 保存完了");
 
+    let normalized = grid_removed;
+
     // ステップ10: セル切り出し + チェック欄解析 + 採用判定
     log!("\n=== ステップ10: セル切り出し + 採用判定 ===");
     let cells_dir = output_dir.join("09_cells");
-    cell::extract_and_judge(&grid_removed, &cells_dir)?;
+    cell::extract_and_judge(&normalized, &cells_dir)?;
 
     log!("\n=== パイプライン完了 ===");
     Ok(())
@@ -350,17 +361,21 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
     log!("=== シアン除去 ===");
     let cyan_removed = remove_cyan(&shadow_corrected);
 
+    // ステップ9.3: 紙白正規化
+    log!("=== 紙白正規化 ===");
+    let paper_normalized = normalize_paper_white(&cyan_removed);
+
     // ステップ9.5: 罫線残骸除去
     log!("=== 罫線残骸除去 ===");
-    let grid_removed = erase_grid_lines(&cyan_removed);
+    let normalized = erase_grid_lines(&paper_normalized);
 
     // ステップ10: セル切り出し + 採用判定
     log!("=== セル切り出し + 採用判定 ===");
-    let char_results = cell::extract_and_judge_in_memory(&grid_removed)?;
+    let char_results = cell::extract_and_judge_in_memory(&normalized)?;
 
     // 結果をProcessResult に変換
-    let corrected_width = grid_removed.width();
-    let corrected_height = grid_removed.height();
+    let corrected_width = normalized.width();
+    let corrected_height = normalized.height();
 
     let mut cells = Vec::new();
     for cr in &char_results {
@@ -369,7 +384,7 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
             // 生セルから「二値化済み RGBA」と「ベジェパス」を生成
             // binarize_to_rgba と vectorize_glyph は同じ二値化パイプラインを通るので
             // プレビュー画像とベクター化結果が一致する
-            let raw_cell = cell::extract_cell_image_raw(&grid_removed, cr.row, cr.col, slot.cell_index);
+            let raw_cell = cell::extract_cell_image_raw(&normalized, cr.row, cr.col, slot.cell_index);
             let binarized = vectorizer::binarize_to_rgba(&raw_cell);
             let adopted = cr.adopted.contains(&slot.cell_index);
             let paths = if adopted {
@@ -397,7 +412,7 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
         }
     }
 
-    let corrected_image = grid_removed.into_raw();
+    let corrected_image = normalized.into_raw();
 
     Ok(ProcessResult {
         page_number,
@@ -1036,54 +1051,43 @@ fn sample_region_brightness(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> 
     }
 }
 
-/// シアン除去: シアンサンプルの平均色を読み取り、紙色との差が十分あれば色距離基準で白化
-/// 実写画像ではカメラのホワイトバランスで紙全体がシアンがかるため、
-/// サンプル色≒紙色の場合はスキップする
+/// シアン除去: "cyan signature" (G,B が R より高い) を閾値判定で白化
+/// 固定 RGB 距離より、薄いシアン縁まで拾えて黒ストロークを保護しやすい。
+/// - cyan_score = min(G, B) - R: 純シアンなら ~50、薄い縁でも 5〜20。黒ペンは 0 前後
+/// - 暗いピクセル(輝度低)は手書きとしてゲート除外
 fn remove_cyan(img: &RgbaImage) -> RgbaImage {
     let sample_x = layout::mm_to_px(layout::CYAN_SAMPLE_X).round() as u32;
     let sample_y = layout::mm_to_px(layout::CYAN_SAMPLE_Y).round() as u32;
     let sample_size = layout::mm_to_px(layout::CYAN_SAMPLE_SIZE).round() as u32;
-
-    // シアンサンプル色を取得
     let (cyan_r, cyan_g, cyan_b) = sample_region_rgb(img, sample_x, sample_y, sample_size, sample_size);
-
-    // 紙色をセル内の空白エリアからサンプリング（ページ中央付近の既知の白領域）
-    let paper_x = layout::mm_to_px(100.0).round() as u32;
-    let paper_y = layout::mm_to_px(50.0).round() as u32;
-    let paper_size = layout::mm_to_px(5.0).round() as u32;
-    let (paper_r, paper_g, paper_b) = sample_region_rgb(img, paper_x, paper_y, paper_size, paper_size);
-
     log!("  シアンサンプル平均色: R={cyan_r:.1} G={cyan_g:.1} B={cyan_b:.1}");
-    log!("  紙色（参照）: R={paper_r:.1} G={paper_g:.1} B={paper_b:.1}");
 
-    // シアンサンプルと紙色の距離を計算
-    let dr = cyan_r - paper_r;
-    let dg = cyan_g - paper_g;
-    let db = cyan_b - paper_b;
-    let cyan_paper_dist = (dr * dr + dg * dg + db * db).sqrt();
-    log!("  シアン-紙間距離: {cyan_paper_dist:.1}");
-
-    // 距離が小さすぎる場合（シアンが紙と区別できない場合）はスキップ
-    // 実写画像では環境光の影響でシアンサンプルと紙の色差が小さくなる
-    // 純シアン(R=204,G=255,B=255)と白(255,255,255)の距離≈72なので、
-    // 60未満なら実写の色被りと判断してスキップ
-    if cyan_paper_dist < 60.0 {
-        log!("  ⚠ シアンサンプルが紙色と近似 — シアン除去をスキップ");
+    let sample_score = cyan_g.min(cyan_b) - cyan_r;
+    // しきい値は緩め: 薄シアン対応。検出できなくても erase_grid_lines (inner_margin=5px)
+    // が layout 既知で内枠を白塗りするので致命的ではない
+    if sample_score < 1.5 {
+        log!("  ⚠ シアンサンプルに有意な cyan 成分なし (score={sample_score:.1}) — スキップ");
         return img.clone();
     }
 
-    let threshold = 80.0f64;
+    let cyan_score_threshold: i32 = 3;
+    let min_brightness: i32 = 140;
+
     let mut out = img.clone();
     let mut removed_count = 0u64;
 
     for y in 0..img.height() {
         for x in 0..img.width() {
             let p = img.get_pixel(x, y);
-            let dr = p[0] as f64 - cyan_r;
-            let dg = p[1] as f64 - cyan_g;
-            let db = p[2] as f64 - cyan_b;
-            let dist = (dr * dr + dg * dg + db * db).sqrt();
-            if dist < threshold {
+            let r = p[0] as i32;
+            let g = p[1] as i32;
+            let b = p[2] as i32;
+            let avg = (r + g + b) / 3;
+            if avg < min_brightness {
+                continue;
+            }
+            let cyan_score = g.min(b) - r;
+            if cyan_score >= cyan_score_threshold {
                 out.put_pixel(x, y, Rgba([255, 255, 255, 255]));
                 removed_count += 1;
             }
@@ -1097,6 +1101,51 @@ fn remove_cyan(img: &RgbaImage) -> RgbaImage {
         removed_count as f64 / total as f64 * 100.0
     );
 
+    out
+}
+
+/// 紙白正規化: 上位輝度を 255 に揃え、紙の地色を純白に寄せる
+/// shadow_correct 後でも紙は灰色（~230）のまま残るため、
+/// Sauvola がその濃淡をノイズとして拾う。輝度ヒストグラムを上に伸ばして抑制する
+fn normalize_paper_white(img: &RgbaImage) -> RgbaImage {
+    // 輝度ヒストグラムを取り、上位 5% の値を 255 にマップする線形ストレッチ
+    let total = (img.width() as u64) * (img.height() as u64);
+    let mut hist = [0u64; 256];
+    for p in img.pixels() {
+        let lum = (p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) / 1000;
+        hist[lum.min(255) as usize] += 1;
+    }
+    // 輝度 100 以上でのヒストグラム最頻値を「紙色」とみなす
+    // （100未満は手書きインク、100以上は紙＋シアン残骸＋ノイズ）
+    let _ = total;
+    let mut mode_lum = 230u32;
+    let mut mode_count = 0u64;
+    for (i, &c) in hist.iter().enumerate().skip(100) {
+        if c > mode_count {
+            mode_count = c;
+            mode_lum = i as u32;
+        }
+    }
+    if mode_lum < 180 {
+        log!("  ⚠ 紙色モードが低すぎ ({mode_lum}) — 正規化をスキップ");
+        return img.clone();
+    }
+    if mode_lum >= 250 {
+        log!("  紙はすでに十分白 (mode={mode_lum}) — スキップ");
+        return img.clone();
+    }
+    log!("  紙色モード={mode_lum} → 255 にストレッチ");
+    let scale = 255.0 / mode_lum as f64;
+    let mut out = img.clone();
+    for y in 0..img.height() {
+        for x in 0..img.width() {
+            let p = img.get_pixel(x, y);
+            let r = ((p[0] as f64) * scale).min(255.0) as u8;
+            let g = ((p[1] as f64) * scale).min(255.0) as u8;
+            let b = ((p[2] as f64) * scale).min(255.0) as u8;
+            out.put_pixel(x, y, Rgba([r, g, b, p[3]]));
+        }
+    }
     out
 }
 
@@ -1119,13 +1168,16 @@ fn erase_grid_lines(img: &RgbaImage) -> RgbaImage {
                 erase_vertical_line(&mut out, mm_x, mm_y, layout::CELL_SIZE, line_margin);
                 erase_vertical_line(&mut out, mm_x + layout::CELL_SIZE, mm_y, layout::CELL_SIZE, line_margin);
 
+                // 内枠（シアン）は台形補正の残差＋縁のぼかしで幅が出やすいので、
+                // 外枠より広いマージンで塗り潰す。手書きは内枠線の内側に集中する前提
+                let inner_margin = 5u32;
                 let inner_offset = (layout::CELL_SIZE - layout::INNER_SIZE) / 2.0;
                 let ix = mm_x + inner_offset;
                 let iy = mm_y + inner_offset;
-                erase_horizontal_line(&mut out, ix, iy, layout::INNER_SIZE, line_margin);
-                erase_horizontal_line(&mut out, ix, iy + layout::INNER_SIZE, layout::INNER_SIZE, line_margin);
-                erase_vertical_line(&mut out, ix, iy, layout::INNER_SIZE, line_margin);
-                erase_vertical_line(&mut out, ix + layout::INNER_SIZE, iy, layout::INNER_SIZE, line_margin);
+                erase_horizontal_line(&mut out, ix, iy, layout::INNER_SIZE, inner_margin);
+                erase_horizontal_line(&mut out, ix, iy + layout::INNER_SIZE, layout::INNER_SIZE, inner_margin);
+                erase_vertical_line(&mut out, ix, iy, layout::INNER_SIZE, inner_margin);
+                erase_vertical_line(&mut out, ix + layout::INNER_SIZE, iy, layout::INNER_SIZE, inner_margin);
 
                 let check_y = mm_y + layout::CELL_SIZE;
                 erase_horizontal_line(&mut out, mm_x, check_y + layout::CHECK_HEIGHT, layout::CELL_SIZE, line_margin);

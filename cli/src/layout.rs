@@ -70,8 +70,10 @@ pub struct MarkerDef {
 
 pub const MARKER_TL: MarkerDef = MarkerDef { x: 3.0, y: 3.0, filled: true };
 pub const MARKER_TR: MarkerDef = MarkerDef { x: 201.0, y: 3.0, filled: false };
-pub const MARKER_BL: MarkerDef = MarkerDef { x: 3.0, y: 289.0, filled: false };
-pub const MARKER_BR: MarkerDef = MarkerDef { x: 201.0, y: 289.0, filled: false };
+// 下側マーカーは y=289 だと丸の下端が印刷領域から 1px はみ出るため
+// 300dpi で 1px (≈0.0847mm) 上にずらす
+pub const MARKER_BL: MarkerDef = MarkerDef { x: 3.0, y: 288.915, filled: false };
+pub const MARKER_BR: MarkerDef = MarkerDef { x: 201.0, y: 288.915, filled: false };
 
 /// 中心マーカー（検証・レンズ歪み検出用、塗りつぶし四角）
 /// 4隅マーカー中心の幾何学的中心 = (106, 150) に合わせる
@@ -90,7 +92,8 @@ pub fn center_marker_center() -> (f64, f64) {
 }
 
 // 色
-pub const COLOR_CYAN: [u8; 3] = [204, 255, 255]; // 0.8*255, 1*255, 1*255
+// #87: cyan を薄めに変更 (204→230)。次回印刷時から反映
+pub const COLOR_CYAN: [u8; 3] = [230, 255, 255]; // 0.9*255, 1*255, 1*255
 
 // 画像サイズ（300dpi）
 pub fn image_width() -> u32 {

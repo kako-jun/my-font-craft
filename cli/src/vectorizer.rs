@@ -216,13 +216,98 @@ fn extract_contours(binary: &[u8], w: i32, h: i32) -> Vec<Vec<Pt>> {
                 }
             }
 
+            // 連結成分全体を visited にマーク
+            // （境界追跡だけだと太いストロークの反対側エッジから再トレースされる）
+            let mut stack = vec![(start_x, start_y)];
+            while let Some((sx, sy)) = stack.pop() {
+                if sx < 0 || sy < 0 || sx >= w || sy >= h {
+                    continue;
+                }
+                let sidx = (sy as usize) * w_usize + sx as usize;
+                if binary[sidx] != 1 || visited[sidx] != 0 {
+                    continue;
+                }
+                visited[sidx] = 1;
+                for d in 0..8 {
+                    stack.push((sx + dx[d], sy + dy[d]));
+                }
+            }
+
+            // トレーサが小さなブロブで暴走すると同じ輪郭を何周もしてしまう。
+            // 画素数の4倍を超える長さは明らかに異常なので切り捨てる
+            let blob_px = {
+                let mut n = 0u64;
+                for ny in (start_y - 1).max(0)..=((start_y + 1).min(h - 1)) {
+                    for nx in (start_x - 1).max(0)..=((start_x + 1).min(w - 1)) {
+                        if visited[(ny as usize) * w_usize + nx as usize] == 1 {
+                            n += 1;
+                        }
+                    }
+                }
+                n
+            };
+            let _ = blob_px;
+
             if contour.len() >= 10 {
                 contours.push(contour);
             }
         }
     }
 
-    contours
+    // bbox-ベース重複除去: 同じ境界を複数回なぞった輪郭を1本にまとめる
+    dedup_contours(contours)
+}
+
+/// 同一 bbox・類似サイズの輪郭を重複として除去
+fn dedup_contours(contours: Vec<Vec<Pt>>) -> Vec<Vec<Pt>> {
+    let mut out: Vec<Vec<Pt>> = Vec::new();
+    for c in contours {
+        let (minx, miny, maxx, maxy) = {
+            let mut mx = f64::INFINITY;
+            let mut my = f64::INFINITY;
+            let mut xx = f64::NEG_INFINITY;
+            let mut yy = f64::NEG_INFINITY;
+            for p in &c {
+                if p.x < mx { mx = p.x; }
+                if p.y < my { my = p.y; }
+                if p.x > xx { xx = p.x; }
+                if p.y > yy { yy = p.y; }
+            }
+            (mx, my, xx, yy)
+        };
+        let mut is_dup = false;
+        for existing in &out {
+            let (emx, emy, exx, eyy) = {
+                let mut mx = f64::INFINITY;
+                let mut my = f64::INFINITY;
+                let mut xx = f64::NEG_INFINITY;
+                let mut yy = f64::NEG_INFINITY;
+                for p in existing {
+                    if p.x < mx { mx = p.x; }
+                    if p.y < my { my = p.y; }
+                    if p.x > xx { xx = p.x; }
+                    if p.y > yy { yy = p.y; }
+                }
+                (mx, my, xx, yy)
+            };
+            let bbox_same = (minx - emx).abs() < 2.0
+                && (miny - emy).abs() < 2.0
+                && (maxx - exx).abs() < 2.0
+                && (maxy - eyy).abs() < 2.0;
+            if bbox_same {
+                // サイズ比が近ければ重複
+                let ratio = c.len() as f64 / existing.len() as f64;
+                if ratio > 0.5 && ratio < 2.0 {
+                    is_dup = true;
+                    break;
+                }
+            }
+        }
+        if !is_dup {
+            out.push(c);
+        }
+    }
+    out
 }
 
 // ── Douglas-Peucker（反復版） ──
