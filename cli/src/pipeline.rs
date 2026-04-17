@@ -322,7 +322,12 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
     let (page_number, total_pages) = match read_qr_from_corrected_wasm(&corrected) {
         Ok(data) => {
             log!("  QRデータ: {data}");
-            parse_qr_page_info(&data)
+            let parsed = parse_qr_page_info(&data);
+            if parsed == (None, None) {
+                let preview: String = data.chars().take(80).collect();
+                log!("  ⚠ QRデータをパースできませんでした（page_numberなし）: {preview}");
+            }
+            parsed
         }
         Err(e) => {
             log!("  QR読み取り失敗（続行）: {e}");
@@ -391,9 +396,23 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
 }
 
 /// QRデータからページ情報を抽出
+///
+/// 優先形式（v2, 現行）: JSON `{"p":"mfc","v":2,"pg":N,"t":M,"m":2}`
+/// 後方互換（v1）: プレーンテキスト `mfc:N/M`
 fn parse_qr_page_info(data: &str) -> (Option<u32>, Option<u32>) {
-    // QRデータ形式: "mfc:1/3" など（ページ番号/全ページ数）
-    if let Some(stripped) = data.strip_prefix("mfc:") {
+    let trimmed = data.trim();
+
+    // v2: JSON 形式
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        if v.get("p").and_then(|x| x.as_str()) == Some("mfc") {
+            let page = v.get("pg").and_then(|x| x.as_u64()).and_then(|n| u32::try_from(n).ok());
+            let total = v.get("t").and_then(|x| x.as_u64()).and_then(|n| u32::try_from(n).ok());
+            return (page, total);
+        }
+    }
+
+    // v1: プレーンテキスト "mfc:N/M"
+    if let Some(stripped) = trimmed.strip_prefix("mfc:") {
         let parts: Vec<&str> = stripped.split('/').collect();
         if parts.len() == 2 {
             let page = parts[0].parse().ok();
@@ -401,7 +420,92 @@ fn parse_qr_page_info(data: &str) -> (Option<u32>, Option<u32>) {
             return (page, total);
         }
     }
+
     (None, None)
+}
+
+#[cfg(test)]
+mod qr_parse_tests {
+    use super::parse_qr_page_info;
+
+    #[test]
+    fn v2_json_basic() {
+        let (p, t) = parse_qr_page_info(r#"{"p":"mfc","v":2,"pg":1,"t":2,"m":2}"#);
+        assert_eq!(p, Some(1));
+        assert_eq!(t, Some(2));
+    }
+
+    #[test]
+    fn v2_json_with_extra_fields() {
+        let (p, t) = parse_qr_page_info(r#"{"p":"mfc","v":2,"pg":3,"t":10,"m":2,"chars":["あ","い"]}"#);
+        assert_eq!(p, Some(3));
+        assert_eq!(t, Some(10));
+    }
+
+    #[test]
+    fn v2_json_with_whitespace() {
+        let (p, t) = parse_qr_page_info("  {\"p\":\"mfc\",\"pg\":5,\"t\":7}  ");
+        assert_eq!(p, Some(5));
+        assert_eq!(t, Some(7));
+    }
+
+    #[test]
+    fn v2_json_wrong_product_rejected() {
+        let (p, t) = parse_qr_page_info(r#"{"p":"other","pg":1,"t":2}"#);
+        assert_eq!(p, None);
+        assert_eq!(t, None);
+    }
+
+    #[test]
+    fn v2_json_missing_fields() {
+        let (p, t) = parse_qr_page_info(r#"{"p":"mfc"}"#);
+        assert_eq!(p, None);
+        assert_eq!(t, None);
+    }
+
+    #[test]
+    fn v2_json_missing_p_key() {
+        // p キー自体が無い場合（将来 TS 側がキー名を変えた時の回帰検知）
+        let (p, t) = parse_qr_page_info(r#"{"product":"mfc","pg":1,"t":2}"#);
+        assert_eq!(p, None);
+        assert_eq!(t, None);
+    }
+
+    #[test]
+    fn v2_json_overflow_u32() {
+        // u32::MAX 超の値は try_from で弾かれて None になる
+        let (p, t) = parse_qr_page_info(r#"{"p":"mfc","pg":4294967296,"t":2}"#);
+        assert_eq!(p, None);
+        assert_eq!(t, Some(2));
+    }
+
+    #[test]
+    fn v1_plain_text_basic() {
+        let (p, t) = parse_qr_page_info("mfc:1/3");
+        assert_eq!(p, Some(1));
+        assert_eq!(t, Some(3));
+    }
+
+    #[test]
+    fn v1_plain_text_with_whitespace() {
+        let (p, t) = parse_qr_page_info(" mfc:2/5 ");
+        assert_eq!(p, Some(2));
+        assert_eq!(t, Some(5));
+    }
+
+    #[test]
+    fn invalid_returns_none() {
+        let (p, t) = parse_qr_page_info("garbage");
+        assert_eq!(p, None);
+        assert_eq!(t, None);
+    }
+
+    #[test]
+    fn empty_string_returns_none() {
+        let (p, t) = parse_qr_page_info("");
+        assert_eq!(p, None);
+        assert_eq!(t, None);
+    }
 }
 
 // ── 共通処理関数（CLI/WASM両方で使用） ──
