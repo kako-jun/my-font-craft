@@ -36,3 +36,8 @@ optional = true
 [profile.release]
 opt-level = "s"
 lto = true
+
+# wasm-pack が binaryen v117 を GitHub から自動ダウンロードするが失敗することがあるため無効化。
+# opt-level="s" + lto=true で十分な最適化が効いているのでサイズ増は限定的
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

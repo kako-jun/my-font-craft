@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { processImageWasm, cellToImageData, cellToDataUrl } from '../wasm/loader';
+import { processImageWasm, cellToImageData, cellToDataUrl, getWasmBuildInfo } from '../wasm/loader';
 import type { WasmProcessedCell } from '../wasm/loader';
 import { getCharactersForPage } from '../../data/characters';
 import type { VectorGlyph } from '../font/builder';
@@ -51,15 +51,24 @@ function correctedImageToCanvas(
 
 /**
  * WASMからのエラーメッセージをユーザーフレンドリーな日本語に変換する
+ * エラー末尾にビルド識別情報（sha）を付加し、報告時に版の特定を容易にする
  */
 export function translateWasmError(rawError: string): string {
+  let msg: string;
   // マーカー検出失敗
   if (rawError.includes('マーカーが検出できませんでした')) {
-    return '用紙のマーカーを検出できませんでした。紙全体が写るよう、なるべく正面から撮影してください。';
+    msg =
+      '用紙のマーカーを検出できませんでした。紙全体が写るよう、なるべく正面から撮影してください。';
+  } else {
+    // DPI不足: Rust側のメッセージにDPI値と推奨値が含まれているのでそのまま通す
+    // その他のRustエラーもそのまま返す
+    msg = rawError;
   }
-  // DPI不足: Rust側のメッセージにDPI値と推奨値が含まれているのでそのまま通す
-  // その他のRustエラーもそのまま返す
-  return rawError;
+  const info = getWasmBuildInfo();
+  if (info) {
+    msg += ` [build: ${info.sha}]`;
+  }
+  return msg;
 }
 
 // メイン処理
