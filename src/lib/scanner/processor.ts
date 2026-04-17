@@ -1,5 +1,10 @@
 import JSZip from 'jszip';
-import { processImageWasm, cellToDataUrl, getWasmBuildInfo } from '../wasm/loader';
+import {
+  processImageWasm,
+  cellToDataUrl,
+  pathsToSvgDataUrl,
+  getWasmBuildInfo,
+} from '../wasm/loader';
 import type { WasmProcessedCell } from '../wasm/loader';
 import { getCharactersForPage } from '../../data/characters';
 import type { VectorGlyph } from '../font/builder';
@@ -175,10 +180,16 @@ export async function processImages(
         continue;
       }
 
-      // セル画像のData URL（UI表示用、最初の採用セル）
+      // プレビュー用 Data URL（UI表示用、最初の採用セル）
+      // TTF に近い見た目を示すためベジェパスの SVG を優先。paths が空ならラスタにフォールバック
       let cellImageDataUrl: string | undefined;
+      const previewCell = adoptedCells[0];
       try {
-        cellImageDataUrl = cellToDataUrl(adoptedCells[0]);
+        if (previewCell.paths && previewCell.paths.length > 0) {
+          cellImageDataUrl = pathsToSvgDataUrl(previewCell.paths);
+        } else {
+          cellImageDataUrl = cellToDataUrl(previewCell);
+        }
       } catch {
         /* non-browser environment */
       }

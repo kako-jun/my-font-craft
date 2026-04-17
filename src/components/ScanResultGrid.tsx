@@ -136,8 +136,8 @@ export default function ScanResultGrid(props: Props) {
                           excluded()
                             ? `${gs.char} — 除外中（クリックで復帰）`
                             : canToggle()
-                              ? `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')}) — クリックで除外`
-                              : `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')})`
+                              ? `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')}) — クリックで除外 / Shift+クリックで拡大`
+                              : `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')}) — クリックで拡大`
                         }
                         onClick={(e) => {
                           if (canToggle()) {
@@ -171,7 +171,7 @@ export default function ScanResultGrid(props: Props) {
                           <div class="scan-grid__cell-miss">×</div>
                         </Show>
                         <Show when={excluded()}>
-                          <div class="scan-grid__cell-excluded-mark">/</div>
+                          <div class="scan-grid__cell-excluded-mark">×</div>
                         </Show>
                       </div>
                     );
