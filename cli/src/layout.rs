@@ -70,10 +70,10 @@ pub struct MarkerDef {
 
 pub const MARKER_TL: MarkerDef = MarkerDef { x: 3.0, y: 3.0, filled: true };
 pub const MARKER_TR: MarkerDef = MarkerDef { x: 201.0, y: 3.0, filled: false };
-// 下側マーカーは y=289 だと丸の下端が印刷領域から 1px はみ出るため
-// 300dpi で 1px (≈0.0847mm) 上にずらす
-pub const MARKER_BL: MarkerDef = MarkerDef { x: 3.0, y: 288.915, filled: false };
-pub const MARKER_BR: MarkerDef = MarkerDef { x: 201.0, y: 288.915, filled: false };
+// 下側マーカーは用紙端に近すぎると印刷時に見切れるため、
+// マーカー下端(y+8mm)が用紙下端(297mm)より約2mm上に来る位置にする
+pub const MARKER_BL: MarkerDef = MarkerDef { x: 3.0, y: 286.915, filled: false };
+pub const MARKER_BR: MarkerDef = MarkerDef { x: 201.0, y: 286.915, filled: false };
 
 /// 中心マーカー（検証・レンズ歪み検出用、塗りつぶし四角）
 /// 4隅マーカー中心の幾何学的中心 = (106, 150) に合わせる

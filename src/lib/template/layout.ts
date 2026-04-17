@@ -32,8 +32,8 @@ export const CELL_GAP = 2;
 export const SAMPLE_WIDTH = 10;
 
 // QRコード（本文領域下、左下付近）
-// 本文最終行チェック欄下端: y=266、bottomマーカー: y=289〜297
-// QR下端(267+15=282)はbottomマーカー(y=289)より上で干渉なし
+// 本文最終行チェック欄下端: y=266、bottomマーカー: y=287〜295
+// QR下端(267+15=282)はbottomマーカー(y=287)より上で干渉なし
 export const QR_X = 20;
 export const QR_Y = 267;
 export const QR_SIZE = 15;
@@ -45,7 +45,7 @@ export const GRAY_BAR_STEP_SIZE = 5; // 各ステップ 5mm幅
 // 左バー: ページ左端の余白内（マーカーより外側）
 export const GRAY_BAR_LEFT_X = 2;
 export const GRAY_BAR_TOP_Y = 28; // BODY_START_Y に合わせる（マーカー下端から17mm）
-export const GRAY_BAR_BOTTOM_Y = 272; // 本文領域下端付近（bottomマーカーy=289よりも上）
+export const GRAY_BAR_BOTTOM_Y = 272; // 本文領域下端付近（bottomマーカーy=287よりも上）
 
 // 右バー: ページ右端の余白内
 export const GRAY_BAR_RIGHT_X = 203; // 203 + 5 = 208, ページ幅210内
@@ -60,10 +60,10 @@ export const MARKER_SIZE = 8;
 export const MARKERS = {
   topLeft: { x: 3, y: 3, filled: true },
   topRight: { x: 201, y: 3, filled: false },
-  // 下側マーカーは y=289 だと丸の下端が印刷領域から 1px はみ出るため
-  // 300dpi で 1px (≈0.0847mm) 上にずらす
-  bottomLeft: { x: 3, y: 288.915, filled: false },
-  bottomRight: { x: 201, y: 288.915, filled: false },
+  // 下側マーカーは用紙端に近すぎると印刷時に見切れるため、
+  // マーカー下端(y+8mm)が用紙下端(297mm)より約2mm上に来る位置にする
+  bottomLeft: { x: 3, y: 286.915, filled: false },
+  bottomRight: { x: 201, y: 286.915, filled: false },
 } as const;
 
 // 中心マーカー（4隅マーカー矩形の幾何学的中心に配置）
