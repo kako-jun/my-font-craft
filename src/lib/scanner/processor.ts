@@ -50,10 +50,11 @@ function correctedImageToCanvas(
 }
 
 /**
- * WASMからのエラーメッセージをユーザーフレンドリーな日本語に変換する
- * エラー末尾にビルド識別情報（sha）を付加し、報告時に版の特定を容易にする
+ * WASMからのエラーメッセージをユーザーフレンドリーな日本語に変換する。
+ * `buildSha` が渡された場合はエラー末尾に `[build: sha]` を付加し、報告時に版特定を容易にする。
+ * 省略時は純粋な変換のみ行う（テスト容易性のため副作用なし）。
  */
-export function translateWasmError(rawError: string): string {
+export function translateWasmError(rawError: string, buildSha?: string | null): string {
   let msg: string;
   // マーカー検出失敗
   if (rawError.includes('マーカーが検出できませんでした')) {
@@ -64,9 +65,8 @@ export function translateWasmError(rawError: string): string {
     // その他のRustエラーもそのまま返す
     msg = rawError;
   }
-  const info = getWasmBuildInfo();
-  if (info) {
-    msg += ` [build: ${info.sha}]`;
+  if (buildSha) {
+    msg += ` [build: ${buildSha}]`;
   }
   return msg;
 }
@@ -112,7 +112,10 @@ export async function processImages(
     try {
       wasmResult = await processImageWasm(imageFiles[fi]);
     } catch (e) {
-      const msg = translateWasmError(e instanceof Error ? e.message : String(e));
+      const msg = translateWasmError(
+        e instanceof Error ? e.message : String(e),
+        getWasmBuildInfo()?.sha,
+      );
       callbacks.onMessage({
         type: 'error',
         text: `ファイル "${imageFiles[fi].name}" の処理に失敗しました: ${msg}`,

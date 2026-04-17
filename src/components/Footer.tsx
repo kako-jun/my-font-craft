@@ -1,27 +1,19 @@
-import { createSignal, onMount, Show } from 'solid-js';
+import { Show } from 'solid-js';
 import type { Page } from '../App';
-import { initWasm, getWasmBuildInfo } from '../lib/wasm/loader';
+import { wasmBuildInfo } from '../lib/wasm/loader';
 
 interface Props {
   onNavigate: (page: Page) => void;
 }
 
 export default function Footer(props: Props) {
-  const [buildLabel, setBuildLabel] = createSignal<string | null>(null);
-
-  onMount(async () => {
-    try {
-      await initWasm();
-      const info = getWasmBuildInfo();
-      if (info) {
-        const dt = new Date(Number(info.unixTs) * 1000);
-        const ymd = dt.toISOString().slice(0, 10);
-        setBuildLabel(`build ${info.sha} (${ymd})`);
-      }
-    } catch {
-      // WASM ロード失敗時は表示しない
-    }
-  });
+  // WASM はロードしない。他所で initWasm() が走ったらシグナルが立ち自動的に表示される
+  const buildLabel = () => {
+    const info = wasmBuildInfo();
+    if (!info) return null;
+    const ymd = new Date(Number(info.unixTs) * 1000).toISOString().slice(0, 10);
+    return `build ${info.sha} (${ymd})`;
+  };
 
   return (
     <footer class="footer">

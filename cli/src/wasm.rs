@@ -13,13 +13,14 @@ pub fn init() {
 }
 
 /// ビルド識別情報を JSON 文字列で返す
-/// JS 側: `{"sha":"abc1234","unixTs":"1713340000"}`
+/// JS 側: `{"sha":"abc1234","unixTs":"1713340000"}`（unixTs は秒単位の文字列）
 #[wasm_bindgen]
 pub fn build_info() -> String {
-    format!(
-        "{{\"sha\":\"{}\",\"unixTs\":\"{}\"}}",
-        BUILD_GIT_SHA, BUILD_UNIX_TS
-    )
+    serde_json::json!({
+        "sha": BUILD_GIT_SHA,
+        "unixTs": BUILD_UNIX_TS,
+    })
+    .to_string()
 }
 
 /// 画像バイト列を受け取り、処理結果をJSONで返す

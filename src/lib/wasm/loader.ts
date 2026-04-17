@@ -5,6 +5,8 @@
  * シングルトンで管理し、複数回呼ばれても初期化は1回だけ。
  */
 
+import { createSignal } from 'solid-js';
+
 // wasm-pack が生成するモジュールの型定義
 // 実際のファイルは cli/ で wasm-pack build 後に src/wasm/ に生成される
 interface MfcWasm {
@@ -13,17 +15,25 @@ interface MfcWasm {
   build_info: () => string;
 }
 
-/** Rust 側 build_info() の JSON 形式 */
+/** Rust 側 build_info() の JSON 形式（unixTs は秒単位の文字列） */
 export interface WasmBuildInfo {
   sha: string;
   unixTs: string;
 }
 
-let buildInfo: WasmBuildInfo | null = null;
+/**
+ * ビルド識別情報の Solid シグナル（意図的にモジュール初期化時の「グローバル」配置）。
+ *
+ * Footer 等が購読するだけで WASM ロードをトリガーしないようにするため、
+ * コンポーネント内の `createSignal` ではなくモジュールスコープで作っている。
+ * `initWasm()` が成功したタイミングで `setWasmBuildInfo()` される。
+ * owner 外の createSignal だが、グローバルシグナルの一般的パターンで Solid 上も問題なく動作する。
+ */
+export const [wasmBuildInfo, setWasmBuildInfo] = createSignal<WasmBuildInfo | null>(null);
 
-/** 初期化済みの WASM のビルド識別情報を返す（未初期化なら null） */
+/** 現在のビルド識別情報のスナップショットを返す（未初期化なら null） */
 export function getWasmBuildInfo(): WasmBuildInfo | null {
-  return buildInfo;
+  return wasmBuildInfo();
 }
 
 /** Rust側の ProcessedCell に対応 */
@@ -69,9 +79,10 @@ export async function initWasm(): Promise<void> {
     await mod.default();
     wasmModule = mod;
     try {
-      buildInfo = JSON.parse(mod.build_info()) as WasmBuildInfo;
-      const ts = new Date(Number(buildInfo.unixTs) * 1000).toISOString();
-      console.info(`[mfc] WASM build sha=${buildInfo.sha} built=${ts}`);
+      const info = JSON.parse(mod.build_info()) as WasmBuildInfo;
+      setWasmBuildInfo(info);
+      const ts = new Date(Number(info.unixTs) * 1000).toISOString();
+      console.info(`[mfc] WASM build sha=${info.sha} built=${ts}`);
     } catch (e) {
       console.warn('[mfc] build_info() の取得に失敗:', e);
     }
