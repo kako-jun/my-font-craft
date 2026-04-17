@@ -1,7 +1,8 @@
 /// 画像処理パイプライン（process サブコマンド + WASM用エントリポイント）
 use image::{DynamicImage, GrayImage, RgbaImage, Rgba};
 use serde::{Serialize, Deserialize};
-use crate::{layout, marker, perspective, qr, cell};
+use crate::{layout, marker, perspective, qr, cell, vectorizer};
+use crate::vectorizer::PathCommand;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
@@ -17,9 +18,11 @@ pub struct ProcessedCell {
     pub is_empty: bool,
     pub adopted: bool,
     pub cell_index: usize,
-    pub image_data: Vec<u8>,  // RGBA生データ
+    pub image_data: Vec<u8>,  // RGBA生データ（二値化済み: 白背景+黒ストローク）
     pub width: u32,
     pub height: u32,
+    /// ベジェパス配列（輪郭単位）。採用セルのみ埋める（空配列の場合あり）
+    pub paths: Vec<Vec<PathCommand>>,
 }
 
 /// パイプライン全体の処理結果
@@ -363,12 +366,21 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
     for cr in &char_results {
         let char_index = layout::grid_to_char_index(cr.row, cr.col);
         for slot in &cr.slots {
-            let cell_img = cell::extract_cell_image(&grid_removed, cr.row, cr.col, slot.cell_index);
-            let width = cell_img.width();
-            let height = cell_img.height();
-            let image_data = cell_img.into_raw();
-
+            // 生セルから「二値化済み RGBA」と「ベジェパス」を生成
+            // binarize_to_rgba と vectorize_glyph は同じ二値化パイプラインを通るので
+            // プレビュー画像とベクター化結果が一致する
+            let raw_cell = cell::extract_cell_image_raw(&grid_removed, cr.row, cr.col, slot.cell_index);
+            let binarized = vectorizer::binarize_to_rgba(&raw_cell);
             let adopted = cr.adopted.contains(&slot.cell_index);
+            let paths = if adopted {
+                vectorizer::vectorize_glyph(&raw_cell)
+            } else {
+                Vec::new()
+            };
+
+            let width = binarized.width();
+            let height = binarized.height();
+            let image_data = binarized.into_raw();
 
             cells.push(ProcessedCell {
                 row: cr.row,
@@ -380,6 +392,7 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
                 image_data,
                 width,
                 height,
+                paths,
             });
         }
     }

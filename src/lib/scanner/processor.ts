@@ -1,9 +1,8 @@
 import JSZip from 'jszip';
-import { processImageWasm, cellToImageData, cellToDataUrl, getWasmBuildInfo } from '../wasm/loader';
+import { processImageWasm, cellToDataUrl, getWasmBuildInfo } from '../wasm/loader';
 import type { WasmProcessedCell } from '../wasm/loader';
 import { getCharactersForPage } from '../../data/characters';
 import type { VectorGlyph } from '../font/builder';
-import { vectorizeGlyph } from '../vectorizer/contour';
 
 export interface ProcessMessage {
   type: 'info' | 'warning' | 'error' | 'success';
@@ -196,8 +195,8 @@ export async function processImages(
 
       for (let ai = 0; ai < adoptedCells.length; ai++) {
         const cell = adoptedCells[ai];
-        const imageData = cellToImageData(cell);
-        const paths = vectorizeGlyph(imageData);
+        // ベクター化は Rust 側で完結済み。WASM 出力の paths をそのまま使う
+        const paths = cell.paths;
 
         const name =
           ai === 0

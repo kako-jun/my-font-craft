@@ -72,9 +72,29 @@ pub fn extract_and_judge(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CharR
 
                 let (check_mark, check_density) = analyze_check_mark(&check_img);
 
+                // 生セル画像（従来互換）
+                let filename_raw = format!("R{row:02}C{col:02}_I{cell_idx}_raw.png");
+                cell_img.save(output_dir.join(&filename_raw))
+                    .map_err(|e| format!("セル保存エラー {filename_raw}: {e}"))?;
+
+                // 二値化済みセル画像（ベクター化と同じ前処理を通したもの）
+                let binarized = crate::vectorizer::binarize_to_rgba(&cell_img);
                 let filename = format!("R{row:02}C{col:02}_I{cell_idx}.png");
-                cell_img.save(output_dir.join(&filename))
+                binarized.save(output_dir.join(&filename))
                     .map_err(|e| format!("セル保存エラー {filename}: {e}"))?;
+
+                // ベジェパス（JSON + SVG）
+                let paths = crate::vectorizer::vectorize_glyph(&cell_img);
+                let json = serde_json::to_string_pretty(&paths)
+                    .map_err(|e| format!("paths JSONシリアライズエラー: {e}"))?;
+                let json_filename = format!("R{row:02}C{col:02}_I{cell_idx}_paths.json");
+                std::fs::write(output_dir.join(&json_filename), json)
+                    .map_err(|e| format!("paths JSON保存エラー {json_filename}: {e}"))?;
+
+                let svg = crate::vectorizer::paths_to_svg(&paths);
+                let svg_filename = format!("R{row:02}C{col:02}_I{cell_idx}_paths.svg");
+                std::fs::write(output_dir.join(&svg_filename), svg)
+                    .map_err(|e| format!("paths SVG保存エラー {svg_filename}: {e}"))?;
 
                 let check_filename = format!("R{row:02}C{col:02}_I{cell_idx}_check.png");
                 check_img.save(output_dir.join(&check_filename))
@@ -209,8 +229,8 @@ pub fn extract_and_judge_in_memory(img: &RgbaImage) -> Result<Vec<CharResult>, S
     Ok(results)
 }
 
-/// セル画像を切り出して返す（WASM用）
-pub fn extract_cell_image(img: &RgbaImage, row: usize, col: usize, cell_index: usize) -> RgbaImage {
+/// セル画像を切り出して返す（生RGBA、ベクター化前の内部処理用）
+pub fn extract_cell_image_raw(img: &RgbaImage, row: usize, col: usize, cell_index: usize) -> RgbaImage {
     let border_margin = 1.0;
     let crop_size = layout::CELL_SIZE - border_margin * 2.0;
     let crop_size_px = layout::mm_to_px(crop_size).round() as u32;
@@ -219,6 +239,13 @@ pub fn extract_cell_image(img: &RgbaImage, row: usize, col: usize, cell_index: u
     let crop_px_x = layout::mm_to_px(mm_x + border_margin).round() as u32;
     let crop_px_y = layout::mm_to_px(mm_y + border_margin).round() as u32;
     crop_region(img, crop_px_x, crop_px_y, crop_size_px, crop_size_px)
+}
+
+/// セル画像を切り出して二値化済み（白背景+黒ストローク）RGBA として返す
+/// JS プレビューと Rust のベクター化が同じ入力を使えるようにする
+pub fn extract_cell_image(img: &RgbaImage, row: usize, col: usize, cell_index: usize) -> RgbaImage {
+    let raw = extract_cell_image_raw(img, row, col, cell_index);
+    crate::vectorizer::binarize_to_rgba(&raw)
 }
 
 /// 採用判定: docs/template-spec.md の採用ルール
@@ -643,6 +670,21 @@ fn morphological_dilate(binary: &[u8], w: u32, h: u32) -> Vec<u8> {
     }
     out
 }
+
+// ── vectorizer モジュール向けの公開再エクスポート ──
+// cell.rs の内部ヘルパは pub(crate) だが、vectorizer から同一パイプラインで
+// 呼びたいので薄いラッパを用意する。
+pub(crate) fn rgba_to_gray_pub(img: &RgbaImage) -> Vec<u8> {
+    rgba_to_gray(img)
+}
+pub(crate) fn apply_clahe_pub(gray: &[u8], w: u32, h: u32) -> Vec<u8> {
+    apply_clahe(gray, w, h)
+}
+pub(crate) fn sauvola_binarize_pub(gray: &[u8], w: u32, h: u32, k: f64, window: u32) -> Vec<u8> {
+    sauvola_binarize(gray, w, h, k, window)
+}
+pub(crate) const SAUVOLA_K_PUB: f64 = SAUVOLA_K;
+pub(crate) const SAUVOLA_WINDOW_PUB: u32 = SAUVOLA_WINDOW;
 
 /// Opening(Erode→Dilate)→Closing(Dilate→Erode)の一連処理
 /// Opening: 小さな黒ノイズを除去、Closing: 小さな白ノイズを埋める

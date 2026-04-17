@@ -36,6 +36,24 @@ export function getWasmBuildInfo(): WasmBuildInfo | null {
   return wasmBuildInfo();
 }
 
+/**
+ * Rust 側 vectorizer::PathCommand と一致するベジェコマンド型
+ * serde の #[serde(tag = "type", rename = "M"|"L"|"C"|"Z")] で生成される
+ */
+export type WasmPathCommand =
+  | { type: 'M'; x: number; y: number }
+  | { type: 'L'; x: number; y: number }
+  | {
+      type: 'C';
+      x: number;
+      y: number;
+      cp1x: number;
+      cp1y: number;
+      cp2x: number;
+      cp2y: number;
+    }
+  | { type: 'Z'; x: number; y: number };
+
 /** Rust側の ProcessedCell に対応 */
 export interface WasmProcessedCell {
   row: number;
@@ -44,9 +62,11 @@ export interface WasmProcessedCell {
   is_empty: boolean;
   adopted: boolean;
   cell_index: number;
-  image_data: number[]; // RGBA raw bytes
+  image_data: number[]; // RGBA raw bytes（二値化済み: 白背景+黒ストローク）
   width: number;
   height: number;
+  /** 採用セルに対して Rust 側で生成されたベジェパス（輪郭単位の配列） */
+  paths: WasmPathCommand[][];
 }
 
 /** Rust側の ProcessResult に対応 */
