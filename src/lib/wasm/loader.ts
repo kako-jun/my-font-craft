@@ -22,8 +22,12 @@ export interface WasmBuildInfo {
 }
 
 /**
- * ビルド識別情報の Solid シグナル。
- * `initWasm()` が成功すると値がセットされる。subscribe するだけでは WASM ロードをトリガーしない。
+ * ビルド識別情報の Solid シグナル（意図的にモジュール初期化時の「グローバル」配置）。
+ *
+ * Footer 等が購読するだけで WASM ロードをトリガーしないようにするため、
+ * コンポーネント内の `createSignal` ではなくモジュールスコープで作っている。
+ * `initWasm()` が成功したタイミングで `setWasmBuildInfo()` される。
+ * owner 外の createSignal だが、グローバルシグナルの一般的パターンで Solid 上も問題なく動作する。
  */
 export const [wasmBuildInfo, setWasmBuildInfo] = createSignal<WasmBuildInfo | null>(null);
 

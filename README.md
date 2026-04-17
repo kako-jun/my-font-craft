@@ -51,7 +51,7 @@
 
 ## 不具合の報告
 
-うまく動かない場合は、ページ最下部のフッターに表示されている `build xxxxxxx (YYYY-MM-DD)` を添えて報告してください。エラー発生時のトーストメッセージにも `[build: xxxxxxx]` が付きます。どの版での問題かが特定でき、調査がスムーズになります。
+うまく動かない場合は [GitHub Issues](https://github.com/kako-jun/my-font-craft/issues) から報告してください。ページ最下部のフッターに表示されている `build xxxxxxx (YYYY-MM-DD)` を添えていただけると版が特定でき、調査がスムーズになります。エラー発生時のトーストメッセージにも `[build: xxxxxxx]` が付きます。
 
 ## 作者
 

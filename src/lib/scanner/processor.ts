@@ -114,7 +114,7 @@ export async function processImages(
     } catch (e) {
       const msg = translateWasmError(
         e instanceof Error ? e.message : String(e),
-        getWasmBuildInfo()?.sha ?? null,
+        getWasmBuildInfo()?.sha,
       );
       callbacks.onMessage({
         type: 'error',
