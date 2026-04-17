@@ -261,6 +261,9 @@ fn draw_dummy_glyphs(img: &mut RgbaImage) {
         (0, 2, 1, 0.5, true),
         // Row1 Col0: 片方だけ記入 → それを採用
         (1, 0, 0, 0.5, false),
+        // Row1 Col1: 両方記入、右に✓ → 右(I1)を採用
+        (1, 1, 0, 0.5, false),
+        (1, 1, 1, 0.5, true),
         // Row1 Col2: 両方空 → 採用なし（何も描画しない）
         // Row1 Col3: 小さい文字の検出限界テスト
         (1, 3, 0, 0.1, false),
