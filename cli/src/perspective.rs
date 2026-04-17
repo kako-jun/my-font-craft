@@ -212,3 +212,131 @@ fn apply_homography(h: &[f64; 9], x: f64, y: f64) -> (f64, f64) {
     let yp = (h[3] * x + h[4] * y + h[5]) / w;
     (xp, yp)
 }
+
+// ── TPS（Thin Plate Spline）ワープ ──
+//
+// ホモグラフィーは4点で厳密に決まり、平面→平面の射影を表現できるが、
+// カメラレンズの樽型／糸巻き型歪みによって紙面の中央が膨らむ／凹むケースは
+// どの4点を選んでも補正できない。
+//
+// TPSは制御点を厳密に通り、曲げエネルギーを最小化する滑らかな2変数スプラインを
+// 求める。中心マーカー1点を加えるだけだと中心は合うが上下端が引っ張られて
+// ズレるため、4辺中点も「ホモグラフィー後の理想位置（src=dst）」として制御点に
+// 含めて9点でフィットする。これで境界はホモグラフィーが効き、内部だけ
+// 中心マーカーで引き戻される。
+//
+// 参考: Bookstein 1989 "Principal Warps: Thin-Plate Splines and the
+// Decomposition of Deformations"
+
+/// N点TPSで img を再ワープする。
+///
+/// src_pts[i] は「補正後画像上の検出位置」、dst_pts[i] は「レイアウト期待位置」。
+/// dst 側の各ピクセルに対し、対応する src 側のサンプリング座標を TPS で求めて描く。
+pub fn tps_warp(img: &RgbaImage, src_pts: &[(f64, f64)], dst_pts: &[(f64, f64)]) -> RgbaImage {
+    assert_eq!(src_pts.len(), dst_pts.len(), "src と dst の点数が異なります");
+
+    let target_w = layout::image_width();
+    let target_h = layout::image_height();
+
+    // dst → src を TPS でフィット（x成分・y成分それぞれ独立）
+    let coef_x = fit_tps(dst_pts, src_pts, true);
+    let coef_y = fit_tps(dst_pts, src_pts, false);
+
+    let mut out = RgbaImage::new(target_w, target_h);
+    for dy in 0..target_h {
+        for dx in 0..target_w {
+            let sx = eval_tps(&coef_x, dst_pts, dx as f64, dy as f64);
+            let sy = eval_tps(&coef_y, dst_pts, dx as f64, dy as f64);
+            let pixel = sample_bilinear(img, sx, sy);
+            out.put_pixel(dx, dy, pixel);
+        }
+    }
+    out
+}
+
+/// TPSの基底関数 U(r) = r² ln(r²)。r=0では0とする。
+fn tps_u(r2: f64) -> f64 {
+    if r2 < 1e-12 { 0.0 } else { r2 * r2.ln() }
+}
+
+/// N点TPSの係数 [w_0..w_{N-1}, a_0, a_1, a_2] を求める。
+/// `use_x` が true のとき target[i].0（x成分）を、false のとき y成分をフィットする。
+fn fit_tps(ctrl: &[(f64, f64)], target: &[(f64, f64)], use_x: bool) -> Vec<f64> {
+    let n = ctrl.len();
+    let m = n + 3;
+    let mut l = vec![vec![0.0f64; m]; m];
+
+    // K: l[i][j] = U(|p_i - p_j|²)
+    for i in 0..n {
+        for j in 0..n {
+            let dx = ctrl[i].0 - ctrl[j].0;
+            let dy = ctrl[i].1 - ctrl[j].1;
+            l[i][j] = tps_u(dx * dx + dy * dy);
+        }
+    }
+    // P (n x 3) 右上と P^T (3 x n) 左下
+    for i in 0..n {
+        l[i][n] = 1.0;
+        l[i][n + 1] = ctrl[i].0;
+        l[i][n + 2] = ctrl[i].1;
+        l[n][i] = 1.0;
+        l[n + 1][i] = ctrl[i].0;
+        l[n + 2][i] = ctrl[i].1;
+    }
+
+    let mut rhs = vec![0.0f64; m];
+    for i in 0..n {
+        rhs[i] = if use_x { target[i].0 } else { target[i].1 };
+    }
+
+    solve_linear(l, rhs)
+}
+
+/// TPSを評価: f(p) = a_0 + a_1 x + a_2 y + Σ w_i U(|p - p_i|²)
+fn eval_tps(coef: &[f64], ctrl: &[(f64, f64)], x: f64, y: f64) -> f64 {
+    let n = ctrl.len();
+    let mut r = coef[n] + coef[n + 1] * x + coef[n + 2] * y;
+    for i in 0..n {
+        let dx = x - ctrl[i].0;
+        let dy = y - ctrl[i].1;
+        r += coef[i] * tps_u(dx * dx + dy * dy);
+    }
+    r
+}
+
+/// 部分ピボット付きガウス消去。特異な場合は零ベクトルを返す。
+fn solve_linear(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Vec<f64> {
+    let n = a.len();
+    for col in 0..n {
+        let mut max_row = col;
+        let mut max_val = a[col][col].abs();
+        for row in (col + 1)..n {
+            if a[row][col].abs() > max_val {
+                max_val = a[row][col].abs();
+                max_row = row;
+            }
+        }
+        a.swap(col, max_row);
+        b.swap(col, max_row);
+        let pivot = a[col][col];
+        if pivot.abs() < 1e-12 {
+            return vec![0.0; n];
+        }
+        for row in (col + 1)..n {
+            let factor = a[row][col] / pivot;
+            for j in col..n {
+                a[row][j] -= factor * a[col][j];
+            }
+            b[row] -= factor * b[col];
+        }
+    }
+    let mut x = vec![0.0f64; n];
+    for col in (0..n).rev() {
+        let mut sum = b[col];
+        for j in (col + 1)..n {
+            sum -= a[col][j] * x[j];
+        }
+        x[col] = sum / a[col][col];
+    }
+    x
+}

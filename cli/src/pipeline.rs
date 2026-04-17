@@ -1,11 +1,31 @@
 /// 画像処理パイプライン（process サブコマンド + WASM用エントリポイント）
-use image::{DynamicImage, GrayImage, RgbaImage, Rgba};
+use image::{DynamicImage, GrayImage, RgbaImage, Rgba, ImageReader, ImageDecoder};
+use image::metadata::Orientation;
 use serde::{Serialize, Deserialize};
 use crate::{layout, marker, perspective, qr, cell, vectorizer};
 use crate::vectorizer::PathCommand;
 
+use std::io::{BufRead, Cursor, Seek};
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
+
+/// ImageReader からデコードし、Exif の Orientation を適用して RGBA を返す。
+///
+/// スマホ撮影（特に Android 縦撮り）では画像本体ではなく Exif 側に回転が記録される。
+/// image クレートは `open()`/`load_from_memory()` でこれを自動適用しないため、ここで明示的に処理する。
+fn decode_oriented_rgba<R: BufRead + Seek>(reader: ImageReader<R>) -> Result<RgbaImage, String> {
+    let mut decoder = reader
+        .into_decoder()
+        .map_err(|e| format!("デコーダ初期化エラー: {e}"))?;
+    let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
+    let mut img = DynamicImage::from_decoder(decoder)
+        .map_err(|e| format!("画像デコードエラー: {e}"))?;
+    if orientation != Orientation::NoTransforms {
+        log!("  Exif Orientation 適用: {orientation:?}");
+        img.apply_orientation(orientation);
+    }
+    Ok(img.into_rgba8())
+}
 
 // ── WASM公開用の結果型 ──
 
@@ -87,9 +107,11 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
 
     // ステップ1: 画像読み込み
     log!("\n=== ステップ1: 画像読み込み ===");
-    let img = image::open(image_path)
-        .map_err(|e| format!("画像読み込みエラー: {e}"))?;
-    let rgba = img.to_rgba8();
+    let reader = ImageReader::open(image_path)
+        .map_err(|e| format!("画像読み込みエラー: {e}"))?
+        .with_guessed_format()
+        .map_err(|e| format!("画像フォーマット推定エラー: {e}"))?;
+    let rgba = decode_oriented_rgba(reader)?;
     log!("  画像サイズ: {}x{}", rgba.width(), rgba.height());
     rgba.save(output_dir.join("01_input.png"))
         .map_err(|e| format!("保存エラー: {e}"))?;
@@ -185,9 +207,32 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
     log!("\n=== ステップ6.6: 中心マーカー検証 ===");
     verify_center_marker(&corrected);
 
+    // ステップ6.6.5: レンズ歪み補正（5点TPS）
+    // 4隅はホモグラフィーで合わせたが、中心がレンズの樽／糸巻き歪みでズレて
+    // いるケース（スマホ広角レンズ、紙面までの距離が近い撮影）に対応する。
+    log!("\n=== ステップ6.6.5: レンズ歪み補正（5点TPS） ===");
+    let (corrected, tps_applied) = apply_lens_tps_correction(corrected);
+    if tps_applied {
+        corrected
+            .save(output_dir.join("05d_tps_corrected.png"))
+            .map_err(|e| format!("保存エラー: {e}"))?;
+        log!("  → 05d_tps_corrected.png 保存完了");
+        log!("\n=== ステップ6.6.6: TPS後の中心マーカー残差 ===");
+        verify_center_marker(&corrected);
+    } else {
+        log!("  TPS補正はスキップ（中心残差が閾値以下、または再検出失敗）");
+    }
+
     // ステップ6.7: 罫線直交性チェック＋微小回転補正
-    log!("\n=== ステップ6.7: 罫線直交性チェック ===");
-    let corrected = apply_orthogonality_correction_cli(corrected, output_dir);
+    // TPS適用後は5点を厳密に合わせている。中心軸まわりの微小回転を加えると
+    // 端部（マーカー位置）がズレてレイアウト前提を壊すため、TPS後はスキップ。
+    let corrected = if tps_applied {
+        log!("\n=== ステップ6.7: 罫線直交性チェック（TPS適用済みのためスキップ） ===");
+        corrected
+    } else {
+        log!("\n=== ステップ6.7: 罫線直交性チェック ===");
+        apply_orthogonality_correction_cli(corrected, output_dir)
+    };
 
     // ステップ7: QR読み取り
     log!("\n=== ステップ7: QR読み取り ===");
@@ -255,9 +300,10 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
 pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
     // ステップ1: 画像デコード
     log!("=== ステップ1: 画像デコード ===");
-    let img = image::load_from_memory(bytes)
-        .map_err(|e| format!("画像デコードエラー: {e}"))?;
-    let rgba = img.to_rgba8();
+    let reader = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| format!("画像フォーマット推定エラー: {e}"))?;
+    let rgba = decode_oriented_rgba(reader)?;
     log!("  画像サイズ: {}x{}", rgba.width(), rgba.height());
 
     // ステップ2: 二値化
@@ -327,9 +373,21 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
     log!("=== 中心マーカー検証 ===");
     verify_center_marker(&corrected);
 
-    // ステップ6.7: 罫線直交性チェック
-    log!("=== 罫線直交性チェック ===");
-    let corrected = apply_orthogonality_correction_wasm(corrected);
+    // ステップ6.6.5: レンズ歪み補正（5点TPS）
+    log!("=== レンズ歪み補正（5点TPS） ===");
+    let (corrected, tps_applied) = apply_lens_tps_correction(corrected);
+    if tps_applied {
+        verify_center_marker(&corrected);
+    }
+
+    // ステップ6.7: 罫線直交性チェック（TPS適用後はスキップ — 端部ズレ防止）
+    let corrected = if tps_applied {
+        log!("=== 罫線直交性チェック（TPS適用済みのためスキップ） ===");
+        corrected
+    } else {
+        log!("=== 罫線直交性チェック ===");
+        apply_orthogonality_correction_wasm(corrected)
+    };
 
     // ステップ7: QR読み取り
     log!("=== QR読み取り ===");
@@ -663,6 +721,88 @@ fn verify_correction_quality_cli(corrected: &RgbaImage, output_dir: &Path) -> Op
             None
         }
     }
+}
+
+/// 中心マーカーを再検出し、残差が閾値超なら5点TPSで再ワープする（CLI/WASM共通）。
+///
+/// 戻り値: (補正後画像, TPSを実際に適用したか)
+///
+/// 4隅マーカーはホモグラフィーで合わせ切れているが、中心がズレているケース
+/// （= カメラのレンズ歪み）だけを対象にする。ここでTPSを効かせすぎると
+/// むしろノイズを拾うので、1.0mm 以下なら何もしない。
+fn apply_lens_tps_correction(corrected: RgbaImage) -> (RgbaImage, bool) {
+    let gray = DynamicImage::ImageRgba8(corrected.clone()).into_luma8();
+    let threshold = marker::otsu_threshold(&gray);
+    let binary = marker::binarize(&gray, threshold);
+
+    let Some(center_detected) = marker::detect_center_marker(&binary) else {
+        log!("  中心マーカー未検出 — TPS補正をスキップ");
+        return (corrected, false);
+    };
+
+    let (exp_cx_mm, exp_cy_mm) = layout::center_marker_center();
+    let exp_cx = layout::mm_to_px(exp_cx_mm);
+    let exp_cy = layout::mm_to_px(exp_cy_mm);
+    let dcx = center_detected.cx - exp_cx;
+    let dcy = center_detected.cy - exp_cy;
+    let err_mm = (dcx * dcx + dcy * dcy).sqrt() / layout::mm_to_px(1.0);
+
+    // ホモグラフィーで十分ならTPSは入れない（画質安定優先）
+    if err_mm <= 1.0 {
+        log!("  中心残差 {err_mm:.2}mm — TPS補正は不要");
+        return (corrected, false);
+    }
+
+    let corners = match marker::detect_markers(&binary, &gray) {
+        Ok(c) => c,
+        Err(e) => {
+            log!("  ⚠ 4隅マーカー再検出失敗 ({e}) — TPS補正をスキップ");
+            return (corrected, false);
+        }
+    };
+
+    let marker_defs = [
+        layout::MARKER_TL,
+        layout::MARKER_TR,
+        layout::MARKER_BL,
+        layout::MARKER_BR,
+    ];
+
+    // 4隅 → ホモグラフィー後の検出位置と期待位置
+    let mut corner_src = [(0.0, 0.0); 4];
+    let mut corner_dst = [(0.0, 0.0); 4];
+    for i in 0..4 {
+        corner_src[i] = (corners[i].cx, corners[i].cy);
+        let (cx, cy) = layout::marker_center(&marker_defs[i]);
+        corner_dst[i] = (layout::mm_to_px(cx), layout::mm_to_px(cy));
+    }
+
+    // 4辺中点を制御点として追加。
+    // ホモグラフィー後は紙面の辺は直線として保たれているはずなので、
+    // src（検出側）も dst（期待側）も「対応する2隅の中点」として固定する。
+    // これで境界部はホモグラフィー精度のまま固定され、TPSの引き戻しは
+    // 紙面内側にだけ作用する。
+    let mid = |a: (f64, f64), b: (f64, f64)| ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0);
+    let src_pts: Vec<(f64, f64)> = vec![
+        corner_src[0], corner_src[1], corner_src[2], corner_src[3],
+        mid(corner_src[0], corner_src[1]), // top
+        mid(corner_src[2], corner_src[3]), // bottom
+        mid(corner_src[0], corner_src[2]), // left
+        mid(corner_src[1], corner_src[3]), // right
+        (center_detected.cx, center_detected.cy),
+    ];
+    let dst_pts: Vec<(f64, f64)> = vec![
+        corner_dst[0], corner_dst[1], corner_dst[2], corner_dst[3],
+        mid(corner_dst[0], corner_dst[1]),
+        mid(corner_dst[2], corner_dst[3]),
+        mid(corner_dst[0], corner_dst[2]),
+        mid(corner_dst[1], corner_dst[3]),
+        (exp_cx, exp_cy),
+    ];
+
+    log!("  中心残差 {err_mm:.2}mm — 9点TPS（4隅+4辺中点+中心）でレンズ歪み補正を適用");
+    let warped = perspective::tps_warp(&corrected, &src_pts, &dst_pts);
+    (warped, true)
 }
 
 /// 中心マーカー検証（CLI/WASM共通）

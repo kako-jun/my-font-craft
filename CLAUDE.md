@@ -82,7 +82,9 @@ my-font-craft/
 ### 2. 画像処理 (`src/lib/scanner/`)
 
 - QRコード読み取り（jsQR）
+- Exif Orientation 自動適用（スマホ縦撮り対応、ImageReader 経由）
 - 台形補正（四隅マーカー）
+- レンズ歪み補正（中心残差>1mm で 9点TPS — 4隅+4辺中点+中心）
 - 色補正（グレースケールバー基準）
 - シアン除去
 - マス切り出し
