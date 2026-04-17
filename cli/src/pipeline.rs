@@ -322,7 +322,12 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
     let (page_number, total_pages) = match read_qr_from_corrected_wasm(&corrected) {
         Ok(data) => {
             log!("  QRデータ: {data}");
-            parse_qr_page_info(&data)
+            let parsed = parse_qr_page_info(&data);
+            if parsed == (None, None) {
+                let preview: String = data.chars().take(80).collect();
+                log!("  ⚠ QRデータをパースできませんでした（page_numberなし）: {preview}");
+            }
+            parsed
         }
         Err(e) => {
             log!("  QR読み取り失敗（続行）: {e}");
@@ -400,8 +405,8 @@ fn parse_qr_page_info(data: &str) -> (Option<u32>, Option<u32>) {
     // v2: JSON 形式
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
         if v.get("p").and_then(|x| x.as_str()) == Some("mfc") {
-            let page = v.get("pg").and_then(|x| x.as_u64()).map(|n| n as u32);
-            let total = v.get("t").and_then(|x| x.as_u64()).map(|n| n as u32);
+            let page = v.get("pg").and_then(|x| x.as_u64()).and_then(|n| u32::try_from(n).ok());
+            let total = v.get("t").and_then(|x| x.as_u64()).and_then(|n| u32::try_from(n).ok());
             return (page, total);
         }
     }
@@ -456,6 +461,22 @@ mod qr_parse_tests {
         let (p, t) = parse_qr_page_info(r#"{"p":"mfc"}"#);
         assert_eq!(p, None);
         assert_eq!(t, None);
+    }
+
+    #[test]
+    fn v2_json_missing_p_key() {
+        // p キー自体が無い場合（将来 TS 側がキー名を変えた時の回帰検知）
+        let (p, t) = parse_qr_page_info(r#"{"product":"mfc","pg":1,"t":2}"#);
+        assert_eq!(p, None);
+        assert_eq!(t, None);
+    }
+
+    #[test]
+    fn v2_json_overflow_u32() {
+        // u32::MAX 超の値は try_from で弾かれて None になる
+        let (p, t) = parse_qr_page_info(r#"{"p":"mfc","pg":4294967296,"t":2}"#);
+        assert_eq!(p, None);
+        assert_eq!(t, Some(2));
     }
 
     #[test]
