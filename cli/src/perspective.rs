@@ -340,3 +340,75 @@ fn solve_linear(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Vec<f64> {
     }
     x
 }
+
+// ── テスト ──
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 恒等 TPS: src == dst の9点でフィットすると、任意の点で f(x,y) = x / y を返すはず
+    /// （= 重み w_i がすべて 0、アフィン部が identity）
+    #[test]
+    fn tps_identity_returns_input() {
+        let pts: Vec<(f64, f64)> = vec![
+            (82.7, 82.7),   (2421.3, 82.7),  (82.7, 3436.0), (2421.3, 3436.0),
+            (1252.0, 82.7), (1252.0, 3436.0),(82.7, 1759.4), (2421.3, 1759.4),
+            (1252.0, 1771.7),
+        ];
+        let coef_x = fit_tps(&pts, &pts, true);
+        let coef_y = fit_tps(&pts, &pts, false);
+
+        // 制御点・非制御点いずれでも src = dst になるはず
+        for &(tx, ty) in &[(100.0, 200.0), (1500.0, 800.0), (82.7, 82.7), (1252.0, 1771.7)] {
+            let sx = eval_tps(&coef_x, &pts, tx, ty);
+            let sy = eval_tps(&coef_y, &pts, tx, ty);
+            assert!((sx - tx).abs() < 1e-4, "identity TPS: x {tx} -> {sx}");
+            assert!((sy - ty).abs() < 1e-4, "identity TPS: y {ty} -> {sy}");
+        }
+    }
+
+    /// TPS は制御点で厳密に target 値を取るべき（補間性）
+    #[test]
+    fn tps_passes_through_control_points() {
+        let dst: Vec<(f64, f64)> = vec![
+            (0.0, 0.0), (100.0, 0.0), (0.0, 100.0), (100.0, 100.0), (50.0, 50.0),
+        ];
+        let src: Vec<(f64, f64)> = vec![
+            (0.0, 0.0), (100.0, 0.0), (0.0, 100.0), (100.0, 100.0), (40.0, 60.0), // 中心だけズラす
+        ];
+        let coef_x = fit_tps(&dst, &src, true);
+        let coef_y = fit_tps(&dst, &src, false);
+
+        for i in 0..dst.len() {
+            let sx = eval_tps(&coef_x, &dst, dst[i].0, dst[i].1);
+            let sy = eval_tps(&coef_y, &dst, dst[i].0, dst[i].1);
+            assert!(
+                (sx - src[i].0).abs() < 1e-6 && (sy - src[i].1).abs() < 1e-6,
+                "TPS should interpolate at control point {i}: got ({sx},{sy}), want ({},{})",
+                src[i].0, src[i].1
+            );
+        }
+    }
+
+    /// ガウス消去ソルバの動作確認（2x2 の閉形式ケース）
+    #[test]
+    fn solve_linear_small_case() {
+        // | 2 1 | |x|   |5|      x=2, y=1
+        // | 1 3 | |y| = |5|
+        let a = vec![vec![2.0, 1.0], vec![1.0, 3.0]];
+        let b = vec![5.0, 5.0];
+        let x = solve_linear(a, b);
+        assert!((x[0] - 2.0).abs() < 1e-9);
+        assert!((x[1] - 1.0).abs() < 1e-9);
+    }
+
+    /// U(r²) は r=0 で 0 を返し、r>0 で単調増加
+    #[test]
+    fn tps_u_basis_properties() {
+        assert_eq!(tps_u(0.0), 0.0);
+        assert_eq!(tps_u(1e-13), 0.0); // 数値安定化のしきい値内
+        assert!(tps_u(4.0) < tps_u(9.0));
+        assert!(tps_u(9.0) < tps_u(16.0));
+    }
+}

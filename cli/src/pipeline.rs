@@ -17,6 +17,8 @@ fn decode_oriented_rgba<R: BufRead + Seek>(reader: ImageReader<R>) -> Result<Rgb
     let mut decoder = reader
         .into_decoder()
         .map_err(|e| format!("デコーダ初期化エラー: {e}"))?;
+    // Exif が無い・壊れている場合は NoTransforms で続行（ユーザ撮影画像では
+    // Exif チャンク欠損が十分にあり得るため、ここではエラーにしたくない）
     let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
     let mut img = DynamicImage::from_decoder(decoder)
         .map_err(|e| format!("画像デコードエラー: {e}"))?;
@@ -207,10 +209,10 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
     log!("\n=== ステップ6.6: 中心マーカー検証 ===");
     verify_center_marker(&corrected);
 
-    // ステップ6.6.5: レンズ歪み補正（5点TPS）
+    // ステップ6.6.5: レンズ歪み補正（9点TPS）
     // 4隅はホモグラフィーで合わせたが、中心がレンズの樽／糸巻き歪みでズレて
     // いるケース（スマホ広角レンズ、紙面までの距離が近い撮影）に対応する。
-    log!("\n=== ステップ6.6.5: レンズ歪み補正（5点TPS） ===");
+    log!("\n=== ステップ6.6.5: レンズ歪み補正（9点TPS） ===");
     let (corrected, tps_applied) = apply_lens_tps_correction(corrected);
     if tps_applied {
         corrected
@@ -219,12 +221,10 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
         log!("  → 05d_tps_corrected.png 保存完了");
         log!("\n=== ステップ6.6.6: TPS後の中心マーカー残差 ===");
         verify_center_marker(&corrected);
-    } else {
-        log!("  TPS補正はスキップ（中心残差が閾値以下、または再検出失敗）");
     }
 
     // ステップ6.7: 罫線直交性チェック＋微小回転補正
-    // TPS適用後は5点を厳密に合わせている。中心軸まわりの微小回転を加えると
+    // TPS適用後は9点を厳密に合わせている。中心軸まわりの微小回転を加えると
     // 端部（マーカー位置）がズレてレイアウト前提を壊すため、TPS後はスキップ。
     let corrected = if tps_applied {
         log!("\n=== ステップ6.7: 罫線直交性チェック（TPS適用済みのためスキップ） ===");
@@ -373,8 +373,8 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
     log!("=== 中心マーカー検証 ===");
     verify_center_marker(&corrected);
 
-    // ステップ6.6.5: レンズ歪み補正（5点TPS）
-    log!("=== レンズ歪み補正（5点TPS） ===");
+    // ステップ6.6.5: レンズ歪み補正（9点TPS）
+    log!("=== レンズ歪み補正（9点TPS） ===");
     let (corrected, tps_applied) = apply_lens_tps_correction(corrected);
     if tps_applied {
         verify_center_marker(&corrected);
@@ -723,7 +723,7 @@ fn verify_correction_quality_cli(corrected: &RgbaImage, output_dir: &Path) -> Op
     }
 }
 
-/// 中心マーカーを再検出し、残差が閾値超なら5点TPSで再ワープする（CLI/WASM共通）。
+/// 中心マーカーを再検出し、残差が閾値超なら9点TPSで再ワープする（CLI/WASM共通）。
 ///
 /// 戻り値: (補正後画像, TPSを実際に適用したか)
 ///
