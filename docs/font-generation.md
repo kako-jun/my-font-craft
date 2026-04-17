@@ -114,28 +114,29 @@ const arrayBuffer = font.toArrayBuffer();
 
 ### パスの変換
 
-ベクター化されたデータをopentype.jsのPathオブジェクトに変換:
+Rust 側（`cli/src/vectorizer.rs`）がランレングス方式で生成した `PathCommand[][]` を
+opentype.js の Path オブジェクトに変換する。各パスは矩形（M→L→L→L→Z）で、
+二値化画像の黒ピクセル連続区間に対応する。
 
 ```typescript
-function convertToOpentypePath(vectorData: VectorData): opentype.Path {
-  const path = new opentype.Path();
-
-  for (const contour of vectorData.contours) {
-    path.moveTo(contour[0].x, contour[0].y);
-
-    for (let i = 1; i < contour.length; i++) {
-      const point = contour[i];
-      if (point.type === 'line') {
-        path.lineTo(point.x, point.y);
-      } else if (point.type === 'curve') {
-        path.bezierCurveTo(point.cp1x, point.cp1y, point.cp2x, point.cp2y, point.x, point.y);
-      }
+// builder.ts での実際の変換
+for (const sub of glyph.paths) {
+  for (const cmd of sub) {
+    switch (cmd.type) {
+      case 'M':
+        path.moveTo(cmd.x, cmd.y);
+        break;
+      case 'L':
+        path.lineTo(cmd.x, cmd.y);
+        break;
+      case 'C':
+        path.bezierCurveTo(cmd.cp1x, cmd.cp1y, cmd.cp2x, cmd.cp2y, cmd.x, cmd.y);
+        break;
+      case 'Z':
+        path.closePath();
+        break;
     }
-
-    path.closePath();
   }
-
-  return path;
 }
 ```
 

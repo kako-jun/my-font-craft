@@ -90,11 +90,11 @@ my-font-craft/
 
 詳細: [docs/image-processing.md](./docs/image-processing.md)
 
-### 3. ベクター化 (`src/lib/vectorizer/`)
+### 3. ベクター化 (`cli/src/vectorizer.rs`)
 
-- 輪郭抽出
-- ビットマップ → ベクター変換
-- ベジェ曲線変換
+- ランレングス方式: 二値化画像の黒ピクセル連続区間を矩形パスに変換
+- 2x アップスケール → ランレングス抽出 → 縦方向マージ（±2px 許容）
+- 二値化画像と100%同じ見た目を保証
 
 詳細: [docs/font-generation.md](./docs/font-generation.md)
 
