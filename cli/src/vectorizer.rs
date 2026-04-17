@@ -125,17 +125,41 @@ pub fn vectorize_glyph(img: &RgbaImage) -> Vec<Vec<PathCommand>> {
         rects.push((xs, y0, xe, y_end));
     }
 
-    // 7: フォント座標に変換してパス生成（アップスケール後のサイズを基準にする）
-    let scale = GLYPH_HEIGHT / uh as f64;
-    let offset_x = (UNITS_PER_EM - uw as f64 * scale) / 2.0;
+    if rects.is_empty() {
+        return Vec::new();
+    }
+
+    // 7: タイトバウンディングボックス検出（#53 Phase 1）
+    // 黒ピクセル（= 矩形）の min/max を取り、余白をトリミングしてから em-square にフィットさせる。
+    // セルに対して小さく書かれた文字・端に寄った文字も em-square 中央に揃えられる。
+    let bx_min = rects.iter().map(|r| r.0).min().unwrap() as f64;
+    let by_min = rects.iter().map(|r| r.1).min().unwrap() as f64;
+    let bx_max = rects.iter().map(|r| r.2).max().unwrap() as f64;
+    let by_max = rects.iter().map(|r| r.3).max().unwrap() as f64;
+    let bbox_w = bx_max - bx_min;
+    let bbox_h = by_max - by_min;
+    if bbox_w < 1.0 || bbox_h < 1.0 {
+        return Vec::new();
+    }
+
+    // 8: em-square フィット（#53 Phase 2）
+    // アスペクト比を保ったまま bbox 長辺が TARGET_SIZE になるようスケール。em-square 中央に配置。
+    // 日本語フォントの慣例に合わせ左右上下に均等マージンを残す（TARGET_SIZE < GLYPH_HEIGHT）。
+    const TARGET_SIZE: f64 = 750.0;
+    let scale = TARGET_SIZE / bbox_w.max(bbox_h);
+    let final_w = bbox_w * scale;
+    let final_h = bbox_h * scale;
+    let offset_x = (UNITS_PER_EM - final_w) / 2.0;
+    let offset_y = (GLYPH_HEIGHT - final_h) / 2.0;
 
     let paths: Vec<Vec<PathCommand>> = rects
         .iter()
         .map(|&(xs, ys, xe, ye)| {
-            let fx0 = (xs as f64 * scale + offset_x).round();
-            let fx1 = (xe as f64 * scale + offset_x).round();
-            let fy_top = (GLYPH_HEIGHT - ys as f64 * scale).round();
-            let fy_bot = (GLYPH_HEIGHT - ye as f64 * scale).round();
+            let fx0 = ((xs as f64 - bx_min) * scale + offset_x).round();
+            let fx1 = ((xe as f64 - bx_min) * scale + offset_x).round();
+            // Y は画像座標(Y下向き)をフォント座標(Y上向き)に反転しつつ bbox 基点で再配置
+            let fy_top = (offset_y + final_h - (ys as f64 - by_min) * scale).round();
+            let fy_bot = (offset_y + final_h - (ye as f64 - by_min) * scale).round();
 
             vec![
                 PathCommand::MoveTo { x: fx0, y: fy_top },
