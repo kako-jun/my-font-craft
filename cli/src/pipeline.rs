@@ -1200,9 +1200,13 @@ fn erase_grid_lines(img: &RgbaImage) -> RgbaImage {
 /// 水平罫線を白で塗りつぶす
 /// 白塗り対象ピクセルか判定: 暗い（= 黒インク）は保護する
 /// シアン枠は彩度が高くても輝度も高めなので、この閾値で除去できる
+/// 注意: erase_grid_lines は normalize_paper_white の後に走るため、
+/// 紙色は ≈255 まで持ち上がっている。黒インクは ~30→~40 程度なので
+/// 閾値 150 は十分な安全マージン。薄鉛筆等は normalize で 200+ に
+/// 寄るため白塗りされる可能性があるが、そもそも Sauvola で拾えない濃度なので実害なし
 fn is_overpaintable(p: &Rgba<u8>) -> bool {
     let lum = p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114;
-    lum >= 150 * 1000 // 輝度 150/255 以上なら塗ってよい（黒インクは保護）
+    lum >= 150 * 1000 // 輝度 150/255 以上なら塗ってよい
 }
 
 fn erase_horizontal_line(img: &mut RgbaImage, x_mm: f64, y_mm: f64, width_mm: f64, margin_px: u32) {

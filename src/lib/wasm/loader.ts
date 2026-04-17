@@ -149,25 +149,26 @@ export function cellToDataUrl(cell: WasmProcessedCell): string {
 
 /**
  * ベジェパスを SVG Data URL に変換する（TTF に近い見た目のプレビュー用）
- * 座標系: Rust 側は UNITS_PER_EM=1000, GLYPH_HEIGHT=800、y は上向き
- * SVG は y が下向きなので変換する
+ * 座標系: Rust 側 normalize_contour は x ∈ [0, UNITS_PER_EM], y ∈ [0, GLYPH_HEIGHT] で
+ *   font 座標（y 上向き）を出力する。SVG は y 下向きなので反転する。
+ * viewBox は GLYPH_HEIGHT に揃えてグリフ本体を枠いっぱいに配置する
  */
 export function pathsToSvgDataUrl(paths: WasmPathCommand[][]): string {
   const UNITS_PER_EM = 1000;
+  const GLYPH_HEIGHT = 800;
+  const flipY = (y: number) => GLYPH_HEIGHT - y;
   const d: string[] = [];
   for (const sub of paths) {
     for (const c of sub) {
       switch (c.type) {
         case 'M':
-          d.push(`M${c.x},${UNITS_PER_EM - c.y}`);
+          d.push(`M${c.x},${flipY(c.y)}`);
           break;
         case 'L':
-          d.push(`L${c.x},${UNITS_PER_EM - c.y}`);
+          d.push(`L${c.x},${flipY(c.y)}`);
           break;
         case 'C':
-          d.push(
-            `C${c.cp1x},${UNITS_PER_EM - c.cp1y} ${c.cp2x},${UNITS_PER_EM - c.cp2y} ${c.x},${UNITS_PER_EM - c.y}`,
-          );
+          d.push(`C${c.cp1x},${flipY(c.cp1y)} ${c.cp2x},${flipY(c.cp2y)} ${c.x},${flipY(c.y)}`);
           break;
         case 'Z':
           d.push('Z');
@@ -175,6 +176,6 @@ export function pathsToSvgDataUrl(paths: WasmPathCommand[][]): string {
       }
     }
   }
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${UNITS_PER_EM} ${UNITS_PER_EM}" preserveAspectRatio="xMidYMid meet"><path d="${d.join(' ')}" fill="black" fill-rule="evenodd"/></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${UNITS_PER_EM} ${GLYPH_HEIGHT}" preserveAspectRatio="xMidYMid meet"><path d="${d.join(' ')}" fill="black" fill-rule="evenodd"/></svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }

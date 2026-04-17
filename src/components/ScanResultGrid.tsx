@@ -12,26 +12,9 @@ export default function ScanResultGrid(props: Props) {
   const [modalImage, setModalImage] = createSignal<string | null>(null);
   const [modalTitle, setModalTitle] = createSignal('');
 
-  // 長押しで拡大。スマホでも動作させるため pointer イベントで実装
+  // 長押しで拡大（スマホ対応、pointer イベント）
+  // state はセル毎に持たせず、グリッド全体で「今押下中の1つ」のみを追う
   const LONG_PRESS_MS = 450;
-  let pressTimer: ReturnType<typeof setTimeout> | null = null;
-  let longPressFired = false;
-  const clearPressTimer = () => {
-    if (pressTimer !== null) {
-      clearTimeout(pressTimer);
-      pressTimer = null;
-    }
-  };
-  const startPress = (src: string | undefined, title: string) => {
-    longPressFired = false;
-    clearPressTimer();
-    if (!src) return;
-    pressTimer = setTimeout(() => {
-      longPressFired = true;
-      openModal(src, title);
-      pressTimer = null;
-    }, LONG_PRESS_MS);
-  };
 
   // ページごとにグループ化
   const pageGroups = createMemo(() => {
@@ -149,9 +132,30 @@ export default function ScanResultGrid(props: Props) {
                   {(gs) => {
                     const excluded = () => isExcluded(gs.char);
                     const canToggle = () => gs.status !== 'empty' && props.onToggleExclude;
+                    // セル毎の長押し状態（For のスコープ内でキャプチャ）
+                    let pressTimer: ReturnType<typeof setTimeout> | null = null;
+                    let longPressFired = false;
+                    const clearPressTimer = () => {
+                      if (pressTimer !== null) {
+                        clearTimeout(pressTimer);
+                        pressTimer = null;
+                      }
+                    };
+                    const title = () =>
+                      `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')})`;
+                    const handleEnterOrSpace = (e: KeyboardEvent) => {
+                      if (e.key !== 'Enter' && e.key !== ' ') return;
+                      e.preventDefault();
+                      if (canToggle()) {
+                        props.onToggleExclude!(gs.char);
+                      } else if (gs.cellImageDataUrl) {
+                        openModal(gs.cellImageDataUrl, title());
+                      }
+                    };
                     return (
                       <div
                         class="scan-grid__cell"
+                        tabIndex={0}
                         classList={{
                           'scan-grid__cell--found': gs.status === 'found' && !excluded(),
                           'scan-grid__cell--empty': gs.status === 'empty',
@@ -162,18 +166,25 @@ export default function ScanResultGrid(props: Props) {
                           excluded()
                             ? `${gs.char} — 除外中（タップで復帰 / 長押しで拡大）`
                             : canToggle()
-                              ? `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')}) — タップで除外 / 長押しで拡大`
-                              : `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')}) — タップで拡大`
+                              ? `${title()} — タップで除外 / 長押しで拡大`
+                              : `${title()} — タップで拡大`
                         }
+                        onKeyDown={handleEnterOrSpace}
                         onPointerDown={() => {
-                          const title = `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')})`;
-                          startPress(gs.cellImageDataUrl, title);
+                          longPressFired = false;
+                          clearPressTimer();
+                          if (!gs.cellImageDataUrl) return;
+                          pressTimer = setTimeout(() => {
+                            longPressFired = true;
+                            openModal(gs.cellImageDataUrl!, title());
+                            pressTimer = null;
+                          }, LONG_PRESS_MS);
                         }}
-                        onPointerUp={() => clearPressTimer()}
-                        onPointerLeave={() => clearPressTimer()}
-                        onPointerCancel={() => clearPressTimer()}
+                        onPointerUp={clearPressTimer}
+                        onPointerLeave={clearPressTimer}
+                        onPointerCancel={clearPressTimer}
                         onClick={() => {
-                          // 長押しで拡大モーダルが開いた場合は後続のクリックを無視
+                          // 長押しでモーダルを開いた場合は後続のクリックを無視
                           if (longPressFired) {
                             longPressFired = false;
                             return;
@@ -181,8 +192,7 @@ export default function ScanResultGrid(props: Props) {
                           if (canToggle()) {
                             props.onToggleExclude!(gs.char);
                           } else if (gs.cellImageDataUrl) {
-                            const title = `${gs.char} (U+${gs.unicode.toString(16).toUpperCase().padStart(4, '0')})`;
-                            openModal(gs.cellImageDataUrl, title);
+                            openModal(gs.cellImageDataUrl, title());
                           }
                         }}
                       >

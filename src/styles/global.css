@@ -780,6 +780,11 @@ body {
   min-height: 44px;
   background: var(--card-bg);
   cursor: pointer;
+  /* 長押し中のスクロール/選択/iOS callout を抑制 */
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .scan-grid__cell--found {
