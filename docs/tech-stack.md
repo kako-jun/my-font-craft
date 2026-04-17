@@ -273,20 +273,20 @@ npm run deploy
 
 ### 仕組み
 
-1. `cli/build.rs` が `git rev-parse --short HEAD` で short SHA を取得、UNIX タイムスタンプも併せて `cargo:rustc-env` 経由で埋め込む
+1. `cli/build.rs` が short SHA を `cargo:rustc-env MFC_BUILD_GIT_SHA` として埋め込む。優先順位は `MFC_BUILD_GIT_SHA_OVERRIDE` → `CF_PAGES_COMMIT_SHA` → `GITHUB_SHA` → `git rev-parse --short=7 HEAD` → `"unknown"`（shallow clone や `.git` 不完全環境でもフォールバック可能）。UNIX タイムスタンプも併せて埋め込む
 2. `cli/src/wasm.rs` の `build_info()` が `{"sha":"xxx","unixTs":"yyy"}` を JSON 文字列で返す（`unixTs` は**秒単位の文字列**。ミリ秒ではないので JS で扱う際は `Number(unixTs) * 1000` で `Date` に渡す）
-3. JS 側 `src/lib/wasm/loader.ts` が初期化時にパースし、以下を提供:
+3. JS 側 `src/lib/wasm/loader.ts` は WASM 初期化時にパースし、モジュールスコープの Solid シグナル `wasmBuildInfo` にセットする。あわせて以下も提供:
    - `console.info('[mfc] WASM build sha=... built=...')` を出力
-   - `getWasmBuildInfo()` を外部公開
-4. フッター（`src/components/Footer.tsx`）に `build <sha> (YYYY-MM-DD)` を表示
-5. エラーメッセージ（`src/lib/scanner/processor.ts::translateWasmError()`）の末尾に `[build: sha]` を付与
+   - `getWasmBuildInfo()` を外部公開（スナップショット取得）
+4. フッター（`src/components/Footer.tsx`）は `wasmBuildInfo` シグナルを subscribe するだけで、WASM ロードは**トリガーしない**。他所（Upload ページ等）で `initWasm()` が実行されると自動的にフッターに `build <sha> (YYYY-MM-DD)` が現れる
+5. エラーメッセージ（`src/lib/scanner/processor.ts::translateWasmError()`）は第2引数 `buildSha` を受け取り、渡されていれば末尾に `[build: sha]` を付与する（テスト容易性のため副作用なし）
 
 ### 確認方法
 
-例示の SHA は `xxxxxxx` とする（実運用では `git rev-parse --short HEAD` で取得された 7 桁 SHA が入る）。
+例示の SHA は `xxxxxxx` とする（実運用では `git rev-parse --short=7 HEAD` や CI 環境変数で取得された 7 桁 SHA が入る）。
 
-- **フッター右端**: `build xxxxxxx (YYYY-MM-DD)` のように表示される
-- **ブラウザ F12 コンソール**: ページ読み込み時に `[mfc] WASM build sha=... built=...` が出る
+- **フッター右端**: トップページでは未表示。Upload ページを開いて WASM が初期化されると `build xxxxxxx (YYYY-MM-DD)` が現れる
+- **ブラウザ F12 コンソール**: WASM 初期化時に `[mfc] WASM build sha=... built=...` が出る
 - **エラー発生時**: トーストメッセージ末尾に `[build: xxxxxxx]` が付く
 
 ### wasm-opt 無効化
