@@ -9,8 +9,8 @@ use image::RgbaImage;
 use serde::{Deserialize, Serialize};
 
 use crate::cell::{
-    apply_clahe_pub, morphological_open_close, rgba_to_gray_pub, sauvola_binarize_pub,
-    SAUVOLA_K_PUB, SAUVOLA_WINDOW_PUB,
+    apply_clahe_pub, compensate_ink_bleed, morphological_open_close, rgba_to_gray_pub,
+    sauvola_binarize_pub, SAUVOLA_K_PUB, SAUVOLA_WINDOW_PUB,
 };
 
 // ── 定数 ──
@@ -158,6 +158,7 @@ fn binarize_for_contour(img: &RgbaImage) -> Vec<u8> {
     let gray = apply_clahe_pub(&gray, w, h);
     let binary = sauvola_binarize_pub(&gray, w, h, SAUVOLA_K_PUB, SAUVOLA_WINDOW_PUB);
     let binary = morphological_open_close(&binary, w, h);
+    let binary = compensate_ink_bleed(&binary, w, h);
     // Sauvola 出力は 0=黒, 255=白。内部では 1=前景(黒) のフラグに変換
     binary.iter().map(|&v| if v == 0 { 1u8 } else { 0u8 }).collect()
 }
@@ -173,6 +174,7 @@ pub fn binarize_to_rgba(img: &RgbaImage) -> RgbaImage {
     let gray = apply_clahe_pub(&gray, w, h);
     let binary = sauvola_binarize_pub(&gray, w, h, SAUVOLA_K_PUB, SAUVOLA_WINDOW_PUB);
     let binary = morphological_open_close(&binary, w, h);
+    let binary = compensate_ink_bleed(&binary, w, h);
 
     let mut out = RgbaImage::new(w, h);
     for y in 0..h {

@@ -695,6 +695,26 @@ pub(crate) fn morphological_open_close(binary: &[u8], w: u32, h: u32) -> Vec<u8>
     morphological_erode(&morphological_dilate(&opened, w, h), w, h)
 }
 
+/// インクブリード補正（#57）: 印刷+スキャンでストロークが肥大した分を 1px erosion で戻す。
+///
+/// バリデーション前提: 手書きの細画を潰さないよう、erosion で黒ピクセルが 50% 未満に
+/// 減ったらストロークが細すぎる（1px幅）と判断して補正を無効化する。
+pub(crate) fn compensate_ink_bleed(binary: &[u8], w: u32, h: u32) -> Vec<u8> {
+    // binary は Sauvola 出力形式（0=黒, 255=白）
+    let before_black = binary.iter().filter(|&&v| v == 0).count();
+    if before_black < 8 {
+        // ほぼ空白セル: 補正しても無意味
+        return binary.to_vec();
+    }
+    let eroded = morphological_erode(binary, w, h);
+    let after_black = eroded.iter().filter(|&&v| v == 0).count();
+    if (after_black as f64) / (before_black as f64) < 0.5 {
+        // 細すぎるストローク保護: 補正をキャンセル
+        return binary.to_vec();
+    }
+    eroded
+}
+
 // ── モアレパターン検出・除去 ──
 
 /// ラプラシアンフィルタで高周波成分を抽出し、分散が閾値以上ならモアレありと判定
