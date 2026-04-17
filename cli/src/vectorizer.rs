@@ -57,6 +57,11 @@ struct Pt {
 /// 6. Douglas-Peucker 簡略化
 /// 7. 画像座標 → フォント座標へ正規化
 /// 8. ベジェ曲線に変換
+/// グリフあたりの最大コマンド数。TTF のサイズ膨張・opentype.js の toArrayBuffer ハング防止
+/// 通常のフォントは 50〜200 cmd/glyph。これを超えたら DP epsilon を段階的に上げ、
+/// それでも超える場合は小さいサブパスを切り捨てる
+const MAX_COMMANDS_PER_GLYPH: usize = 200;
+
 pub fn vectorize_glyph(img: &RgbaImage) -> Vec<Vec<PathCommand>> {
     let w = img.width();
     let h = img.height();
@@ -70,13 +75,41 @@ pub fn vectorize_glyph(img: &RgbaImage) -> Vec<Vec<PathCommand>> {
     // 5: 輪郭抽出
     let contours = extract_contours(&binary, w as i32, h as i32);
 
-    // 6: Douglas-Peucker
+    // 6: Douglas-Peucker（総コマンド数が上限を超える場合は epsilon を段階的に上げて再簡略化）
     let min_wh = (w.min(h)) as f64;
-    let epsilon = (min_wh / 80.0).max(1.0);
-    let simplified: Vec<Vec<Pt>> = contours
-        .into_iter()
-        .map(|c| douglas_peucker(&c, epsilon))
+    let base_epsilon = (min_wh / 80.0).max(1.0);
+    let mut simplified: Vec<Vec<Pt>> = contours
+        .iter()
+        .map(|c| douglas_peucker(c, base_epsilon))
         .collect();
+
+    let mut epsilon = base_epsilon;
+    for _ in 0..4 {
+        let total: usize = simplified.iter().map(|c| c.len()).sum();
+        if total <= MAX_COMMANDS_PER_GLYPH {
+            break;
+        }
+        epsilon *= 1.5;
+        simplified = contours
+            .iter()
+            .map(|c| douglas_peucker(c, epsilon))
+            .collect();
+    }
+
+    // それでも超えるなら小さいサブパスから切り捨てる
+    let total_after: usize = simplified.iter().map(|c| c.len()).sum();
+    if total_after > MAX_COMMANDS_PER_GLYPH {
+        simplified.sort_by(|a, b| b.len().cmp(&a.len()));
+        let mut running = 0usize;
+        simplified.retain(|c| {
+            if running + c.len() <= MAX_COMMANDS_PER_GLYPH {
+                running += c.len();
+                true
+            } else {
+                false
+            }
+        });
+    }
 
     // 7: 正規化
     let normalized: Vec<Vec<Pt>> = simplified
