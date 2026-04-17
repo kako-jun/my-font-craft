@@ -233,21 +233,6 @@ fn extract_contours(binary: &[u8], w: i32, h: i32) -> Vec<Vec<Pt>> {
                 }
             }
 
-            // トレーサが小さなブロブで暴走すると同じ輪郭を何周もしてしまう。
-            // 画素数の4倍を超える長さは明らかに異常なので切り捨てる
-            let blob_px = {
-                let mut n = 0u64;
-                for ny in (start_y - 1).max(0)..=((start_y + 1).min(h - 1)) {
-                    for nx in (start_x - 1).max(0)..=((start_x + 1).min(w - 1)) {
-                        if visited[(ny as usize) * w_usize + nx as usize] == 1 {
-                            n += 1;
-                        }
-                    }
-                }
-                n
-            };
-            let _ = blob_px;
-
             if contour.len() >= 10 {
                 contours.push(contour);
             }
@@ -260,54 +245,54 @@ fn extract_contours(binary: &[u8], w: i32, h: i32) -> Vec<Vec<Pt>> {
 
 /// 同一 bbox・類似サイズの輪郭を重複として除去
 fn dedup_contours(contours: Vec<Vec<Pt>>) -> Vec<Vec<Pt>> {
-    let mut out: Vec<Vec<Pt>> = Vec::new();
-    for c in contours {
-        let (minx, miny, maxx, maxy) = {
-            let mut mx = f64::INFINITY;
-            let mut my = f64::INFINITY;
-            let mut xx = f64::NEG_INFINITY;
-            let mut yy = f64::NEG_INFINITY;
-            for p in &c {
-                if p.x < mx { mx = p.x; }
-                if p.y < my { my = p.y; }
-                if p.x > xx { xx = p.x; }
-                if p.y > yy { yy = p.y; }
+    // bbox は1度だけ計算する
+    let with_bbox: Vec<(Bbox, Vec<Pt>)> = contours
+        .into_iter()
+        .map(|c| (compute_bbox(&c), c))
+        .collect();
+
+    let mut kept: Vec<(Bbox, Vec<Pt>)> = Vec::new();
+    for (bbox, c) in with_bbox {
+        let is_dup = kept.iter().any(|(existing_bbox, existing)| {
+            let bbox_same = (bbox.min_x - existing_bbox.min_x).abs() < 2.0
+                && (bbox.min_y - existing_bbox.min_y).abs() < 2.0
+                && (bbox.max_x - existing_bbox.max_x).abs() < 2.0
+                && (bbox.max_y - existing_bbox.max_y).abs() < 2.0;
+            if !bbox_same {
+                return false;
             }
-            (mx, my, xx, yy)
-        };
-        let mut is_dup = false;
-        for existing in &out {
-            let (emx, emy, exx, eyy) = {
-                let mut mx = f64::INFINITY;
-                let mut my = f64::INFINITY;
-                let mut xx = f64::NEG_INFINITY;
-                let mut yy = f64::NEG_INFINITY;
-                for p in existing {
-                    if p.x < mx { mx = p.x; }
-                    if p.y < my { my = p.y; }
-                    if p.x > xx { xx = p.x; }
-                    if p.y > yy { yy = p.y; }
-                }
-                (mx, my, xx, yy)
-            };
-            let bbox_same = (minx - emx).abs() < 2.0
-                && (miny - emy).abs() < 2.0
-                && (maxx - exx).abs() < 2.0
-                && (maxy - eyy).abs() < 2.0;
-            if bbox_same {
-                // サイズ比が近ければ重複
-                let ratio = c.len() as f64 / existing.len() as f64;
-                if ratio > 0.5 && ratio < 2.0 {
-                    is_dup = true;
-                    break;
-                }
-            }
-        }
+            let ratio = c.len() as f64 / existing.len() as f64;
+            ratio > 0.5 && ratio < 2.0
+        });
         if !is_dup {
-            out.push(c);
+            kept.push((bbox, c));
         }
     }
-    out
+    kept.into_iter().map(|(_, c)| c).collect()
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Bbox {
+    min_x: f64,
+    min_y: f64,
+    max_x: f64,
+    max_y: f64,
+}
+
+fn compute_bbox(c: &[Pt]) -> Bbox {
+    let mut b = Bbox {
+        min_x: f64::INFINITY,
+        min_y: f64::INFINITY,
+        max_x: f64::NEG_INFINITY,
+        max_y: f64::NEG_INFINITY,
+    };
+    for p in c {
+        if p.x < b.min_x { b.min_x = p.x; }
+        if p.y < b.min_y { b.min_y = p.y; }
+        if p.x > b.max_x { b.max_x = p.x; }
+        if p.y > b.max_y { b.max_y = p.y; }
+    }
+    b
 }
 
 // ── Douglas-Peucker（反復版） ──

@@ -1062,16 +1062,17 @@ fn remove_cyan(img: &RgbaImage) -> RgbaImage {
     let (cyan_r, cyan_g, cyan_b) = sample_region_rgb(img, sample_x, sample_y, sample_size, sample_size);
     log!("  シアンサンプル平均色: R={cyan_r:.1} G={cyan_g:.1} B={cyan_b:.1}");
 
-    let sample_score = cyan_g.min(cyan_b) - cyan_r;
     // しきい値は緩め: 薄シアン対応。検出できなくても erase_grid_lines (inner_margin=5px)
     // が layout 既知で内枠を白塗りするので致命的ではない
-    if sample_score < 1.5 {
+    const CYAN_SAMPLE_SCORE_MIN: f64 = 1.5;
+    const CYAN_SCORE_THRESHOLD: i32 = 3;
+    const MIN_BRIGHTNESS: i32 = 140;
+
+    let sample_score = cyan_g.min(cyan_b) - cyan_r;
+    if sample_score < CYAN_SAMPLE_SCORE_MIN {
         log!("  ⚠ シアンサンプルに有意な cyan 成分なし (score={sample_score:.1}) — スキップ");
         return img.clone();
     }
-
-    let cyan_score_threshold: i32 = 3;
-    let min_brightness: i32 = 140;
 
     let mut out = img.clone();
     let mut removed_count = 0u64;
@@ -1083,11 +1084,11 @@ fn remove_cyan(img: &RgbaImage) -> RgbaImage {
             let g = p[1] as i32;
             let b = p[2] as i32;
             let avg = (r + g + b) / 3;
-            if avg < min_brightness {
+            if avg < MIN_BRIGHTNESS {
                 continue;
             }
             let cyan_score = g.min(b) - r;
-            if cyan_score >= cyan_score_threshold {
+            if cyan_score >= CYAN_SCORE_THRESHOLD {
                 out.put_pixel(x, y, Rgba([255, 255, 255, 255]));
                 removed_count += 1;
             }
@@ -1104,23 +1105,22 @@ fn remove_cyan(img: &RgbaImage) -> RgbaImage {
     out
 }
 
-/// 紙白正規化: 上位輝度を 255 に揃え、紙の地色を純白に寄せる
+/// 紙白正規化: 紙色（ヒストグラム最頻値）を 255 にスケールし、紙の地色を純白に寄せる
 /// shadow_correct 後でも紙は灰色（~230）のまま残るため、
-/// Sauvola がその濃淡をノイズとして拾う。輝度ヒストグラムを上に伸ばして抑制する
+/// Sauvola がその濃淡をノイズとして拾う。
+/// 輝度 100 以上の最頻値を「紙色」とみなして線形ストレッチする
+/// （100 未満は手書きインク、100 以上は紙＋シアン残骸＋ノイズ）
 fn normalize_paper_white(img: &RgbaImage) -> RgbaImage {
-    // 輝度ヒストグラムを取り、上位 5% の値を 255 にマップする線形ストレッチ
-    let total = (img.width() as u64) * (img.height() as u64);
+    const PAPER_LUMINANCE_FLOOR: usize = 100;
+
     let mut hist = [0u64; 256];
     for p in img.pixels() {
         let lum = (p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) / 1000;
         hist[lum.min(255) as usize] += 1;
     }
-    // 輝度 100 以上でのヒストグラム最頻値を「紙色」とみなす
-    // （100未満は手書きインク、100以上は紙＋シアン残骸＋ノイズ）
-    let _ = total;
     let mut mode_lum = 230u32;
     let mut mode_count = 0u64;
-    for (i, &c) in hist.iter().enumerate().skip(100) {
+    for (i, &c) in hist.iter().enumerate().skip(PAPER_LUMINANCE_FLOOR) {
         if c > mode_count {
             mode_count = c;
             mode_lum = i as u32;
