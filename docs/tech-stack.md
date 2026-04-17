@@ -274,7 +274,7 @@ npm run deploy
 ### 仕組み
 
 1. `cli/build.rs` が `git rev-parse --short HEAD` で short SHA を取得、UNIX タイムスタンプも併せて `cargo:rustc-env` 経由で埋め込む
-2. `cli/src/wasm.rs` の `build_info()` が `{"sha":"xxx","unixTs":"yyy"}` を JSON 文字列で返す
+2. `cli/src/wasm.rs` の `build_info()` が `{"sha":"xxx","unixTs":"yyy"}` を JSON 文字列で返す（`unixTs` は**秒単位の文字列**。ミリ秒ではないので JS で扱う際は `Number(unixTs) * 1000` で `Date` に渡す）
 3. JS 側 `src/lib/wasm/loader.ts` が初期化時にパースし、以下を提供:
    - `console.info('[mfc] WASM build sha=... built=...')` を出力
    - `getWasmBuildInfo()` を外部公開
@@ -283,9 +283,11 @@ npm run deploy
 
 ### 確認方法
 
-- **フッター右端**: `build 6adba8b (2026-04-17)` のように表示される
+例示の SHA は `xxxxxxx` とする（実運用では `git rev-parse --short HEAD` で取得された 7 桁 SHA が入る）。
+
+- **フッター右端**: `build xxxxxxx (YYYY-MM-DD)` のように表示される
 - **ブラウザ F12 コンソール**: ページ読み込み時に `[mfc] WASM build sha=... built=...` が出る
-- **エラー発生時**: トーストメッセージ末尾に `[build: 6adba8b]` が付く
+- **エラー発生時**: トーストメッセージ末尾に `[build: xxxxxxx]` が付く
 
 ### wasm-opt 無効化
 
@@ -296,7 +298,7 @@ npm run deploy
 wasm-opt = false
 ```
 
-理由: `wasm-pack` が binaryen v117 を GitHub から自動ダウンロードするが、環境によっては失敗する。`opt-level='s'` + `lto=true` が既に効いているためサイズ増は限定的。
+理由: `wasm-pack` が binaryen v117 を GitHub から自動ダウンロードするが、環境によっては失敗する。`opt-level = "s"` + `lto = true` が既に効いているためサイズ増は限定的。
 
 ---
 
