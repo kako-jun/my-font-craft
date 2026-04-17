@@ -77,8 +77,10 @@ pub fn vectorize_glyph(img: &RgbaImage) -> Vec<Vec<PathCommand>> {
         }
     }
 
-    // 6: 縦方向マージ — 同じ x 範囲のランが連続する行にあれば結合して矩形にする
+    // 6: 縦方向マージ — x 範囲が近いランが連続する行にあれば結合して矩形にする
+    //    ±MERGE_TOLERANCE px の誤差を許容するが、矩形の幅は最初のランを維持する
     //    これにより四角形の数（= パス数）を大幅に削減する
+    const MERGE_TOLERANCE: u32 = 2;
     let mut rects: Vec<(u32, u32, u32, u32)> = Vec::new(); // (x_start, y_start, x_end, y_end)
     let mut used = vec![false; runs.len()];
 
@@ -90,14 +92,17 @@ pub fn vectorize_glyph(img: &RgbaImage) -> Vec<Vec<PathCommand>> {
         used[i] = true;
         let mut y_end = y0 + 1;
 
-        // 次の行以降で同じ x 範囲のランを探して結合
+        // 次の行以降で近い x 範囲のランを探して結合（矩形の幅は最初のランで固定）
         let mut j = i + 1;
         while j < runs.len() {
             let (yj, xsj, xej) = runs[j];
             if yj > y_end {
                 break; // 連続しない行に来た
             }
-            if yj == y_end && xsj == xs && xej == xe {
+            if yj == y_end
+                && xsj.abs_diff(xs) <= MERGE_TOLERANCE
+                && xej.abs_diff(xe) <= MERGE_TOLERANCE
+            {
                 used[j] = true;
                 y_end = yj + 1;
             }
