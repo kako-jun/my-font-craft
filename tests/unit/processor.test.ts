@@ -27,4 +27,16 @@ describe('translateWasmError', () => {
     const result = translateWasmError(raw);
     expect(result).toBe(raw);
   });
+
+  it('buildSha が与えられた場合は末尾に [build: sha] を付加する', () => {
+    const raw = '画像デコードエラー: unsupported format';
+    const result = translateWasmError(raw, 'abc1234');
+    expect(result).toBe(`${raw} [build: abc1234]`);
+  });
+
+  it('buildSha が null の場合は build タグを付加しない', () => {
+    const raw = '画像デコードエラー: unsupported format';
+    const result = translateWasmError(raw, null);
+    expect(result).toBe(raw);
+  });
 });
