@@ -213,7 +213,7 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
     // 4隅はホモグラフィーで合わせたが、中心がレンズの樽／糸巻き歪みでズレて
     // いるケース（スマホ広角レンズ、紙面までの距離が近い撮影）に対応する。
     log!("\n=== ステップ6.6.5: レンズ歪み補正（9点TPS） ===");
-    let (corrected, tps_applied) = apply_lens_tps_correction(corrected);
+    let (corrected, tps_applied) = apply_lens_tps_correction(corrected)?;
     if tps_applied {
         corrected
             .save(output_dir.join("05d_tps_corrected.png"))
@@ -375,7 +375,7 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
 
     // ステップ6.6.5: レンズ歪み補正（9点TPS）
     log!("=== レンズ歪み補正（9点TPS） ===");
-    let (corrected, tps_applied) = apply_lens_tps_correction(corrected);
+    let (corrected, tps_applied) = apply_lens_tps_correction(corrected)?;
     if tps_applied {
         verify_center_marker(&corrected);
     }
@@ -723,21 +723,28 @@ fn verify_correction_quality_cli(corrected: &RgbaImage, output_dir: &Path) -> Op
     }
 }
 
+/// 重度レンズ歪みのしきい値（mm）。
+/// ホモグラフィー後の中心残差がこれを超える画像は、9点TPSでは境界の樽型歪みを
+/// 吸収しきれず、紙面上部〜中段のセル切り出しが崩れる（Issue #88 参照）。
+/// 「もう少し離れて撮り直して」をユーザーに促す。
+const SEVERE_LENS_DISTORTION_MM: f64 = 5.0;
+
 /// 中心マーカーを再検出し、残差が閾値超なら9点TPSで再ワープする（CLI/WASM共通）。
 ///
-/// 戻り値: (補正後画像, TPSを実際に適用したか)
+/// 戻り値: Ok((補正後画像, TPSを実際に適用したか))
+/// 重度歪み（> SEVERE_LENS_DISTORTION_MM）の場合は Err を返して上位で中断させる。
 ///
 /// 4隅マーカーはホモグラフィーで合わせ切れているが、中心がズレているケース
 /// （= カメラのレンズ歪み）だけを対象にする。ここでTPSを効かせすぎると
 /// むしろノイズを拾うので、1.0mm 以下なら何もしない。
-fn apply_lens_tps_correction(corrected: RgbaImage) -> (RgbaImage, bool) {
+fn apply_lens_tps_correction(corrected: RgbaImage) -> Result<(RgbaImage, bool), String> {
     let gray = DynamicImage::ImageRgba8(corrected.clone()).into_luma8();
     let threshold = marker::otsu_threshold(&gray);
     let binary = marker::binarize(&gray, threshold);
 
     let Some(center_detected) = marker::detect_center_marker(&binary) else {
         log!("  中心マーカー未検出 — TPS補正をスキップ");
-        return (corrected, false);
+        return Ok((corrected, false));
     };
 
     let (exp_cx_mm, exp_cy_mm) = layout::center_marker_center();
@@ -750,14 +757,23 @@ fn apply_lens_tps_correction(corrected: RgbaImage) -> (RgbaImage, bool) {
     // ホモグラフィーで十分ならTPSは入れない（画質安定優先）
     if err_mm <= 1.0 {
         log!("  中心残差 {err_mm:.2}mm — TPS補正は不要");
-        return (corrected, false);
+        return Ok((corrected, false));
+    }
+
+    // 重度歪み: 撮り直しを要請する（TPSを走らせてもセル抽出が崩れるため）
+    if err_mm > SEVERE_LENS_DISTORTION_MM {
+        return Err(format!(
+            "レンズ歪みが大きすぎます（中心残差 {err_mm:.1}mm、許容 {:.1}mm以下）。\
+             紙面からもう少し離れて撮り直してください。広角レンズを使っている場合は標準レンズに切り替えてください。",
+            SEVERE_LENS_DISTORTION_MM
+        ));
     }
 
     let corners = match marker::detect_markers(&binary, &gray) {
         Ok(c) => c,
         Err(e) => {
             log!("  ⚠ 4隅マーカー再検出失敗 ({e}) — TPS補正をスキップ");
-            return (corrected, false);
+            return Ok((corrected, false));
         }
     };
 
@@ -802,7 +818,7 @@ fn apply_lens_tps_correction(corrected: RgbaImage) -> (RgbaImage, bool) {
 
     log!("  中心残差 {err_mm:.2}mm — 9点TPS（4隅+4辺中点+中心）でレンズ歪み補正を適用");
     let warped = perspective::tps_warp(&corrected, &src_pts, &dst_pts);
-    (warped, true)
+    Ok((warped, true))
 }
 
 /// 中心マーカー検証（CLI/WASM共通）
