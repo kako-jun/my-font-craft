@@ -124,8 +124,8 @@ export default function Template(props: Props) {
         <p class="template-page__info">約{estimatedPages()}ページのPDFが生成されます。</p>
 
         <p class="template-page__note">
-          記入方法: チェック欄には チェックマーク（✓）のみ。×
-          など他のマークは無効です（"X"という文字そのものを書く場合と区別できないため）
+          記入方法: 文字マスに文字を書くだけでOKです。下のチェック欄に ✓
+          を書くと、同じ文字を2マス書いた時の採用優先を指定できます（任意）
         </p>
 
         {error() && <div class="message message--error">{error()}</div>}

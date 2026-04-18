@@ -207,9 +207,9 @@ async function generateTemplatePDFFromChars(
       // QRコード生成失敗時はスキップ（データが大きすぎる場合など）
     }
 
-    // 記入ガイド（QR右隣のページ下部余白、#76: チェック欄は✓のみ有効である旨を凡例として表示）
+    // 記入ガイド（QR右隣のページ下部余白、#76: 記入方法を肯定形で凡例として表示）
     // 配置領域: x=40〜195, y=274〜282（QR右端35 + 余白、下マーカー y=286.915 より上）
-    const guideText = '記入方法: チェック欄は ✓ のみ有効（× や他のマークは無効）';
+    const guideText = '記入方法: 文字マスに文字 ／ 下のチェック欄に ✓ で優先指定（任意）';
     const guideImage = await renderTextToImage(guideText, 7);
     if (guideImage) {
       const guideEmbed = await pdfDoc.embedPng(guideImage.data);
