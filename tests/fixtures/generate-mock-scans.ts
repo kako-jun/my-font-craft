@@ -191,13 +191,14 @@ async function generatePage(pageIdx: number, chars: string[]): Promise<Buffer> {
   ctx.font = '24px sans-serif';
   ctx.fillText(`Page ${pageIdx + 1}/${totalPages}`, px(80), px(14));
 
-  // QRコード
+  // QRコード（#91: v:3 + s フラグ必須。mock はひらがなのみ）
   const qrData = JSON.stringify({
     p: 'mfc',
-    v: 2,
+    v: 3,
     pg: pageIdx + 1,
     t: totalPages,
     m: 2,
+    s: 'h',
   });
   try {
     const qrBuffer = await QRCode.toBuffer(qrData, {
