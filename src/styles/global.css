@@ -675,8 +675,8 @@ body {
 .template-page__note {
   margin: 0.5rem 0 1rem;
   padding: 0.5rem 0.75rem;
-  border-left: 3px solid var(--warning, #f39c12);
-  background: rgba(243, 156, 18, 0.08);
+  border-left: 3px solid var(--accent-light);
+  background: rgba(139, 115, 85, 0.06);
   font-size: 0.85rem;
   color: var(--accent);
   line-height: 1.5;

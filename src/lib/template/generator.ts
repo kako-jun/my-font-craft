@@ -208,7 +208,7 @@ async function generateTemplatePDFFromChars(
     }
 
     // 記入ガイド（QR右隣のページ下部余白、#76: 記入方法を肯定形で凡例として表示）
-    // 配置領域: x=40〜195, y=274〜282（QR右端35 + 余白、下マーカー y=286.915 より上）
+    // 配置領域: x=40..(max 195), y=275..279（高さ4mm固定。QR右端35 + 余白、下マーカー y=286.915 より上）
     const guideText = '記入方法: 文字マスに文字 ／ 下のチェック欄に ✓ で優先指定（任意）';
     const guideImage = await renderTextToImage(guideText, 7);
     if (guideImage) {
