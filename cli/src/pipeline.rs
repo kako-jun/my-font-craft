@@ -730,11 +730,16 @@ fn verify_correction_quality_cli(corrected: &RgbaImage, output_dir: &Path) -> Op
 /// TPS を発動する中心残差の下限（mm）。これ以下ならホモグラフィーで十分。
 const TPS_MIN_RESIDUAL_MM: f64 = 1.0;
 
+/// 警告を出し始める中心残差（mm）。これを超えたら TPS は適用するが、品質が
+/// 低下している可能性をログに残す。スマホ広角撮影では 5〜10mm が現実的に発生する。
+const LENS_DISTORTION_WARN_MM: f64 = 5.0;
+
 /// 重度レンズ歪みのしきい値（mm）。
 /// ホモグラフィー後の中心残差がこれを超える画像は、9点TPSでは境界の樽型歪みを
 /// 吸収しきれず、紙面上部〜中段のセル切り出しが崩れる（Issue #88 参照）。
 /// 「撮影距離を見直してください」をユーザーに促す。
-const SEVERE_LENS_DISTORTION_MM: f64 = 5.0;
+/// Issue #92: 5mm → 10mm に引き上げ（スマホ広角での実用性を優先）。
+const SEVERE_LENS_DISTORTION_MM: f64 = 10.0;
 
 /// 中心マーカーを再検出し、残差が閾値超なら9点TPSで再ワープする（CLI/WASM共通）。
 ///
@@ -771,9 +776,17 @@ fn apply_lens_tps_correction(corrected: RgbaImage) -> Result<(RgbaImage, bool), 
     if err_mm > SEVERE_LENS_DISTORTION_MM {
         return Err(format!(
             "レンズ歪みが大きすぎます（中心残差 {err_mm:.1}mm、許容 {:.1}mm以下）。\
-             紙面からもう少し離れて撮り直してください。広角レンズを使っている場合は標準レンズに切り替えてください。",
+             もう一歩離れて撮り直してください。",
             SEVERE_LENS_DISTORTION_MM
         ));
+    }
+
+    // 中程度の歪み: TPS を適用するが品質低下の可能性を警告
+    if err_mm > LENS_DISTORTION_WARN_MM {
+        log!(
+            "  ⚠ 中心残差 {err_mm:.2}mm は大きめです — TPS を適用しますが、\
+             紙端のセル切り出し精度が落ちる可能性があります（結果を確認してください）"
+        );
     }
 
     let corners = match marker::detect_markers(&binary, &gray) {
