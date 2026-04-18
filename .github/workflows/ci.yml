@@ -24,7 +24,18 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: cli
+      - uses: jetli/wasm-pack-action@v0.4.0
       - run: npm ci
+      # WASM を src/wasm/ に配置しないと vite dev サーバー起動時に
+      # loader.ts の動的 import 解決に失敗し、HMR エラーオーバーレイが
+      # Playwright のクリックを阻害してテスト全滅する（Issue #90 の真因）
+      - run: cd cli && wasm-pack build --target web --out-dir ../src/wasm
       - run: npx playwright install chromium --with-deps
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
