@@ -213,22 +213,32 @@
 ```json
 {
   "p": "mfc",
-  "v": 2,
+  "v": 3,
   "pg": 3,
   "t": 51,
-  "m": 2
+  "m": 2,
+  "s": "hkaj"
 }
 ```
 
-| キー | 意味                                 |
-| ---- | ------------------------------------ |
-| p    | project識別子（"mfc" = MyFontCraft） |
-| v    | version                              |
-| pg   | page番号                             |
-| t    | total pages                          |
-| m    | マス数/文字                          |
+| キー | 意味                                                   |
+| ---- | ------------------------------------------------------ |
+| p    | project識別子（"mfc" = MyFontCraft）                   |
+| v    | version（現行: 3）                                     |
+| pg   | page番号                                               |
+| t    | total pages                                            |
+| m    | マス数/文字                                            |
+| s    | 文字セット選択フラグ（'h'/'k'/'a'/'j' を選択順に結合） |
 
-**NOTE**: 文字リスト（`c`）はQRに含めない。��ージ番号（`pg`）から `getCharactersForPage(pg - 1)` で導出する��漢字30文字のJSON化がQRの容量上限（約130バイト）を超えるため。
+**文字セット選択フラグ `s`** (Issue #91, v:3):
+'h'=ひらがな / 'k'=カタカナ / 'a'=英数記号 / 'j'=漢字。順序は `h→k→a→j` で固定。
+例: ひらがな+カタカナのみ → `"hk"`、全選択 → `"hkaj"`。scanner 側は `s` から
+`getCharactersForPage(pg - 1, selection)` で紙上に印刷された文字集合を復元する。
+`s` が無い／不正な場合は古い版のテンプレートとしてそのページをスキップする。
+
+**NOTE**: 文字リスト（`chars`）はQRに含めない。ページ番号（`pg`）と `s` から
+`getCharactersForPage(pg - 1, flagToSelection(s))` で導出する。
+漢字30文字のJSON化がQRの容量上限（約130バイト）を超えるため。
 
 ### 配置
 

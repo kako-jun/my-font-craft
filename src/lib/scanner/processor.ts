@@ -6,7 +6,7 @@ import {
   getWasmBuildInfo,
 } from '../wasm/loader';
 import type { WasmProcessedCell } from '../wasm/loader';
-import { getCharactersForPage } from '../../data/characters';
+import { getCharactersForPage, flagToSelection } from '../../data/characters';
 import type { VectorGlyph } from '../font/builder';
 
 export interface ProcessMessage {
@@ -136,6 +136,19 @@ export async function processImages(
       continue;
     }
 
+    // Issue #91: QR に含まれる文字セット選択フラグ (`s`) から、そのページが
+    // どの文字集合を印刷したものかを復元する。取得できないときは古い版の
+    // テンプレートの可能性が高いので、そのページはスキップする。
+    const selectionFlag = wasmResult.char_selection;
+    const selection = selectionFlag ? flagToSelection(selectionFlag) : null;
+    if (!selection) {
+      callbacks.onMessage({
+        type: 'error',
+        text: `画像 ${fi + 1} のQRから文字セット情報を取得できませんでした。古い版のテンプレートの可能性があります。PDF を再生成して印刷してください。`,
+      });
+      continue;
+    }
+
     // 補正後キャンバスをコールバックで通知
     if (callbacks.onPageCorrected) {
       const correctedCanvas = correctedImageToCanvas(
@@ -146,8 +159,8 @@ export async function processImages(
       callbacks.onPageCorrected(pageNumber, correctedCanvas);
     }
 
-    // ページの文字リスト
-    const pageChars = getCharactersForPage(pageNumber - 1);
+    // ページの文字リスト（選択された文字セットに限定）
+    const pageChars = getCharactersForPage(pageNumber - 1, selection);
 
     // セルを (row, col) でグループ化
     const cellsByPos = new Map<string, WasmProcessedCell[]>();
