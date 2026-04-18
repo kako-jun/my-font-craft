@@ -1308,7 +1308,10 @@ fn normalize_paper_white(img: &RgbaImage) -> RgbaImage {
 /// 罫線残骸除去: レイアウト定数から罫線位置を算出し、±2px を白で塗りつぶす
 fn erase_grid_lines(img: &RgbaImage) -> RgbaImage {
     let mut out = img.clone();
-    let line_margin = 2u32;
+    // #34: 2px では TPS 後の残差ズレ（数px）で外枠の消し残しが発生するケースがあった。
+    // 手書き文字は内枠（cyan）より内側に集中する前提で、外枠の消し幅は 6px まで拡張する。
+    // 6px = 0.5mm@300dpi なので手書きへの影響は実質ゼロ。
+    let line_margin = 6u32;
 
     for row in 0..layout::ROWS {
         for col in 0..layout::COLS {

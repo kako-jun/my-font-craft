@@ -231,7 +231,10 @@ pub fn extract_and_judge_in_memory(img: &RgbaImage) -> Result<Vec<CharResult>, S
 
 /// セル画像を切り出して返す（生RGBA、ベクター化前の内部処理用）
 pub fn extract_cell_image_raw(img: &RgbaImage, row: usize, col: usize, cell_index: usize) -> RgbaImage {
-    let border_margin = 1.0;
+    // #34: 1mm マージンだと台形補正+TPS 後の残差ズレ（mid-page で0.5〜1mm）で
+    // 下端に外枠線が写り込むケースがあったため 1.5mm に拡げる。
+    // INNER_SIZE=10mm に対してはまだ 1mm の余裕がある（手書きが切れるリスクは低い）。
+    let border_margin = 1.5;
     let crop_size = layout::CELL_SIZE - border_margin * 2.0;
     let crop_size_px = layout::mm_to_px(crop_size).round() as u32;
 
