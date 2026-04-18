@@ -207,6 +207,28 @@ async function generateTemplatePDFFromChars(
       // QRコード生成失敗時はスキップ（データが大きすぎる場合など）
     }
 
+    // 記入ガイド（QR右隣のページ下部余白、#76: 記入方法を肯定形で凡例として表示）
+    // 配置領域: x=40..(max 195), y=275..279（高さ4mm固定。QR右端35 + 余白、下マーカー y=286.915 より上）
+    const guideText = '記入方法: 文字マスに文字 ／ 下のチェック欄に ✓ で優先指定（任意）';
+    const guideImage = await renderTextToImage(guideText, 7);
+    if (guideImage) {
+      const guideEmbed = await pdfDoc.embedPng(guideImage.data);
+      const guideHeightMm = 4;
+      const guideWidthMm = (guideImage.widthPx / guideImage.heightPx) * guideHeightMm;
+      const guideMaxWidthMm = 155; // x=40 から x=195 までの 155mm 内に収める
+      const clampedW = Math.min(guideWidthMm, guideMaxWidthMm);
+      const clampedH =
+        clampedW < guideWidthMm ? guideHeightMm * (clampedW / guideWidthMm) : guideHeightMm;
+      const guideX = 40; // QR右端(35mm) + 5mm余白
+      const guideTopY = 275;
+      page.drawImage(guideEmbed, {
+        x: mm(guideX),
+        y: toY(guideTopY + clampedH),
+        width: mm(clampedW),
+        height: mm(clampedH),
+      });
+    }
+
     // シアンサンプル
     page.drawRectangle({
       x: mm(CYAN_SAMPLE_X),
