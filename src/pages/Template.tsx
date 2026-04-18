@@ -26,6 +26,10 @@ export default function Template(props: Props) {
   const [generating, setGenerating] = createSignal(false);
   const [error, setError] = createSignal('');
 
+  const noneSelected = createMemo(
+    () => !includeHiragana() && !includeKatakana() && !includeAlphaNum() && !includeKanji(),
+  );
+
   const estimatedPages = createMemo(() => {
     let count = 0;
     if (includeHiragana()) count += HIRAGANA.length;
@@ -130,7 +134,17 @@ export default function Template(props: Props) {
 
         {error() && <div class="message message--error">{error()}</div>}
 
-        <button class="btn btn--primary" onClick={handleDownload} disabled={generating()}>
+        <Show when={noneSelected()}>
+          <p class="template-page__hint" style="color:var(--accent);margin-bottom:0.5rem">
+            1つ以上選択してください
+          </p>
+        </Show>
+
+        <button
+          class="btn btn--primary"
+          onClick={handleDownload}
+          disabled={generating() || noneSelected()}
+        >
           <Show when={!generating()}>
             <IconDownload />
           </Show>{' '}

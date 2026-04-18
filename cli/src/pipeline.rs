@@ -52,6 +52,9 @@ pub struct ProcessedCell {
 pub struct ProcessResult {
     pub page_number: Option<u32>,
     pub total_pages: Option<u32>,
+    /// 文字セット選択フラグ（Issue #91, v:3）。'h'/'k'/'a'/'j' を選択順に結合した文字列。
+    /// 例: `Some("hk")` → ひらがな+カタカナのみ。`None` は QR からの復元不可。
+    pub char_selection: Option<String>,
     pub cells: Vec<ProcessedCell>,
     pub corrected_image: Vec<u8>,  // 補正後画像のRGBA
     pub corrected_width: u32,
@@ -391,21 +394,24 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
 
     // ステップ7: QR読み取り
     log!("=== QR読み取り ===");
-    let (page_number, total_pages) = match read_qr_from_corrected_wasm(&corrected) {
+    let qr_info = match read_qr_from_corrected_wasm(&corrected) {
         Ok(data) => {
             log!("  QRデータ: {data}");
-            let parsed = parse_qr_page_info(&data);
-            if parsed == (None, None) {
+            let parsed = parse_qr_payload(&data);
+            if parsed.is_empty() {
                 let preview: String = data.chars().take(80).collect();
-                log!("  ⚠ QRデータをパースできませんでした（page_numberなし）: {preview}");
+                log!("  ⚠ v:3 JSON として認識できませんでした（p/v/s いずれか欠落または不正）: {preview}");
             }
             parsed
         }
         Err(e) => {
             log!("  QR読み取り失敗（続行）: {e}");
-            (None, None)
+            QrInfo::empty()
         }
     };
+    let page_number = qr_info.page;
+    let total_pages = qr_info.total;
+    let char_selection = qr_info.selection;
 
     // ステップ7.5: ホワイトバランス補正
     log!("=== ホワイトバランス補正 ===");
@@ -475,6 +481,7 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
     Ok(ProcessResult {
         page_number,
         total_pages,
+        char_selection,
         cells,
         corrected_image,
         corrected_width,
@@ -482,116 +489,141 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
     })
 }
 
-/// QRデータからページ情報を抽出
+/// QR ペイロードから抽出したページ情報と文字セット選択フラグ。
 ///
-/// 優先形式（v2, 現行）: JSON `{"p":"mfc","v":2,"pg":N,"t":M,"m":2}`
-/// 後方互換（v1）: プレーンテキスト `mfc:N/M`
-fn parse_qr_page_info(data: &str) -> (Option<u32>, Option<u32>) {
+/// 3 要素タプルより意図が読みやすいので struct で包む（Issue #91 PR レビュー対応）。
+#[derive(Debug, PartialEq)]
+struct QrInfo {
+    page: Option<u32>,
+    total: Option<u32>,
+    selection: Option<String>,
+}
+
+impl QrInfo {
+    fn empty() -> Self {
+        Self { page: None, total: None, selection: None }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.page.is_none() && self.total.is_none() && self.selection.is_none()
+    }
+}
+
+/// QRデータからページ情報と文字セット選択フラグを抽出する（v:3 のみサポート）
+///
+/// 形式: JSON `{"p":"mfc","v":3,"pg":N,"t":M,"m":2,"s":"<flag>"}`
+/// - `p` が "mfc" かつ `v` が 3 かつ `s` が非空の文字列のとき、3 要素を返す。
+/// - 上記 3 条件のいずれかを満たさない場合は全て `None`（後方互換なし、Issue #91）。
+/// - `s` が空文字列 `""` の場合も不正として扱う（TS 側 `flagToSelection('')` が
+///   `null` を返す挙動との対称性のため）。
+fn parse_qr_payload(data: &str) -> QrInfo {
     let trimmed = data.trim();
 
-    // v2: JSON 形式
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
-        if v.get("p").and_then(|x| x.as_str()) == Some("mfc") {
+        let product_ok = v.get("p").and_then(|x| x.as_str()) == Some("mfc");
+        let version_ok = v.get("v").and_then(|x| x.as_u64()) == Some(3);
+        let selection = v
+            .get("s")
+            .and_then(|x| x.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+
+        if product_ok && version_ok && selection.is_some() {
             let page = v.get("pg").and_then(|x| x.as_u64()).and_then(|n| u32::try_from(n).ok());
             let total = v.get("t").and_then(|x| x.as_u64()).and_then(|n| u32::try_from(n).ok());
-            return (page, total);
+            return QrInfo { page, total, selection };
         }
     }
 
-    // v1: プレーンテキスト "mfc:N/M"
-    if let Some(stripped) = trimmed.strip_prefix("mfc:") {
-        let parts: Vec<&str> = stripped.split('/').collect();
-        if parts.len() == 2 {
-            let page = parts[0].parse().ok();
-            let total = parts[1].parse().ok();
-            return (page, total);
-        }
-    }
-
-    (None, None)
+    QrInfo::empty()
 }
 
 #[cfg(test)]
 mod qr_parse_tests {
-    use super::parse_qr_page_info;
+    use super::{parse_qr_payload, QrInfo};
 
     #[test]
-    fn v2_json_basic() {
-        let (p, t) = parse_qr_page_info(r#"{"p":"mfc","v":2,"pg":1,"t":2,"m":2}"#);
-        assert_eq!(p, Some(1));
-        assert_eq!(t, Some(2));
+    fn v3_json_basic() {
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":3,"pg":1,"t":2,"m":2,"s":"h"}"#),
+            QrInfo { page: Some(1), total: Some(2), selection: Some("h".to_string()) },
+        );
     }
 
     #[test]
-    fn v2_json_with_extra_fields() {
-        let (p, t) = parse_qr_page_info(r#"{"p":"mfc","v":2,"pg":3,"t":10,"m":2,"chars":["あ","い"]}"#);
-        assert_eq!(p, Some(3));
-        assert_eq!(t, Some(10));
+    fn v3_json_all_sets() {
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":3,"pg":3,"t":10,"m":2,"s":"hkaj"}"#),
+            QrInfo { page: Some(3), total: Some(10), selection: Some("hkaj".to_string()) },
+        );
     }
 
     #[test]
-    fn v2_json_with_whitespace() {
-        let (p, t) = parse_qr_page_info("  {\"p\":\"mfc\",\"pg\":5,\"t\":7}  ");
-        assert_eq!(p, Some(5));
-        assert_eq!(t, Some(7));
+    fn v3_json_with_whitespace() {
+        assert_eq!(
+            parse_qr_payload("  {\"p\":\"mfc\",\"v\":3,\"pg\":5,\"t\":7,\"s\":\"hk\"}  "),
+            QrInfo { page: Some(5), total: Some(7), selection: Some("hk".to_string()) },
+        );
     }
 
     #[test]
-    fn v2_json_wrong_product_rejected() {
-        let (p, t) = parse_qr_page_info(r#"{"p":"other","pg":1,"t":2}"#);
-        assert_eq!(p, None);
-        assert_eq!(t, None);
+    fn v3_missing_s_rejected() {
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":3,"pg":1,"t":2,"m":2}"#),
+            QrInfo::empty(),
+        );
     }
 
     #[test]
-    fn v2_json_missing_fields() {
-        let (p, t) = parse_qr_page_info(r#"{"p":"mfc"}"#);
-        assert_eq!(p, None);
-        assert_eq!(t, None);
+    fn v3_empty_s_rejected() {
+        // TS 側 `flagToSelection('')` が null を返す挙動との対称性のため
+        // 空文字列 `""` の `s` も不正として全 None を返す（PR #95 レビュー対応）
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":3,"pg":1,"t":2,"m":2,"s":""}"#),
+            QrInfo::empty(),
+        );
     }
 
     #[test]
-    fn v2_json_missing_p_key() {
-        // p キー自体が無い場合（将来 TS 側がキー名を変えた時の回帰検知）
-        let (p, t) = parse_qr_page_info(r#"{"product":"mfc","pg":1,"t":2}"#);
-        assert_eq!(p, None);
-        assert_eq!(t, None);
+    fn v3_wrong_version_rejected() {
+        // v:2 は後方互換なし（Issue #91）
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":2,"pg":1,"t":2,"m":2,"s":"h"}"#),
+            QrInfo::empty(),
+        );
     }
 
     #[test]
-    fn v2_json_overflow_u32() {
+    fn v3_wrong_product_rejected() {
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"other","v":3,"pg":1,"t":2,"s":"h"}"#),
+            QrInfo::empty(),
+        );
+    }
+
+    #[test]
+    fn v3_overflow_u32() {
         // u32::MAX 超の値は try_from で弾かれて None になる
-        let (p, t) = parse_qr_page_info(r#"{"p":"mfc","pg":4294967296,"t":2}"#);
-        assert_eq!(p, None);
-        assert_eq!(t, Some(2));
-    }
-
-    #[test]
-    fn v1_plain_text_basic() {
-        let (p, t) = parse_qr_page_info("mfc:1/3");
-        assert_eq!(p, Some(1));
-        assert_eq!(t, Some(3));
-    }
-
-    #[test]
-    fn v1_plain_text_with_whitespace() {
-        let (p, t) = parse_qr_page_info(" mfc:2/5 ");
-        assert_eq!(p, Some(2));
-        assert_eq!(t, Some(5));
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":3,"pg":4294967296,"t":2,"s":"h"}"#),
+            QrInfo { page: None, total: Some(2), selection: Some("h".to_string()) },
+        );
     }
 
     #[test]
     fn invalid_returns_none() {
-        let (p, t) = parse_qr_page_info("garbage");
-        assert_eq!(p, None);
-        assert_eq!(t, None);
+        assert_eq!(parse_qr_payload("garbage"), QrInfo::empty());
     }
 
     #[test]
     fn empty_string_returns_none() {
-        let (p, t) = parse_qr_page_info("");
-        assert_eq!(p, None);
-        assert_eq!(t, None);
+        assert_eq!(parse_qr_payload(""), QrInfo::empty());
+    }
+
+    #[test]
+    fn v1_plain_text_rejected() {
+        // v:1 プレーンテキストは後方互換なしで拒否
+        assert_eq!(parse_qr_payload("mfc:1/3"), QrInfo::empty());
     }
 }
 
@@ -726,11 +758,16 @@ fn verify_correction_quality_cli(corrected: &RgbaImage, output_dir: &Path) -> Op
 /// TPS を発動する中心残差の下限（mm）。これ以下ならホモグラフィーで十分。
 const TPS_MIN_RESIDUAL_MM: f64 = 1.0;
 
+/// 警告を出し始める中心残差（mm）。これを超えたら TPS は適用するが、品質が
+/// 低下している可能性をログに残す。スマホ広角撮影では 5〜10mm が現実的に発生する。
+const LENS_DISTORTION_WARN_MM: f64 = 5.0;
+
 /// 重度レンズ歪みのしきい値（mm）。
 /// ホモグラフィー後の中心残差がこれを超える画像は、9点TPSでは境界の樽型歪みを
 /// 吸収しきれず、紙面上部〜中段のセル切り出しが崩れる（Issue #88 参照）。
 /// 「撮影距離を見直してください」をユーザーに促す。
-const SEVERE_LENS_DISTORTION_MM: f64 = 5.0;
+/// Issue #92: 5mm → 10mm に引き上げ（スマホ広角での実用性を優先）。
+const SEVERE_LENS_DISTORTION_MM: f64 = 10.0;
 
 /// 中心マーカーを再検出し、残差が閾値超なら9点TPSで再ワープする（CLI/WASM共通）。
 ///
@@ -767,9 +804,17 @@ fn apply_lens_tps_correction(corrected: RgbaImage) -> Result<(RgbaImage, bool), 
     if err_mm > SEVERE_LENS_DISTORTION_MM {
         return Err(format!(
             "レンズ歪みが大きすぎます（中心残差 {err_mm:.1}mm、許容 {:.1}mm以下）。\
-             紙面からもう少し離れて撮り直してください。広角レンズを使っている場合は標準レンズに切り替えてください。",
+             もう一歩離れて撮り直してください。",
             SEVERE_LENS_DISTORTION_MM
         ));
+    }
+
+    // 中程度の歪み: TPS を適用するが品質低下の可能性を警告
+    if err_mm > LENS_DISTORTION_WARN_MM {
+        log!(
+            "  ⚠ 中心残差 {err_mm:.2}mm は大きめです — TPS を適用しますが、\
+             紙端のセル切り出し精度が落ちる可能性があります（結果を確認してください）"
+        );
     }
 
     let corners = match marker::detect_markers(&binary, &gray) {

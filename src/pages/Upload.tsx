@@ -478,10 +478,14 @@ export default function Upload(props: Props) {
                 {missingChars().length} 文字が未検出です
               </p>
               <p style="color:#856404;font-size:0.9rem;margin-bottom:0.75rem">
-                未検出の文字だけを集めたテンプレートを印刷し、書き直してスキャンすると追加できます。
                 そのまま生成すると、未検出の文字は端末のフォントで代替表示されます。
               </p>
-              <button class="btn" onClick={handleDownloadRetryTemplate}>
+              {/* リトライPDFは v:3 QR の `s` フラグに対応できないため現状無効化（Issue #96）。
+                  scanner 側で `chars` 配列を優先する経路が入ったら再有効化する。 */}
+              <p style="color:#856404;font-size:0.85rem;margin-bottom:0.5rem">
+                リトライ機能は現在調整中です（Issue #96 で対応予定）
+              </p>
+              <button class="btn" onClick={handleDownloadRetryTemplate} disabled>
                 未検出文字のテンプレートをダウンロード (
                 {Math.ceil(missingChars().length / CHARS_PER_PAGE)} ページ)
               </button>

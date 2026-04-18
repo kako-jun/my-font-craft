@@ -73,6 +73,8 @@ export interface WasmProcessedCell {
 export interface WasmProcessResult {
   page_number: number | null;
   total_pages: number | null;
+  /** 文字セット選択フラグ（Issue #91, v:3）。'h'/'k'/'a'/'j' の結合。null は QR 復元不可 */
+  char_selection: string | null;
   cells: WasmProcessedCell[];
   corrected_image: number[]; // RGBA raw bytes
   corrected_width: number;

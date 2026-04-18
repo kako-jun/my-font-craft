@@ -15,7 +15,8 @@ const MOCK_SCANS_DIR = path.join(__dirname, '..', 'fixtures', 'mock-scans');
 async function createMockZip(): Promise<Buffer> {
   const zip = new JSZip();
   const files = fs.readdirSync(MOCK_SCANS_DIR).filter((f) => f.endsWith('.png'));
-  expect(files.length).toBeGreaterThanOrEqual(3);
+  // ひらがな83文字は 2 ページに収まる（generate-mock-scans.ts の出力枚数と一致）
+  expect(files.length).toBeGreaterThanOrEqual(2);
 
   for (const file of files) {
     const data = fs.readFileSync(path.join(MOCK_SCANS_DIR, file));
@@ -30,8 +31,8 @@ test.describe('フルフロー: テンプレート→スキャン→フォント
   test('テンプレートPDFをダウンロードできる', async ({ page }) => {
     await page.goto('/');
 
-    // テンプレートページへ遷移
-    await page.click('text=1. テンプレート');
+    // テンプレートページへ遷移（ヘッダー nav とホーム大ボタン両方が "1. テンプレート" を含むので exact 一致で nav に限定）
+    await page.getByRole('button', { name: '1. テンプレート', exact: true }).click();
     await expect(page.locator('h2')).toContainText('テンプレートを印刷する');
 
     // ひらがなのみチェック（他を外す）
@@ -67,8 +68,8 @@ test.describe('フルフロー: テンプレート→スキャン→フォント
   test('模擬スキャン画像をアップロードしてフォントを生成できる', async ({ page }) => {
     await page.goto('/');
 
-    // フォント作成ページへ遷移
-    await page.click('text=2. フォント作成');
+    // フォント作成ページへ遷移（#90: nav 限定の exact 一致）
+    await page.getByRole('button', { name: '2. フォント作成', exact: true }).click();
     await expect(page.locator('h2')).toContainText('フォントを作成する');
 
     // ZIPファイルを作成

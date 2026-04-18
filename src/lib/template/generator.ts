@@ -35,16 +35,11 @@ import {
   getSamplePosition,
 } from './layout';
 import {
-  HIRAGANA,
-  KATAKANA,
-  UPPERCASE,
-  LOWERCASE,
-  DIGITS,
-  ASCII_SYMBOLS,
-  JP_SYMBOLS,
   CHARS_PER_PAGE,
+  buildCharListFromSelection,
+  selectionToFlag,
+  type CharSelection,
 } from '../../data/characters';
-import { JOYO_KANJI } from '../../data/joyo-kanji';
 import { getTriviaForPage } from '../../data/trivia';
 
 export interface TemplateOptions {
@@ -55,34 +50,40 @@ export interface TemplateOptions {
   includeAlphaNum: boolean;
 }
 
-function buildCharList(opts: TemplateOptions): string[] {
-  const chars: string[] = [];
-  if (opts.includeHiragana) chars.push(...HIRAGANA);
-  if (opts.includeKatakana) chars.push(...KATAKANA);
-  if (opts.includeAlphaNum)
-    chars.push(...UPPERCASE, ...LOWERCASE, ...DIGITS, ...ASCII_SYMBOLS, ...JP_SYMBOLS);
-  if (opts.includeKanji) chars.push(...JOYO_KANJI);
-  return chars;
+function optionsToSelection(opts: TemplateOptions): CharSelection {
+  return {
+    hiragana: opts.includeHiragana,
+    katakana: opts.includeKatakana,
+    alphanum: opts.includeAlphaNum,
+    kanji: opts.includeKanji,
+  };
 }
 
 // 任意の文字リストからリトライ用テンプレートPDFを生成
 // QRコードに文字リストを埋め込み、スキャン時にページ番号ではなく文字リストで識別
+//
+// NOTE (#91): リトライPDF は任意の文字サブセットが入るため CharSelection に
+// 当てはめられず、`s` フラグを付けられない。現状の scanner は `s` 無しを拒否
+// するため、このPDFをスキャンすると「古い版」エラーが出る。`chars` フィールド
+// を scanner 側で読み取って文字リストを復元する対応は別 Issue 扱い。
 export async function generateRetryTemplatePDF(
   chars: string[],
   fontName: string,
 ): Promise<Uint8Array> {
-  return generateTemplatePDFFromChars(chars, fontName, true);
+  return generateTemplatePDFFromChars(chars, fontName, true, null);
 }
 
 export async function generateTemplatePDF(opts: TemplateOptions): Promise<Uint8Array> {
-  const chars = buildCharList(opts);
-  return generateTemplatePDFFromChars(chars, opts.fontName, false);
+  const selection = optionsToSelection(opts);
+  const chars = buildCharListFromSelection(selection);
+  return generateTemplatePDFFromChars(chars, opts.fontName, false, selection);
 }
 
 async function generateTemplatePDFFromChars(
   chars: string[],
   fontName: string,
-  includeCharsInQR = false,
+  includeCharsInQR: boolean,
+  selection: CharSelection | null,
 ): Promise<Uint8Array> {
   const totalPages = Math.ceil(chars.length / CHARS_PER_PAGE);
   const pdfDoc = await PDFDocument.create();
@@ -176,14 +177,17 @@ async function generateTemplatePDFFromChars(
       });
     }
 
-    // QRコード
+    // QRコード (v:3 — Issue #91: 文字セット選択情報 `s` を追加)
     const qrPayload: Record<string, unknown> = {
       p: 'mfc',
-      v: 2,
+      v: 3,
       pg: pageIdx + 1,
       t: totalPages,
       m: 2,
     };
+    if (selection) {
+      qrPayload.s = selectionToFlag(selection);
+    }
     // リトライ用テンプレートでは文字リストをQRに埋め込む
     if (includeCharsInQR) {
       qrPayload.chars = pageChars;
