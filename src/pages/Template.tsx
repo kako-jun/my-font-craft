@@ -123,6 +123,11 @@ export default function Template(props: Props) {
 
         <p class="template-page__info">約{estimatedPages()}ページのPDFが生成されます。</p>
 
+        <p class="template-page__note">
+          記入方法: チェック欄には チェックマーク（✓）のみ。×
+          など他のマークは無効です（"X"という文字そのものを書く場合と区別できないため）
+        </p>
+
         {error() && <div class="message message--error">{error()}</div>}
 
         <button class="btn btn--primary" onClick={handleDownload} disabled={generating()}>

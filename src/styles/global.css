@@ -672,6 +672,16 @@ body {
   color: var(--accent-light);
 }
 
+.template-page__note {
+  margin: 0.5rem 0 1rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--warning, #f39c12);
+  background: rgba(243, 156, 18, 0.08);
+  font-size: 0.85rem;
+  color: var(--accent);
+  line-height: 1.5;
+}
+
 /* Progress wrapper */
 .progress-wrapper {
   display: flex;
