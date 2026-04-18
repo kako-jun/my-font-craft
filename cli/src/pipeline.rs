@@ -394,21 +394,24 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
 
     // ステップ7: QR読み取り
     log!("=== QR読み取り ===");
-    let (page_number, total_pages, char_selection) = match read_qr_from_corrected_wasm(&corrected) {
+    let qr_info = match read_qr_from_corrected_wasm(&corrected) {
         Ok(data) => {
             log!("  QRデータ: {data}");
             let parsed = parse_qr_payload(&data);
-            if parsed.0.is_none() && parsed.1.is_none() && parsed.2.is_none() {
+            if parsed.is_empty() {
                 let preview: String = data.chars().take(80).collect();
-                log!("  ⚠ QRデータをパースできませんでした（v:3 必須フィールド欠落の可能性）: {preview}");
+                log!("  ⚠ v:3 JSON として認識できませんでした（p/v/s いずれか欠落または不正）: {preview}");
             }
             parsed
         }
         Err(e) => {
             log!("  QR読み取り失敗（続行）: {e}");
-            (None, None, None)
+            QrInfo::empty()
         }
     };
+    let page_number = qr_info.page;
+    let total_pages = qr_info.total;
+    let char_selection = qr_info.selection;
 
     // ステップ7.5: ホワイトバランス補正
     log!("=== ホワイトバランス補正 ===");
@@ -486,116 +489,141 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
     })
 }
 
+/// QR ペイロードから抽出したページ情報と文字セット選択フラグ。
+///
+/// 3 要素タプルより意図が読みやすいので struct で包む（Issue #91 PR レビュー対応）。
+#[derive(Debug, PartialEq)]
+struct QrInfo {
+    page: Option<u32>,
+    total: Option<u32>,
+    selection: Option<String>,
+}
+
+impl QrInfo {
+    fn empty() -> Self {
+        Self { page: None, total: None, selection: None }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.page.is_none() && self.total.is_none() && self.selection.is_none()
+    }
+}
+
 /// QRデータからページ情報と文字セット選択フラグを抽出する（v:3 のみサポート）
 ///
 /// 形式: JSON `{"p":"mfc","v":3,"pg":N,"t":M,"m":2,"s":"<flag>"}`
-/// - `p` が "mfc" かつ `v` が 3 かつ `s` が文字列のとき、3 要素を返す。
+/// - `p` が "mfc" かつ `v` が 3 かつ `s` が非空の文字列のとき、3 要素を返す。
 /// - 上記 3 条件のいずれかを満たさない場合は全て `None`（後方互換なし、Issue #91）。
-fn parse_qr_payload(data: &str) -> (Option<u32>, Option<u32>, Option<String>) {
+/// - `s` が空文字列 `""` の場合も不正として扱う（TS 側 `flagToSelection('')` が
+///   `null` を返す挙動との対称性のため）。
+fn parse_qr_payload(data: &str) -> QrInfo {
     let trimmed = data.trim();
 
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
         let product_ok = v.get("p").and_then(|x| x.as_str()) == Some("mfc");
         let version_ok = v.get("v").and_then(|x| x.as_u64()) == Some(3);
-        let selection = v.get("s").and_then(|x| x.as_str()).map(|s| s.to_string());
+        let selection = v
+            .get("s")
+            .and_then(|x| x.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
 
         if product_ok && version_ok && selection.is_some() {
             let page = v.get("pg").and_then(|x| x.as_u64()).and_then(|n| u32::try_from(n).ok());
             let total = v.get("t").and_then(|x| x.as_u64()).and_then(|n| u32::try_from(n).ok());
-            return (page, total, selection);
+            return QrInfo { page, total, selection };
         }
     }
 
-    (None, None, None)
+    QrInfo::empty()
 }
 
 #[cfg(test)]
 mod qr_parse_tests {
-    use super::parse_qr_payload;
+    use super::{parse_qr_payload, QrInfo};
 
     #[test]
     fn v3_json_basic() {
-        let (p, t, s) = parse_qr_payload(r#"{"p":"mfc","v":3,"pg":1,"t":2,"m":2,"s":"h"}"#);
-        assert_eq!(p, Some(1));
-        assert_eq!(t, Some(2));
-        assert_eq!(s, Some("h".to_string()));
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":3,"pg":1,"t":2,"m":2,"s":"h"}"#),
+            QrInfo { page: Some(1), total: Some(2), selection: Some("h".to_string()) },
+        );
     }
 
     #[test]
     fn v3_json_all_sets() {
-        let (p, t, s) = parse_qr_payload(r#"{"p":"mfc","v":3,"pg":3,"t":10,"m":2,"s":"hkaj"}"#);
-        assert_eq!(p, Some(3));
-        assert_eq!(t, Some(10));
-        assert_eq!(s, Some("hkaj".to_string()));
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":3,"pg":3,"t":10,"m":2,"s":"hkaj"}"#),
+            QrInfo { page: Some(3), total: Some(10), selection: Some("hkaj".to_string()) },
+        );
     }
 
     #[test]
     fn v3_json_with_whitespace() {
-        let (p, t, s) = parse_qr_payload("  {\"p\":\"mfc\",\"v\":3,\"pg\":5,\"t\":7,\"s\":\"hk\"}  ");
-        assert_eq!(p, Some(5));
-        assert_eq!(t, Some(7));
-        assert_eq!(s, Some("hk".to_string()));
+        assert_eq!(
+            parse_qr_payload("  {\"p\":\"mfc\",\"v\":3,\"pg\":5,\"t\":7,\"s\":\"hk\"}  "),
+            QrInfo { page: Some(5), total: Some(7), selection: Some("hk".to_string()) },
+        );
     }
 
     #[test]
     fn v3_missing_s_rejected() {
-        let (p, t, s) = parse_qr_payload(r#"{"p":"mfc","v":3,"pg":1,"t":2,"m":2}"#);
-        assert_eq!(p, None);
-        assert_eq!(t, None);
-        assert_eq!(s, None);
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":3,"pg":1,"t":2,"m":2}"#),
+            QrInfo::empty(),
+        );
+    }
+
+    #[test]
+    fn v3_empty_s_rejected() {
+        // TS 側 `flagToSelection('')` が null を返す挙動との対称性のため
+        // 空文字列 `""` の `s` も不正として全 None を返す（PR #95 レビュー対応）
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":3,"pg":1,"t":2,"m":2,"s":""}"#),
+            QrInfo::empty(),
+        );
     }
 
     #[test]
     fn v3_wrong_version_rejected() {
         // v:2 は後方互換なし（Issue #91）
-        let (p, t, s) = parse_qr_payload(r#"{"p":"mfc","v":2,"pg":1,"t":2,"m":2,"s":"h"}"#);
-        assert_eq!(p, None);
-        assert_eq!(t, None);
-        assert_eq!(s, None);
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":2,"pg":1,"t":2,"m":2,"s":"h"}"#),
+            QrInfo::empty(),
+        );
     }
 
     #[test]
     fn v3_wrong_product_rejected() {
-        let (p, t, s) = parse_qr_payload(r#"{"p":"other","v":3,"pg":1,"t":2,"s":"h"}"#);
-        assert_eq!(p, None);
-        assert_eq!(t, None);
-        assert_eq!(s, None);
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"other","v":3,"pg":1,"t":2,"s":"h"}"#),
+            QrInfo::empty(),
+        );
     }
 
     #[test]
     fn v3_overflow_u32() {
         // u32::MAX 超の値は try_from で弾かれて None になる
-        let (p, t, s) = parse_qr_payload(
-            r#"{"p":"mfc","v":3,"pg":4294967296,"t":2,"s":"h"}"#,
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":3,"pg":4294967296,"t":2,"s":"h"}"#),
+            QrInfo { page: None, total: Some(2), selection: Some("h".to_string()) },
         );
-        assert_eq!(p, None);
-        assert_eq!(t, Some(2));
-        assert_eq!(s, Some("h".to_string()));
     }
 
     #[test]
     fn invalid_returns_none() {
-        let (p, t, s) = parse_qr_payload("garbage");
-        assert_eq!(p, None);
-        assert_eq!(t, None);
-        assert_eq!(s, None);
+        assert_eq!(parse_qr_payload("garbage"), QrInfo::empty());
     }
 
     #[test]
     fn empty_string_returns_none() {
-        let (p, t, s) = parse_qr_payload("");
-        assert_eq!(p, None);
-        assert_eq!(t, None);
-        assert_eq!(s, None);
+        assert_eq!(parse_qr_payload(""), QrInfo::empty());
     }
 
     #[test]
     fn v1_plain_text_rejected() {
         // v:1 プレーンテキストは後方互換なしで拒否
-        let (p, t, s) = parse_qr_payload("mfc:1/3");
-        assert_eq!(p, None);
-        assert_eq!(t, None);
-        assert_eq!(s, None);
+        assert_eq!(parse_qr_payload("mfc:1/3"), QrInfo::empty());
     }
 }
 
