@@ -806,6 +806,53 @@ mod tests {
         }
     }
 
+    // ── インクブリード補正のテスト (#57) ──
+
+    #[test]
+    fn compensate_ink_bleed_shrinks_thick_stroke() {
+        // 12×12 に 7×7 の太めストロークを置くと erosion で 5×5 (25/49=51%) まで縮小。
+        // 50% 以上残るので補正が適用される。
+        let w = 12u32;
+        let h = 12u32;
+        let mut binary = vec![255u8; (w * h) as usize];
+        for y in 2..9 {
+            for x in 2..9 {
+                binary[(y * w + x) as usize] = 0;
+            }
+        }
+        let before_black = binary.iter().filter(|&&v| v == 0).count();
+        let out = compensate_ink_bleed(&binary, w, h);
+        let after_black = out.iter().filter(|&&v| v == 0).count();
+        assert!(after_black < before_black, "太いストロークは erosion で縮小するはず");
+        assert_eq!(after_black, 25, "7x7 の 1px erosion 後は 5x5 = 25px");
+    }
+
+    #[test]
+    fn compensate_ink_bleed_preserves_thin_stroke() {
+        // 1px 幅の縦棒は erosion でほぼ消える → 50% ガードで補正キャンセル、原形が維持される
+        let w = 9u32;
+        let h = 9u32;
+        let mut binary = vec![255u8; (w * h) as usize];
+        for y in 1..8 {
+            binary[(y * w + 4) as usize] = 0;
+        }
+        let original = binary.clone();
+        let out = compensate_ink_bleed(&binary, w, h);
+        assert_eq!(out, original, "細すぎるストロークは補正キャンセルで原形保持");
+    }
+
+    #[test]
+    fn compensate_ink_bleed_ignores_empty_cell() {
+        // 空白セル（黒<8）は早期リターンで無変更
+        let w = 9u32;
+        let h = 9u32;
+        let mut binary = vec![255u8; (w * h) as usize];
+        binary[0] = 0; // 1ピクセルだけ黒
+        let original = binary.clone();
+        let out = compensate_ink_bleed(&binary, w, h);
+        assert_eq!(out, original, "ほぼ空白のセルは補正しない");
+    }
+
     fn make_uniform_image(w: u32, h: u32, color: Rgba<u8>) -> RgbaImage {
         let mut img = RgbaImage::new(w, h);
         for y in 0..h {

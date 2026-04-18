@@ -723,10 +723,13 @@ fn verify_correction_quality_cli(corrected: &RgbaImage, output_dir: &Path) -> Op
     }
 }
 
+/// TPS を発動する中心残差の下限（mm）。これ以下ならホモグラフィーで十分。
+const TPS_MIN_RESIDUAL_MM: f64 = 1.0;
+
 /// 重度レンズ歪みのしきい値（mm）。
 /// ホモグラフィー後の中心残差がこれを超える画像は、9点TPSでは境界の樽型歪みを
 /// 吸収しきれず、紙面上部〜中段のセル切り出しが崩れる（Issue #88 参照）。
-/// 「もう少し離れて撮り直して」をユーザーに促す。
+/// 「撮影距離を見直してください」をユーザーに促す。
 const SEVERE_LENS_DISTORTION_MM: f64 = 5.0;
 
 /// 中心マーカーを再検出し、残差が閾値超なら9点TPSで再ワープする（CLI/WASM共通）。
@@ -755,7 +758,7 @@ fn apply_lens_tps_correction(corrected: RgbaImage) -> Result<(RgbaImage, bool), 
     let err_mm = (dcx * dcx + dcy * dcy).sqrt() / layout::mm_to_px(1.0);
 
     // ホモグラフィーで十分ならTPSは入れない（画質安定優先）
-    if err_mm <= 1.0 {
+    if err_mm <= TPS_MIN_RESIDUAL_MM {
         log!("  中心残差 {err_mm:.2}mm — TPS補正は不要");
         return Ok((corrected, false));
     }

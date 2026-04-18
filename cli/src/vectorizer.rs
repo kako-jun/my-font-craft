@@ -17,6 +17,10 @@ use crate::cell::{
 
 pub const UNITS_PER_EM: f64 = 1000.0;
 pub const GLYPH_HEIGHT: f64 = 800.0;
+/// グリフを em-square にフィットさせる際の目標サイズ（長辺、units）。
+/// 日本語フォントの慣例（ideographic body ≒ em の 75%）に合わせて 750 を採用。
+/// em-square の四辺に 125 units ずつマージンが残り、上下の descender/ascender の余地になる。
+pub const EM_FIT_SIZE: f64 = 750.0;
 
 // ── 型定義（serde 経由で JS 側 PathCommand と同じ JSON 形式を吐く） ──
 
@@ -138,15 +142,15 @@ pub fn vectorize_glyph(img: &RgbaImage) -> Vec<Vec<PathCommand>> {
     let by_max = rects.iter().map(|r| r.3).max().unwrap() as f64;
     let bbox_w = bx_max - bx_min;
     let bbox_h = by_max - by_min;
+    // rects 非空なら runlength 抽出の不変条件から bbox_w >= 1, bbox_h >= 1 のはずだが、
+    // ゼロ除算と負スケールを防ぐ念のためのガード。
     if bbox_w < 1.0 || bbox_h < 1.0 {
         return Vec::new();
     }
 
     // 8: em-square フィット（#53 Phase 2）
-    // アスペクト比を保ったまま bbox 長辺が TARGET_SIZE になるようスケール。em-square 中央に配置。
-    // 日本語フォントの慣例に合わせ左右上下に均等マージンを残す（TARGET_SIZE < GLYPH_HEIGHT）。
-    const TARGET_SIZE: f64 = 750.0;
-    let scale = TARGET_SIZE / bbox_w.max(bbox_h);
+    // アスペクト比を保ったまま bbox 長辺が EM_FIT_SIZE になるようスケール。em-square 中央に配置。
+    let scale = EM_FIT_SIZE / bbox_w.max(bbox_h);
     let final_w = bbox_w * scale;
     let final_h = bbox_h * scale;
     let offset_x = (UNITS_PER_EM - final_w) / 2.0;
@@ -315,6 +319,57 @@ mod tests {
             // ランレングス方式では各パスは5コマンド（M,L,L,L,Z）
             assert_eq!(path.len(), 5, "各ランは5コマンドの四角形");
         }
+    }
+
+    #[test]
+    fn offset_black_rect_is_centered_in_em_square() {
+        // 画像右下（80,80..95,95）の15×15黒矩形を em-square 中央に正規化できるか
+        // = #53 Phase 2 (BBox 中央配置) の回帰テスト
+        let mut img = make_image(100, 100, Rgba([255, 255, 255, 255]));
+        for y in 80..95 {
+            for x in 80..95 {
+                img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+            }
+        }
+        let paths = vectorize_glyph(&img);
+        assert!(!paths.is_empty());
+
+        // 全パスの x/y 範囲を集計
+        let mut min_x = f64::MAX;
+        let mut max_x = f64::MIN;
+        let mut min_y = f64::MAX;
+        let mut max_y = f64::MIN;
+        for path in &paths {
+            for cmd in path {
+                if let PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } = cmd {
+                    min_x = min_x.min(*x);
+                    max_x = max_x.max(*x);
+                    min_y = min_y.min(*y);
+                    max_y = max_y.max(*y);
+                }
+            }
+        }
+
+        // 左右マージンが均等（±2 units 以内）で EM_FIT_SIZE 相当にスケールされている
+        let left_margin = min_x;
+        let right_margin = UNITS_PER_EM - max_x;
+        assert!(
+            (left_margin - right_margin).abs() < 3.0,
+            "左右マージン差: L={left_margin}, R={right_margin}"
+        );
+        let width = max_x - min_x;
+        assert!(
+            (width - EM_FIT_SIZE).abs() < 3.0,
+            "幅がEM_FIT_SIZE付近になるはず: 実際={width}"
+        );
+
+        // 上下マージンも均等
+        let top_margin = GLYPH_HEIGHT - max_y;
+        let bottom_margin = min_y;
+        assert!(
+            (top_margin - bottom_margin).abs() < 3.0,
+            "上下マージン差: T={top_margin}, B={bottom_margin}"
+        );
     }
 
     #[test]
