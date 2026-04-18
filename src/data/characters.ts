@@ -273,6 +273,11 @@ export function buildCharListFromSelection(sel: CharSelection): string[] {
 /**
  * 選択情報を QR ペイロード用のフラグ文字列に変換する。
  * 'h'=ひらがな / 'k'=カタカナ / 'a'=英数記号 / 'j'=漢字。順序は h→k→a→j 固定。
+ *
+ * 注意: 全 false な `CharSelection` は空文字列 `''` にエンコードされる。これは
+ * `flagToSelection('')` で `null`（不正な選択）になるため、`selectionToFlag` と
+ * `flagToSelection` のラウンドトリップは「全 false 状態」では意図的に復元できない。
+ * UI 側で「1つも選択していない」状態は PDF 生成前にガードする前提（Template.tsx 参照）。
  */
 export function selectionToFlag(sel: CharSelection): string {
   let flag = '';
@@ -286,6 +291,11 @@ export function selectionToFlag(sel: CharSelection): string {
 /**
  * フラグ文字列から選択情報を復元する。
  * 不正な文字が含まれているか、空文字列の場合は null を返す。
+ *
+ * 注意: `selectionToFlag({...all false})` は `''` を返す仕様のため、
+ * 「全 false な CharSelection」はラウンドトリップで復元できない。
+ * 呼び出し側は `null` を「選択なし＝不正」として扱う（Rust 側 `parse_qr_payload`
+ * も `s: ""` を同様に reject する）。
  */
 export function flagToSelection(flag: string): CharSelection | null {
   if (flag.length === 0) return null;
