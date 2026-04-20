@@ -317,7 +317,7 @@ export default function Upload(props: Props) {
   function handleResetWithConfirm() {
     if (
       typeof window !== 'undefined' &&
-      !window.confirm('読み込んだ全ての文字を破棄して 0 文字に戻します。よろしいですか？')
+      !window.confirm('読み込んだすべての文字を破棄して 0 文字に戻します。よろしいですか？')
     ) {
       return;
     }
@@ -370,7 +370,7 @@ export default function Upload(props: Props) {
               class="btn"
               onClick={(e) => {
                 e.stopPropagation();
-                document.getElementById('file-input')?.click();
+                document.getElementById('zip-input')?.click();
               }}
             >
               <IconZip /> ZIPを選択
@@ -394,7 +394,7 @@ export default function Upload(props: Props) {
             onChange={handleFileInput}
           />
           <input
-            id="file-input"
+            id="zip-input"
             type="file"
             accept=".zip"
             style="display:none"
@@ -547,7 +547,7 @@ export default function Upload(props: Props) {
                   ? `このまま生成する（${glyphStatuses().filter((g) => g.status !== 'empty' && !excludedChars().has(g.char)).length} 文字）`
                   : 'フォントを生成する'}
             </button>
-            <button class="btn" onClick={handleReset}>
+            <button class="btn" onClick={handleResetWithConfirm}>
               やり直す
             </button>
           </div>
@@ -569,7 +569,7 @@ export default function Upload(props: Props) {
             <button class="btn btn--primary" onClick={handleDownloadFont}>
               <IconDownload /> フォントをダウンロード (.ttf)
             </button>
-            <button class="btn" onClick={handleReset}>
+            <button class="btn" onClick={handleResetWithConfirm}>
               最初からやり直す
             </button>
           </div>
