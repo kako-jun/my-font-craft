@@ -235,7 +235,10 @@
 
 - 通常テンプレート PDF は `s` を持ち、scanner は `getCharactersForPage(pg - 1, flagToSelection(s))` で文字集合を復元する。
 - リトライ用 PDF（`generateRetryTemplatePDF`）は `chars` 配列を持ち、scanner はそれを直接ページの文字リストとして使う。CharSelection に当てはまらない任意文字リスト（採用漏れ文字の再印刷）に対応するため。
+- 両方ある場合は **`chars` を優先** する（scanner 側の判定順）。
 - どちらも無い／不正な場合は古い版のテンプレートとしてそのページをスキップする。
+- `chars` 要素は **単一 Unicode scalar value（codepoint）** の文字列。サロゲートペア（絵文字等）は受理されるが、結合文字列（例: 「か」+ U+3099 濁点 = 2 codepoint）は弾かれる。生成側は NFC 正規化された JIS 漢字・かな・絵文字を渡す前提。
+- Rust 側 `parse_qr_payload` は `chars: []`（空配列）を `None` に正規化するため、TS 側で `qr_chars` が `Some(空配列)` 相当を受け取ることはない。
 
 **文字セット選択フラグ `s`** (Issue #91, v:3):
 'h'=ひらがな / 'k'=カタカナ / 'a'=英数記号 / 'j'=漢字。順序は `h→k→a→j` で固定。
