@@ -11,7 +11,14 @@ import { buildFont, importFont } from '../lib/font/builder';
 import { mergeScanIntoExisting, mergeImportIntoExisting } from '../lib/merge';
 import { generateRetryTemplatePDF } from '../lib/template/generator';
 import { CHARS_PER_PAGE } from '../data/characters';
-import { IconFolder, IconZip, IconDownload, IconFont, IconUpload } from '../components/icons';
+import {
+  IconFolder,
+  IconZip,
+  IconDownload,
+  IconFont,
+  IconUpload,
+  IconImage,
+} from '../components/icons';
 
 interface Props {
   fontName: string;
@@ -64,22 +71,20 @@ export default function Upload(props: Props) {
   }
 
   // Phase 1: スキャン（画像処理のみ。フォント生成はしない）
-  // merge=true なら既存結果にマージ
-  async function handleFiles(files: FileList | File[], merge = false) {
+  // 既存結果がある場合は常にマージ（追加）。リセットしたい場合は handleReset を明示的に呼ぶ
+  async function handleFiles(files: FileList | File[]) {
     const fileArray = Array.from(files);
     if (fileArray.length === 0) return;
 
-    const prevResult = merge ? scanResult() : null;
-    const prevStatuses = merge ? glyphStatuses() : [];
+    const existingResult = scanResult();
+    const existingStatuses = glyphStatuses();
+    const merge = existingResult !== null && existingStatuses.length > 0;
+    const prevResult = merge ? existingResult : null;
+    const prevStatuses = merge ? existingStatuses : [];
 
     setPhase('scanning');
     setMessages([]);
     setFontBlob(null);
-    if (!merge) {
-      setGlyphStatuses([]);
-      setCorrectedPages([]);
-      setScanResult(null);
-    }
 
     try {
       const newGlyphStatuses: GlyphStatus[] = [];
@@ -225,11 +230,6 @@ export default function Upload(props: Props) {
     }
   }
 
-  // 追加スキャン用のファイルハンドラ（マージモード）
-  function handleMergeFiles(files: FileList | File[]) {
-    handleFiles(files, true);
-  }
-
   // 既存TTF/OTFインポート
   async function handleImportFont(file: File) {
     try {
@@ -292,23 +292,15 @@ export default function Upload(props: Props) {
     e.preventDefault();
     setDragActive(false);
     if (e.dataTransfer?.files) {
-      // review 中はマージモード
-      if (phase() === 'review') {
-        handleMergeFiles(e.dataTransfer.files);
-      } else {
-        handleFiles(e.dataTransfer.files);
-      }
+      handleFiles(e.dataTransfer.files);
     }
   }
 
   function handleFileInput(e: Event) {
     const input = e.currentTarget as HTMLInputElement;
     if (input.files) {
-      if (phase() === 'review') {
-        handleMergeFiles(input.files);
-      } else {
-        handleFiles(input.files);
-      }
+      handleFiles(input.files);
+      input.value = ''; // 同じファイルを再選択可能にする
     }
   }
 
@@ -320,6 +312,16 @@ export default function Upload(props: Props) {
     setCorrectedPages([]);
     setScanResult(null);
     setExcludedChars(new Set());
+  }
+
+  function handleResetWithConfirm() {
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm('読み込んだすべての文字を破棄して 0 文字に戻します。よろしいですか？')
+    ) {
+      return;
+    }
+    handleReset();
   }
 
   return (
@@ -340,12 +342,21 @@ export default function Upload(props: Props) {
         >
           <p>
             {phase() === 'review'
-              ? '追加の画像をアップロード（既存の結果にマージします）'
+              ? '追加の画像をアップロード（既存の結果に追加します）'
               : 'スキャンした画像のフォルダまたはZIPをドラッグ&ドロップ'}
           </p>
           <p class="drop-zone__hint">JPEG, PNG, WebP に対応</p>
           <p>または</p>
           <div style="display:flex;gap:0.5rem;justify-content:center;flex-wrap:wrap">
+            <button
+              class="btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                document.getElementById('image-input')?.click();
+              }}
+            >
+              <IconImage /> 画像を選択（複数可）
+            </button>
             <button
               class="btn"
               onClick={(e) => {
@@ -359,7 +370,7 @@ export default function Upload(props: Props) {
               class="btn"
               onClick={(e) => {
                 e.stopPropagation();
-                document.getElementById('file-input')?.click();
+                document.getElementById('zip-input')?.click();
               }}
             >
               <IconZip /> ZIPを選択
@@ -375,9 +386,16 @@ export default function Upload(props: Props) {
             </button>
           </div>
           <input
-            id="file-input"
+            id="image-input"
             type="file"
             multiple
+            accept="image/*"
+            style="display:none"
+            onChange={handleFileInput}
+          />
+          <input
+            id="zip-input"
+            type="file"
             accept=".zip"
             style="display:none"
             onChange={handleFileInput}
@@ -397,6 +415,19 @@ export default function Upload(props: Props) {
             style="display:none"
             onChange={handleFontFileInput}
           />
+          <Show when={phase() === 'review'}>
+            <div style="margin-top:1rem">
+              <button
+                class="btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleResetWithConfirm();
+                }}
+              >
+                リセット（0 文字に戻す）
+              </button>
+            </div>
+          </Show>
         </div>
       </Show>
 
@@ -409,6 +440,10 @@ export default function Upload(props: Props) {
             <li>ページの識別はテンプレートのQRコードで自動的に行います</li>
             <li>多少の傾きは自動補正されますが、なるべく正面から撮ると精度が上がります</li>
             <li>チェック欄は任意です。同じ文字を2マス書いた時、✓ を書いた方が優先採用されます</li>
+            <li>
+              読み込みは常に既存に追加されます。0
+              文字に戻したいときは「リセット」ボタンを押してください
+            </li>
           </ul>
         </div>
       </Show>
@@ -512,7 +547,7 @@ export default function Upload(props: Props) {
                   ? `このまま生成する（${glyphStatuses().filter((g) => g.status !== 'empty' && !excludedChars().has(g.char)).length} 文字）`
                   : 'フォントを生成する'}
             </button>
-            <button class="btn" onClick={handleReset}>
+            <button class="btn" onClick={handleResetWithConfirm}>
               やり直す
             </button>
           </div>
@@ -534,7 +569,7 @@ export default function Upload(props: Props) {
             <button class="btn btn--primary" onClick={handleDownloadFont}>
               <IconDownload /> フォントをダウンロード (.ttf)
             </button>
-            <button class="btn" onClick={handleReset}>
+            <button class="btn" onClick={handleResetWithConfirm}>
               最初からやり直す
             </button>
           </div>
