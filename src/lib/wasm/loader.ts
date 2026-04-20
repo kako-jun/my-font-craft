@@ -75,6 +75,11 @@ export interface WasmProcessResult {
   total_pages: number | null;
   /** 文字セット選択フラグ（Issue #91, v:3）。'h'/'k'/'a'/'j' の結合。null は QR 復元不可 */
   char_selection: string | null;
+  /**
+   * QR ペイロードの `chars` 配列（Issue #96, リトライ用 PDF のみ）。
+   * 非 null かつ非空ならこれを優先して文字リストとして使う。
+   */
+  qr_chars: string[] | null;
   cells: WasmProcessedCell[];
   corrected_image: number[]; // RGBA raw bytes
   corrected_width: number;
