@@ -1,15 +1,14 @@
-import { A, useLocation, useNavigate } from '@solidjs/router';
+import { A, useLocation } from '@solidjs/router';
 
 export default function Header() {
   const location = useLocation();
-  const navigate = useNavigate();
 
   return (
     <header class="header">
       <div class="header__inner">
-        <button type="button" class="header__logo" onClick={() => navigate('/')}>
+        <A href="/" class="header__logo">
           MyFontCraft
-        </button>
+        </A>
         <nav class="header__nav">
           <A
             href="/template"

@@ -402,7 +402,7 @@ my-font-craft/
 ```json
 {
   "solid-js": "^1.9.0",
-  "@solidjs/router": "^0.15.0",
+  "@solidjs/router": "^0.16.1",
   "pdf-lib": "^1.17.1",
   "opentype.js": "^1.3.4",
   "jsqr": "^1.4.0",

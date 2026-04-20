@@ -79,7 +79,7 @@ test.describe('フルフロー: テンプレート→スキャン→フォント
 
     try {
       // ZIPをアップロード（hidden input に直接セット）
-      const fileInput = page.locator('#file-input');
+      const fileInput = page.locator('#zip-input');
       await fileInput.setInputFiles(zipPath);
 
       // スキャン処理の完了を待つ（review フェーズ）

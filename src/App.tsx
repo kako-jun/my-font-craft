@@ -6,17 +6,20 @@ import Home from './pages/Home';
 import Template from './pages/Template';
 import Upload from './pages/Upload';
 import About from './pages/About';
+import NotFound from './pages/NotFound';
 
-export default function App() {
-  const [fontName, setFontName] = createSignal('MyHandwriting');
-
-  const Layout = (props: { children?: JSX.Element }) => (
+function Layout(props: { children?: JSX.Element }) {
+  return (
     <div class="app">
       <Header />
       <main class="main">{props.children}</main>
       <Footer />
     </div>
   );
+}
+
+export default function App() {
+  const [fontName, setFontName] = createSignal('MyHandwriting');
 
   return (
     <Router root={Layout}>
@@ -27,7 +30,7 @@ export default function App() {
       />
       <Route path="/upload" component={() => <Upload fontName={fontName()} />} />
       <Route path="/about" component={About} />
-      <Route path="*" component={Home} />
+      <Route path="*" component={NotFound} />
     </Router>
   );
 }

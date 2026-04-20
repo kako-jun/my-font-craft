@@ -82,7 +82,10 @@
 - `App.tsx` が `<Router>` でラップし、共通レイアウト（Header / main / Footer）を `root` に渡す
 - Header / Footer / Home のナビゲーションは `<A>` または `useNavigate()` を使用
 - ホスティング側 SPA フォールバック: `public/_redirects` に `/* /index.html 200`（Cloudflare Pages）
-- `fontName` などの状態は `App.tsx` で `createSignal` し、ルートが切り替わっても保持される（Upload の内部 phase 等は in-memory）
+- `fontName` は `App.tsx` の `createSignal` で保持され、ルート遷移しても消えない
+- ただし `Template` / `Upload` の内部 state（Upload の phase / scanResult / glyphStatuses など）は各 page コンポーネント内で `createSignal` しているため、**他のルートに移動して戻ると失われる**。リロードでも同様
+- 不明な URL は `/pages/NotFound` にフォールバック（トップへ戻るボタン付き）
+- 状態の永続化（IndexedDB / sessionStorage 等）は別 Issue の範疇
 
 ---
 
