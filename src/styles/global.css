@@ -337,9 +337,7 @@ body {
   font-size: 1.4rem;
   font-weight: bold;
   color: var(--accent);
-  background: none;
-  border: none;
-  cursor: pointer;
+  text-decoration: none;
   letter-spacing: 1px;
 }
 
@@ -349,13 +347,12 @@ body {
 }
 
 .header__link {
-  background: none;
-  border: none;
+  display: inline-block;
   padding: 0.4rem 0.8rem;
   font-family: inherit;
   font-size: 0.9rem;
   color: var(--accent);
-  cursor: pointer;
+  text-decoration: none;
   border-radius: 4px;
   transition: background 0.15s;
 }
@@ -394,14 +391,6 @@ body {
 .footer__link:hover {
   color: var(--accent);
   text-decoration: underline;
-}
-
-.footer__link--btn {
-  background: none;
-  border: none;
-  font: inherit;
-  cursor: pointer;
-  padding: 0;
 }
 
 .footer__sep {
@@ -465,6 +454,16 @@ body {
   text-align: center;
   color: var(--accent);
   margin-bottom: 1.5rem;
+}
+
+/* NotFound */
+.not-found {
+  margin-top: 2rem;
+  text-align: center;
+}
+
+.not-found__actions {
+  margin-top: 1rem;
 }
 
 /* Hero */

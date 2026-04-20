@@ -68,6 +68,27 @@
 
 ---
 
+## ルーティング
+
+`@solidjs/router` によるクライアントサイドルーティング。各画面は固有 URL を持ち、リロード・直接アクセス・ブラウザ戻る/進むに自然に対応する。
+
+| 画面                             | URL         |
+| -------------------------------- | ----------- |
+| Home（トップ）                   | `/`         |
+| Template（PDF テンプレート印刷） | `/template` |
+| Upload（スキャン + TTF 生成）    | `/upload`   |
+| About                            | `/about`    |
+
+- `App.tsx` が `<Router>` でラップし、共通レイアウト（Header / main / Footer）を `root` に渡す
+- Header / Footer / Home のナビゲーションは `<A>` または `useNavigate()` を使用
+- ホスティング側 SPA フォールバック: `public/_redirects` に `/* /index.html 200`（Cloudflare Pages）
+- `fontName` は `App.tsx` の `createSignal` で保持され、ルート遷移しても消えない
+- ただし `Template` / `Upload` の内部 state（Upload の phase / scanResult / glyphStatuses など）は各 page コンポーネント内で `createSignal` しているため、**他のルートに移動して戻ると失われる**。リロードでも同様
+- 不明な URL は `/pages/NotFound` にフォールバック（トップへ戻るボタン付き）
+- 状態の永続化（IndexedDB / sessionStorage 等）は別 Issue の範疇
+
+---
+
 ## ページ構成
 
 ### 1. トップページ

@@ -1,35 +1,36 @@
-import { createSignal, Show } from 'solid-js';
+import { createSignal, type JSX } from 'solid-js';
+import { Router, Route } from '@solidjs/router';
 import Header from './components/Header';
 import Footer from './components/Footer';
 import Home from './pages/Home';
 import Template from './pages/Template';
 import Upload from './pages/Upload';
 import About from './pages/About';
+import NotFound from './pages/NotFound';
 
-export type Page = 'home' | 'template' | 'upload' | 'about';
+function Layout(props: { children?: JSX.Element }) {
+  return (
+    <div class="app">
+      <Header />
+      <main class="main">{props.children}</main>
+      <Footer />
+    </div>
+  );
+}
 
 export default function App() {
-  const [page, setPage] = createSignal<Page>('home');
   const [fontName, setFontName] = createSignal('MyHandwriting');
 
   return (
-    <div class="app">
-      <Header currentPage={page()} onNavigate={setPage} />
-      <main class="main">
-        <Show when={page() === 'home'}>
-          <Home onNavigate={setPage} />
-        </Show>
-        <Show when={page() === 'template'}>
-          <Template fontName={fontName()} onFontNameChange={setFontName} />
-        </Show>
-        <Show when={page() === 'upload'}>
-          <Upload fontName={fontName()} />
-        </Show>
-        <Show when={page() === 'about'}>
-          <About />
-        </Show>
-      </main>
-      <Footer onNavigate={setPage} />
-    </div>
+    <Router root={Layout}>
+      <Route path="/" component={Home} />
+      <Route
+        path="/template"
+        component={() => <Template fontName={fontName()} onFontNameChange={setFontName} />}
+      />
+      <Route path="/upload" component={() => <Upload fontName={fontName()} />} />
+      <Route path="/about" component={About} />
+      <Route path="*" component={NotFound} />
+    </Router>
   );
 }

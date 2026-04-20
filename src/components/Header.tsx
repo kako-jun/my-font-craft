@@ -1,32 +1,29 @@
-import type { Page } from '../App';
+import { A, useLocation } from '@solidjs/router';
 
-interface Props {
-  currentPage: Page;
-  onNavigate: (page: Page) => void;
-}
+export default function Header() {
+  const location = useLocation();
 
-export default function Header(props: Props) {
   return (
     <header class="header">
       <div class="header__inner">
-        <button class="header__logo" onClick={() => props.onNavigate('home')}>
+        <A href="/" class="header__logo">
           MyFontCraft
-        </button>
+        </A>
         <nav class="header__nav">
-          <button
+          <A
+            href="/template"
             class="header__link"
-            classList={{ 'header__link--active': props.currentPage === 'template' }}
-            onClick={() => props.onNavigate('template')}
+            classList={{ 'header__link--active': location.pathname === '/template' }}
           >
             1. テンプレート
-          </button>
-          <button
+          </A>
+          <A
+            href="/upload"
             class="header__link"
-            classList={{ 'header__link--active': props.currentPage === 'upload' }}
-            onClick={() => props.onNavigate('upload')}
+            classList={{ 'header__link--active': location.pathname === '/upload' }}
           >
             2. フォント作成
-          </button>
+          </A>
         </nav>
       </div>
     </header>
