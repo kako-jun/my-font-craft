@@ -1,12 +1,8 @@
 import { Show } from 'solid-js';
-import type { Page } from '../App';
+import { A } from '@solidjs/router';
 import { wasmBuildInfo } from '../lib/wasm/loader';
 
-interface Props {
-  onNavigate: (page: Page) => void;
-}
-
-export default function Footer(props: Props) {
+export default function Footer() {
   // WASM はロードしない。他所で initWasm() が走ったらシグナルが立ち自動的に表示される
   const buildLabel = () => {
     const info = wasmBuildInfo();
@@ -27,9 +23,9 @@ export default function Footer(props: Props) {
           llll-ll.com
         </a>
         <span class="footer__sep">|</span>
-        <button class="footer__link footer__link--btn" onClick={() => props.onNavigate('about')}>
+        <A href="/about" class="footer__link">
           About
-        </button>
+        </A>
         <span class="footer__sep">|</span>
         <span class="footer__copy">&copy; kako-jun</span>
         <Show when={buildLabel()}>

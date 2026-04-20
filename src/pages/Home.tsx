@@ -1,11 +1,9 @@
-import type { Page } from '../App';
+import { useNavigate } from '@solidjs/router';
 import { IconPrinter, IconPen } from '../components/icons';
 
-interface Props {
-  onNavigate: (page: Page) => void;
-}
+export default function Home() {
+  const navigate = useNavigate();
 
-export default function Home(props: Props) {
   return (
     <div class="home">
       <section class="hero card">
@@ -14,10 +12,10 @@ export default function Home(props: Props) {
           テンプレートを印刷して手書き。スキャンするだけで、あなたの字がフォントになります。
         </p>
         <div class="hero__actions">
-          <button class="btn btn--primary" onClick={() => props.onNavigate('template')}>
+          <button class="btn btn--primary" onClick={() => navigate('/template')}>
             <IconPrinter /> 1. テンプレートを印刷する
           </button>
-          <button class="btn" onClick={() => props.onNavigate('upload')}>
+          <button class="btn" onClick={() => navigate('/upload')}>
             <IconPen /> 2. フォントを作成する
           </button>
         </div>
