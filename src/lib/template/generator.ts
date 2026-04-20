@@ -62,10 +62,8 @@ function optionsToSelection(opts: TemplateOptions): CharSelection {
 // 任意の文字リストからリトライ用テンプレートPDFを生成
 // QRコードに文字リストを埋め込み、スキャン時にページ番号ではなく文字リストで識別
 //
-// NOTE (#91): リトライPDF は任意の文字サブセットが入るため CharSelection に
-// 当てはめられず、`s` フラグを付けられない。現状の scanner は `s` 無しを拒否
-// するため、このPDFをスキャンすると「古い版」エラーが出る。`chars` フィールド
-// を scanner 側で読み取って文字リストを復元する対応は別 Issue 扱い。
+// QR ペイロード: `s` は付けず `chars` 配列を載せる（Issue #96 で scanner 側が `chars` を優先処理）。
+// 文字数が CHARS_PER_PAGE を超えると複数ページ化され、各ページに当該ページぶんの chars が載る。
 export async function generateRetryTemplatePDF(
   chars: string[],
   fontName: string,

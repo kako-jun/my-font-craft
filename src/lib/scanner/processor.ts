@@ -139,17 +139,23 @@ export async function processImages(
       continue;
     }
 
-    // Issue #91: QR に含まれる文字セット選択フラグ (`s`) から、そのページが
-    // どの文字集合を印刷したものかを復元する。取得できないときは古い版の
-    // テンプレートの可能性が高いので、そのページはスキップする。
-    const selectionFlag = wasmResult.char_selection;
-    const selection = selectionFlag ? flagToSelection(selectionFlag) : null;
-    if (!selection) {
-      callbacks.onMessage({
-        type: 'error',
-        text: `画像 ${fi + 1} のQRから文字セット情報を取得できませんでした。古い版のテンプレートの可能性があります。PDF を再生成して印刷してください。`,
-      });
-      continue;
+    // Issue #96: リトライ用 PDF は QR に文字リスト (`chars`) を直接埋め込むため、
+    // それを最優先で使う。CharSelection に当てはまらない任意文字リストでも復元できる。
+    // chars が無いときは Issue #91 の従来パス: `s` フラグから文字セット選択を復元する。
+    let pageChars: string[];
+    if (wasmResult.qr_chars && wasmResult.qr_chars.length > 0) {
+      pageChars = wasmResult.qr_chars;
+    } else {
+      const selectionFlag = wasmResult.char_selection;
+      const selection = selectionFlag ? flagToSelection(selectionFlag) : null;
+      if (!selection) {
+        callbacks.onMessage({
+          type: 'error',
+          text: `画像 ${fi + 1} のQRから文字セット情報を取得できませんでした。古い版のテンプレートの可能性があります。PDF を再生成して印刷してください。`,
+        });
+        continue;
+      }
+      pageChars = getCharactersForPage(pageNumber - 1, selection);
     }
 
     // 補正後キャンバスをコールバックで通知
@@ -161,9 +167,6 @@ export async function processImages(
       );
       callbacks.onPageCorrected(pageNumber, correctedCanvas);
     }
-
-    // ページの文字リスト（選択された文字セットに限定）
-    const pageChars = getCharactersForPage(pageNumber - 1, selection);
 
     // セルを (row, col) でグループ化
     const cellsByPos = new Map<string, WasmProcessedCell[]>();

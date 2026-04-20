@@ -221,24 +221,32 @@
 }
 ```
 
-| キー | 意味                                                   |
-| ---- | ------------------------------------------------------ |
-| p    | project識別子（"mfc" = MyFontCraft）                   |
-| v    | version（現行: 3）                                     |
-| pg   | page番号                                               |
-| t    | total pages                                            |
-| m    | マス数/文字                                            |
-| s    | 文字セット選択フラグ（'h'/'k'/'a'/'j' を選択順に結合） |
+| キー  | 意味                                                           |
+| ----- | -------------------------------------------------------------- |
+| p     | project識別子（"mfc" = MyFontCraft）                           |
+| v     | version（現行: 3）                                             |
+| pg    | page番号                                                       |
+| t     | total pages                                                    |
+| m     | マス数/文字                                                    |
+| s     | 文字セット選択フラグ（'h'/'k'/'a'/'j' を選択順に結合）         |
+| chars | リトライ用 PDF のみ。各要素が単一文字の文字列配列（Issue #96） |
+
+**v:3 ペイロードは `s` または `chars` のいずれかを持つ**:
+
+- 通常テンプレート PDF は `s` を持ち、scanner は `getCharactersForPage(pg - 1, flagToSelection(s))` で文字集合を復元する。
+- リトライ用 PDF（`generateRetryTemplatePDF`）は `chars` 配列を持ち、scanner はそれを直接ページの文字リストとして使う。CharSelection に当てはまらない任意文字リスト（採用漏れ文字の再印刷）に対応するため。
+- 両方ある場合は **`chars` を優先** する（scanner 側の判定順）。
+- どちらも無い／不正な場合は古い版のテンプレートとしてそのページをスキップする。
+- `chars` 要素は **単一 Unicode scalar value（codepoint）** の文字列。サロゲートペア（絵文字等）は受理されるが、結合文字列（例: 「か」+ U+3099 濁点 = 2 codepoint）は弾かれる。生成側は NFC 正規化された JIS 漢字・かな・絵文字を渡す前提。
+- Rust 側 `parse_qr_payload` は `chars: []`（空配列）を `None` に正規化するため、TS 側で `qr_chars` が `Some(空配列)` 相当を受け取ることはない。
 
 **文字セット選択フラグ `s`** (Issue #91, v:3):
 'h'=ひらがな / 'k'=カタカナ / 'a'=英数記号 / 'j'=漢字。順序は `h→k→a→j` で固定。
-例: ひらがな+カタカナのみ → `"hk"`、全選択 → `"hkaj"`。scanner 側は `s` から
-`getCharactersForPage(pg - 1, selection)` で紙上に印刷された文字集合を復元する。
-`s` が無い／不正な場合は古い版のテンプレートとしてそのページをスキップする。
+例: ひらがな+カタカナのみ → `"hk"`、全選択 → `"hkaj"`。
 
-**NOTE**: 文字リスト（`chars`）はQRに含めない。ページ番号（`pg`）と `s` から
-`getCharactersForPage(pg - 1, flagToSelection(s))` で導出する。
-漢字30文字のJSON化がQRの容量上限（約130バイト）を超えるため。
+**NOTE**: 通常テンプレートでは漢字30文字のJSON化がQRの容量上限（約130バイト）を超えるため
+文字リストを QR に含めず、`s` で型だけを伝える。リトライ用 PDF は再印刷対象が少数なので
+`chars` を直接埋め込む。
 
 ### 配置
 

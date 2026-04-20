@@ -55,6 +55,9 @@ pub struct ProcessResult {
     /// 文字セット選択フラグ（Issue #91, v:3）。'h'/'k'/'a'/'j' を選択順に結合した文字列。
     /// 例: `Some("hk")` → ひらがな+カタカナのみ。`None` は QR からの復元不可。
     pub char_selection: Option<String>,
+    /// QR ペイロードの `chars` 配列（リトライ用 PDF のみ）。Issue #96。
+    /// 非 None かつ非空のとき、scanner 側はこれを優先し `char_selection` の解決を要求しない。
+    pub qr_chars: Option<Vec<String>>,
     pub cells: Vec<ProcessedCell>,
     pub corrected_image: Vec<u8>,  // 補正後画像のRGBA
     pub corrected_width: u32,
@@ -412,6 +415,7 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
     let page_number = qr_info.page;
     let total_pages = qr_info.total;
     let char_selection = qr_info.selection;
+    let qr_chars = qr_info.chars;
 
     // ステップ7.5: ホワイトバランス補正
     log!("=== ホワイトバランス補正 ===");
@@ -482,6 +486,7 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
         page_number,
         total_pages,
         char_selection,
+        qr_chars,
         cells,
         corrected_image,
         corrected_width,
@@ -497,25 +502,30 @@ struct QrInfo {
     page: Option<u32>,
     total: Option<u32>,
     selection: Option<String>,
+    /// リトライ用 PDF の `chars` 配列（Issue #96）。
+    /// 各要素は単一文字（`chars().count() == 1`）の `String`。
+    chars: Option<Vec<String>>,
 }
 
 impl QrInfo {
     fn empty() -> Self {
-        Self { page: None, total: None, selection: None }
+        Self { page: None, total: None, selection: None, chars: None }
     }
 
     fn is_empty(&self) -> bool {
-        self.page.is_none() && self.total.is_none() && self.selection.is_none()
+        self.page.is_none() && self.total.is_none() && self.selection.is_none() && self.chars.is_none()
     }
 }
 
-/// QRデータからページ情報と文字セット選択フラグを抽出する（v:3 のみサポート）
+/// QRデータからページ情報・文字セット選択フラグ・文字リストを抽出する（v:3 のみサポート）
 ///
 /// 形式: JSON `{"p":"mfc","v":3,"pg":N,"t":M,"m":2,"s":"<flag>"}`
-/// - `p` が "mfc" かつ `v` が 3 かつ `s` が非空の文字列のとき、3 要素を返す。
-/// - 上記 3 条件のいずれかを満たさない場合は全て `None`（後方互換なし、Issue #91）。
-/// - `s` が空文字列 `""` の場合も不正として扱う（TS 側 `flagToSelection('')` が
-///   `null` を返す挙動との対称性のため）。
+///       または `{"p":"mfc","v":3,"pg":N,"t":M,"m":2,"chars":["a","b",...]}` (リトライ用 PDF, Issue #96)
+/// - `p` が "mfc" かつ `v` が 3 かつ (`s` が非空 OR `chars` が非空配列) のとき各要素を返す。
+/// - 上記いずれも満たさない場合は全て `None`（後方互換なし、Issue #91/#96）。
+/// - `s` が空文字列 `""` の場合は不正として扱う。
+/// - `chars` 配列の要素が単一文字でない（空文字、複数文字、文字列以外）が混在した場合は
+///   chars 全体を `None` にする。
 fn parse_qr_payload(data: &str) -> QrInfo {
     let trimmed = data.trim();
 
@@ -528,10 +538,27 @@ fn parse_qr_payload(data: &str) -> QrInfo {
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
 
-        if product_ok && version_ok && selection.is_some() {
+        // chars 配列の検証: 各要素が「単一文字 (chars().count() == 1) の string」であること。
+        // 1 要素でも不正があれば None。空配列も None。
+        let chars: Option<Vec<String>> = v.get("chars").and_then(|x| x.as_array()).and_then(|arr| {
+            if arr.is_empty() {
+                return None;
+            }
+            let mut out: Vec<String> = Vec::with_capacity(arr.len());
+            for item in arr {
+                let s = item.as_str()?;
+                if s.chars().count() != 1 {
+                    return None;
+                }
+                out.push(s.to_string());
+            }
+            Some(out)
+        });
+
+        if product_ok && version_ok && (selection.is_some() || chars.is_some()) {
             let page = v.get("pg").and_then(|x| x.as_u64()).and_then(|n| u32::try_from(n).ok());
             let total = v.get("t").and_then(|x| x.as_u64()).and_then(|n| u32::try_from(n).ok());
-            return QrInfo { page, total, selection };
+            return QrInfo { page, total, selection, chars };
         }
     }
 
@@ -546,7 +573,7 @@ mod qr_parse_tests {
     fn v3_json_basic() {
         assert_eq!(
             parse_qr_payload(r#"{"p":"mfc","v":3,"pg":1,"t":2,"m":2,"s":"h"}"#),
-            QrInfo { page: Some(1), total: Some(2), selection: Some("h".to_string()) },
+            QrInfo { page: Some(1), total: Some(2), selection: Some("h".to_string()), chars: None },
         );
     }
 
@@ -554,7 +581,7 @@ mod qr_parse_tests {
     fn v3_json_all_sets() {
         assert_eq!(
             parse_qr_payload(r#"{"p":"mfc","v":3,"pg":3,"t":10,"m":2,"s":"hkaj"}"#),
-            QrInfo { page: Some(3), total: Some(10), selection: Some("hkaj".to_string()) },
+            QrInfo { page: Some(3), total: Some(10), selection: Some("hkaj".to_string()), chars: None },
         );
     }
 
@@ -562,12 +589,13 @@ mod qr_parse_tests {
     fn v3_json_with_whitespace() {
         assert_eq!(
             parse_qr_payload("  {\"p\":\"mfc\",\"v\":3,\"pg\":5,\"t\":7,\"s\":\"hk\"}  "),
-            QrInfo { page: Some(5), total: Some(7), selection: Some("hk".to_string()) },
+            QrInfo { page: Some(5), total: Some(7), selection: Some("hk".to_string()), chars: None },
         );
     }
 
     #[test]
-    fn v3_missing_s_rejected() {
+    fn v3_missing_s_and_chars_rejected() {
+        // s も chars も無ければ拒否（Issue #96 で「s OR chars」に緩和）
         assert_eq!(
             parse_qr_payload(r#"{"p":"mfc","v":3,"pg":1,"t":2,"m":2}"#),
             QrInfo::empty(),
@@ -606,7 +634,96 @@ mod qr_parse_tests {
         // u32::MAX 超の値は try_from で弾かれて None になる
         assert_eq!(
             parse_qr_payload(r#"{"p":"mfc","v":3,"pg":4294967296,"t":2,"s":"h"}"#),
-            QrInfo { page: None, total: Some(2), selection: Some("h".to_string()) },
+            QrInfo { page: None, total: Some(2), selection: Some("h".to_string()), chars: None },
+        );
+    }
+
+    // ── Issue #96: chars 配列対応（リトライ用 PDF） ──
+
+    #[test]
+    fn v3_chars_only_accepted() {
+        // chars だけ・s なしでも受理される（リトライ用 PDF の最小ケース）
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":3,"pg":1,"t":1,"m":2,"chars":["あ","い","う"]}"#),
+            QrInfo {
+                page: Some(1),
+                total: Some(1),
+                selection: None,
+                chars: Some(vec!["あ".to_string(), "い".to_string(), "う".to_string()]),
+            },
+        );
+    }
+
+    #[test]
+    fn v3_chars_and_s_both_accepted() {
+        // chars と s 両方ありなら両方取れる
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":3,"pg":2,"t":3,"m":2,"s":"h","chars":["a","b"]}"#),
+            QrInfo {
+                page: Some(2),
+                total: Some(3),
+                selection: Some("h".to_string()),
+                chars: Some(vec!["a".to_string(), "b".to_string()]),
+            },
+        );
+    }
+
+    #[test]
+    fn v3_chars_with_empty_string_element_rejects_chars() {
+        // 不正要素混在で chars 全体が None。s も無いので全体 empty。
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":3,"pg":1,"t":1,"m":2,"chars":["a","",""]}"#),
+            QrInfo::empty(),
+        );
+    }
+
+    #[test]
+    fn v3_chars_with_multichar_element_rejects_chars() {
+        // 2 文字要素混在で chars 全体が None
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":3,"pg":1,"t":1,"m":2,"chars":["a","bc"]}"#),
+            QrInfo::empty(),
+        );
+    }
+
+    #[test]
+    fn v3_chars_with_non_string_element_rejects_chars() {
+        // 数値要素混在で chars 全体が None
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":3,"pg":1,"t":1,"m":2,"chars":["a",1]}"#),
+            QrInfo::empty(),
+        );
+    }
+
+    #[test]
+    fn v3_chars_empty_array_rejects_chars() {
+        // 空配列は None。s もないので empty
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":3,"pg":1,"t":1,"m":2,"chars":[]}"#),
+            QrInfo::empty(),
+        );
+    }
+
+    #[test]
+    fn v3_chars_empty_array_but_s_present_keeps_s() {
+        // chars が空配列でも s があるなら受理（chars だけ None）
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":3,"pg":1,"t":1,"m":2,"s":"h","chars":[]}"#),
+            QrInfo { page: Some(1), total: Some(1), selection: Some("h".to_string()), chars: None },
+        );
+    }
+
+    #[test]
+    fn v3_chars_with_surrogate_pair_accepted() {
+        // サロゲートペア (U+1F600 等) は Rust の `chars()` でも 1 要素扱いなので受理される
+        assert_eq!(
+            parse_qr_payload(r#"{"p":"mfc","v":3,"pg":1,"t":1,"m":2,"chars":["😀"]}"#),
+            QrInfo {
+                page: Some(1),
+                total: Some(1),
+                selection: None,
+                chars: Some(vec!["😀".to_string()]),
+            },
         );
     }
 
