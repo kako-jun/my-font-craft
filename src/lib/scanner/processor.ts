@@ -80,7 +80,10 @@ export async function processImages(
   files: File[],
   callbacks: ProcessCallbacks,
 ): Promise<ProcessResult> {
-  const glyphs: VectorGlyph[] = [];
+  // Issue #93: 同一 unicode が複数ページ／複数画像で検出されたときの重複を防ぐため、
+  // ベースグリフは Map で後勝ち上書き、alt-variant は別配列に積んで関数末尾で結合する。
+  const baseGlyphs = new Map<number, VectorGlyph>();
+  const altGlyphs: VectorGlyph[] = [];
 
   // ZIP展開 + 画像ファイル収集
   let imageFiles: File[] = [];
@@ -104,7 +107,7 @@ export async function processImages(
 
   if (imageFiles.length === 0) {
     callbacks.onMessage({ type: 'error', text: '画像ファイルが見つかりませんでした。' });
-    return { glyphs };
+    return { glyphs: [] };
   }
 
   callbacks.onPageStart(0, imageFiles.length);
@@ -217,6 +220,16 @@ export async function processImages(
         cellImageDataUrl,
       });
 
+      // 既に同 unicode のベースグリフが登録済みなら、対応する旧 alt-variant を破棄
+      // （後勝ちで上書きされるベースに紐づく古い alt が残らないようにする）
+      if (baseGlyphs.has(unicode)) {
+        const hex = unicode.toString(16).toUpperCase().padStart(4, '0');
+        const altPrefix = `uni${hex}.alt`;
+        for (let i = altGlyphs.length - 1; i >= 0; i--) {
+          if (altGlyphs[i].name.startsWith(altPrefix)) altGlyphs.splice(i, 1);
+        }
+      }
+
       for (let ai = 0; ai < adoptedCells.length; ai++) {
         const cell = adoptedCells[ai];
         // ベクター化は Rust 側で完結済み。WASM 出力の paths をそのまま使う
@@ -227,15 +240,22 @@ export async function processImages(
             ? `uni${unicode.toString(16).toUpperCase().padStart(4, '0')}`
             : `uni${unicode.toString(16).toUpperCase().padStart(4, '0')}.alt${ai}`;
 
-        glyphs.push({
+        const glyph: VectorGlyph = {
           name,
           unicode: ai === 0 ? unicode : undefined,
           paths,
           advanceWidth: 1000,
-        });
+        };
+
+        if (ai === 0) {
+          // ベースグリフは後勝ち
+          baseGlyphs.set(unicode, glyph);
+        } else {
+          altGlyphs.push(glyph);
+        }
       }
     }
   }
 
-  return { glyphs };
+  return { glyphs: [...baseGlyphs.values(), ...altGlyphs] };
 }

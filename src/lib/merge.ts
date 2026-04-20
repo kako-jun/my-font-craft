@@ -3,7 +3,8 @@ import type { VectorGlyph } from './font/builder';
 
 /**
  * スキャン結果を既存のステータス/グリフにマージする
- * found が imported / empty を上書き（スキャンが優先）
+ * 画像由来 (found) は後勝ち: 新しいスキャンは既存の found / imported / empty を全て上書きする
+ * （Issue #93: マージ仕様 — 画像は後勝ち / TTFは既存非上書き）
  */
 export function mergeScanIntoExisting(
   prevStatuses: GlyphStatus[],
@@ -17,7 +18,8 @@ export function mergeScanIntoExisting(
   }
 
   const statuses = prevStatuses.map((gs) => {
-    if ((gs.status === 'empty' || gs.status === 'imported') && newFound.has(gs.unicode)) {
+    // 画像由来は後勝ち: 既存の status を問わず新しい found で上書きする
+    if (newFound.has(gs.unicode)) {
       return newFound.get(gs.unicode)!;
     }
     return gs;
