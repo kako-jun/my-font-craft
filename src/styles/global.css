@@ -456,6 +456,16 @@ body {
   margin-bottom: 1.5rem;
 }
 
+/* NotFound */
+.not-found {
+  margin-top: 2rem;
+  text-align: center;
+}
+
+.not-found__actions {
+  margin-top: 1rem;
+}
+
 /* Hero */
 .about-hero {
   padding: 4rem 1rem 3rem;
