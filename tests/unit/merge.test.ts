@@ -101,6 +101,28 @@ describe('mergeScanIntoExisting', () => {
     expect(result.glyphs[0].name).toBe('uni3042');
     expect(result.glyphs.find((g) => g.name.includes('.alt'))).toBeUndefined();
   });
+
+  it('新スキャンの alt-variant も後勝ちで採用される (Issue #93 / レビューM2)', () => {
+    // 既存: ベースのみ
+    const prev = makeGlyph('あ');
+    prev.advanceWidth = 800;
+    const prevStatuses = [makeStatus('あ', 'found')];
+    const prevGlyphs = [prev];
+    // 新スキャン: ベース + alt1 + alt2
+    const newBase = makeGlyph('あ');
+    newBase.advanceWidth = 1500;
+    const newAlt1 = makeGlyph('あ', 1);
+    const newAlt2 = makeGlyph('あ', 2);
+    const newStatuses = [makeStatus('あ', 'found')];
+    const newGlyphs = [newBase, newAlt1, newAlt2];
+
+    const result = mergeScanIntoExisting(prevStatuses, prevGlyphs, newStatuses, newGlyphs);
+
+    // ベース置換 + alt 2件追加 = 計3件
+    expect(result.glyphs).toHaveLength(3);
+    expect(result.glyphs[0].advanceWidth).toBe(1500);
+    expect(result.glyphs.filter((g) => g.name.includes('.alt'))).toHaveLength(2);
+  });
 });
 
 describe('mergeImportIntoExisting', () => {
@@ -154,5 +176,29 @@ describe('mergeImportIntoExisting', () => {
 
     expect(result.statuses).toHaveLength(1);
     expect(result.glyphs).toHaveLength(1);
+  });
+
+  it('imported は新しい imported で後勝ち上書きされる (Issue #93 / レビューM1)', () => {
+    const prev = makeGlyph('あ');
+    prev.advanceWidth = 700;
+    const prevStatuses = [makeStatus('あ', 'imported')];
+    const prevGlyphs = [prev];
+
+    const next = makeGlyph('あ');
+    next.advanceWidth = 1300;
+    const importedStatuses = [makeStatus('あ', 'imported')];
+    importedStatuses[0].pageIndex = 5;
+    const importedGlyphs = [next];
+
+    const result = mergeImportIntoExisting(
+      prevStatuses,
+      prevGlyphs,
+      importedStatuses,
+      importedGlyphs,
+    );
+
+    expect(result.statuses[0].pageIndex).toBe(5);
+    expect(result.glyphs).toHaveLength(1);
+    expect(result.glyphs[0].advanceWidth).toBe(1300);
   });
 });

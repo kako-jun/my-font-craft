@@ -170,8 +170,8 @@ opentype.js の `parse()` で取得したグリフのパスコマンドを内部
 
 由来は `GlyphStatus.status` フィールドで識別する（新規メタフィールドは追加しない）:
 
-- **画像（スキャン）→ 何でも**: 後勝ち。新しい `found` は既存の `found` / `imported` / `empty` を全て上書きする。同 unicode の旧 alt-variant も合わせて破棄する
-- **TTF インポート → 既存**: 既存非上書き。`empty` のみを `imported` で穴埋めし、画像由来 (`found`) には触れない
+- **画像（スキャン）→ 何でも**: 後勝ち。新しい `found` は既存の `found` / `imported` / `empty` を全て上書きする。同 unicode の旧 alt-variant も合わせて破棄し、新スキャン側の alt-variant は採用する
+- **TTF インポート → 既存**: 画像由来 (`found`) は守る。`empty` / 既存 `imported` は新しい `imported` で置き換える（TTF同士は後勝ち）
 - **scanner 内部の重複排除**: 同一アップロード内で同じ unicode が複数回検出された場合（複数ページに同じ字、複数画像が同じ字を含む等）、ベースグリフは Map で後勝ち、alt は対応する旧 alt を破棄してから追加する
 
 ---

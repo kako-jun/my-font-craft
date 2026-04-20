@@ -33,8 +33,14 @@ export function mergeScanIntoExisting(
     return isNaN(baseUnicode) || !newFoundUnicodes.has(baseUnicode);
   });
 
-  const existingKeptUnicodes = new Set(keptGlyphs.map((g) => g.unicode));
-  const addedGlyphs = newGlyphs.filter((g) => g.unicode && !existingKeptUnicodes.has(g.unicode));
+  // 新しい glyph はベースも alt-variant も全て採用する。
+  // newFound に含まれる unicode に紐づくものだけ通せば、processor が
+  // 「同じ unicode のベース + alt 群」を一塊で吐き出す前提で安全。
+  const addedGlyphs = newGlyphs.filter((g) => {
+    if (g.unicode) return newFoundUnicodes.has(g.unicode);
+    const baseUnicode = parseInt(g.name.replace(/^uni/, '').replace(/\.alt\d+$/, ''), 16);
+    return !isNaN(baseUnicode) && newFoundUnicodes.has(baseUnicode);
+  });
   const glyphs = [...keptGlyphs, ...addedGlyphs];
 
   return { statuses, glyphs };
@@ -42,7 +48,9 @@ export function mergeScanIntoExisting(
 
 /**
  * インポート結果を既存のステータス/グリフにマージする
- * empty のみを imported で埋める（found は上書きしない）
+ * - empty / imported を新しい imported で置き換える（TTF同士は後勝ち）
+ * - found（画像由来）は守る（TTFは画像由来を上書きしない）
+ * （Issue #93: マージ仕様）
  */
 export function mergeImportIntoExisting(
   prevStatuses: GlyphStatus[],
@@ -58,16 +66,34 @@ export function mergeImportIntoExisting(
     });
   }
 
+  // 画像由来 (found) の unicode を保護する
+  const protectedUnicodes = new Set<number>();
+  for (const gs of prevStatuses) {
+    if (gs.status === 'found') protectedUnicodes.add(gs.unicode);
+  }
+
   const statuses = prevStatuses.map((gs) => {
-    if (gs.status === 'empty' && importedMap.has(gs.unicode)) {
+    // found は守る、empty / imported は新しい imported で置き換える（後勝ち）
+    if (gs.status !== 'found' && importedMap.has(gs.unicode)) {
       return importedMap.get(gs.unicode)!.status;
     }
     return gs;
   });
 
-  const existingUnicodes = new Set(prevGlyphs.map((g) => g.unicode));
-  const addedGlyphs = importedGlyphs.filter((g) => g.unicode && !existingUnicodes.has(g.unicode));
-  const glyphs = [...prevGlyphs, ...addedGlyphs];
+  // 既存 glyphs から、画像非保護かつ imported に同 unicode が来ているものを除外
+  // （これにより TTF→TTF が後勝ちで置換される）
+  const keptGlyphs = prevGlyphs.filter((g) => {
+    if (!g.unicode) return true; // alt-variant は判定保留（importFont は alt を作らないため実質発生しない）
+    if (protectedUnicodes.has(g.unicode)) return true;
+    return !importedMap.has(g.unicode);
+  });
+
+  const keptUnicodes = new Set(keptGlyphs.map((g) => g.unicode));
+  // 画像由来で守られている unicode は新規 import からも弾く
+  const addedGlyphs = importedGlyphs.filter(
+    (g) => g.unicode && !protectedUnicodes.has(g.unicode) && !keptUnicodes.has(g.unicode),
+  );
+  const glyphs = [...keptGlyphs, ...addedGlyphs];
 
   return { statuses, glyphs };
 }
