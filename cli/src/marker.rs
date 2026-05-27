@@ -345,10 +345,13 @@ pub fn detect_markers(binary: &GrayImage, gray: &GrayImage) -> Result<[DetectedM
         let filtered: Vec<&Blob> = blobs
             .iter()
             .filter(|b| {
+                // aspect は width/height。円マーカーは ≈1.0。下限 0.2 だと縦長グレーバーの
+                // 最暗ステップ（5mm 幅 / 24.4mm 高 = 0.205）が四隅探索領域に入ってすり抜ける。
+                // 円は中程度の透視歪みでも 0.5〜2.0 に収まるため、0.35〜3.0 に締めて細長片を除外する。
                 b.area >= min_blob_area
                     && b.area <= max_blob_area
-                    && b.aspect_ratio() > 0.2
-                    && b.aspect_ratio() < 5.0
+                    && b.aspect_ratio() > 0.35
+                    && b.aspect_ratio() < 3.0
             })
             .collect();
 
