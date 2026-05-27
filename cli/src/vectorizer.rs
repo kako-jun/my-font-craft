@@ -133,6 +133,15 @@ pub fn vectorize_glyph(img: &RgbaImage) -> Vec<Vec<PathCommand>> {
         return Vec::new();
     }
 
+    // 6.5: ハングガード。シアン/影残骸が二値化をすり抜け、行ごとに幅が ±MERGE_TOLERANCE を
+    // 超えて揺れると縦マージが効かず矩形数が爆発し、opentype.js のグリフ書き出しが実質ハングする
+    // （#82 のハング再発経路）。正常グリフは縦マージ後せいぜい数百矩形（典型 195-455 cmd/glyph）。
+    // 上限を大きく超えたものは「ノイズ過多で破綻」とみなし、グリフを空に倒して安全側に倒す。
+    const MAX_RECTS: usize = 4000;
+    if rects.len() > MAX_RECTS {
+        return Vec::new();
+    }
+
     // 7: タイトバウンディングボックス検出（#53 Phase 1）
     // 黒ピクセル（= 矩形）の min/max を取り、余白をトリミングしてから em-square にフィットさせる。
     // セルに対して小さく書かれた文字・端に寄った文字も em-square 中央に揃えられる。
@@ -369,6 +378,31 @@ mod tests {
         assert!(
             (top_margin - bottom_margin).abs() < 3.0,
             "上下マージン差: T={top_margin}, B={bottom_margin}"
+        );
+    }
+
+    #[test]
+    fn dense_unmergeable_noise_returns_empty() {
+        // 縦マージが効かない高密度ノイズ（多数の孤立した小ブロック）を作り、
+        // 矩形数が MAX_RECTS を超えたときにグリフが空へ倒れる（=ハングしない）ことを確認する。
+        // 3x3 の黒ブロックを 6px グリッドに敷き詰めると各ブロックが独立矩形になり爆発する。
+        let mut img = make_image(420, 420, Rgba([255, 255, 255, 255]));
+        for gy in 0..70 {
+            for gx in 0..70 {
+                let bx = gx * 6;
+                let by = gy * 6;
+                for dy in 0..3 {
+                    for dx in 0..3 {
+                        img.put_pixel(bx + dx, by + dy, Rgba([0, 0, 0, 255]));
+                    }
+                }
+            }
+        }
+        let paths = vectorize_glyph(&img);
+        assert!(
+            paths.is_empty(),
+            "矩形爆発時はハングガードで空に倒すべき: 実際={}",
+            paths.len()
         );
     }
 

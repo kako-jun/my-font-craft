@@ -352,7 +352,11 @@ fn measure_inner_black_ratio(img: &RgbaImage, margin_ratio: f64) -> f64 {
     };
     let gray = apply_clahe(&gray, w, h);
     let binary = sauvola_binarize(&gray, w, h, SAUVOLA_K, SAUVOLA_WINDOW);
-    let binary = morphological_open_close(&binary, w, h);
+    let mut binary = morphological_open_close(&binary, w, h);
+    // 孤立スペック除去: モルフォロジを生き残った小さな黒ブロブ（シアン残骸・点ノイズ）を消す。
+    // これがないと数px角の残骸が複数あるだけで空欄セルが「非空」と誤判定され、空欄を黒グリフ化しうる。
+    // 手書きストロークは連結成分が大きいので MIN_SPECK_AREA 程度では消えない（薄い細線でも面積は十分大きい）。
+    remove_small_black_components(&mut binary, w, h, MIN_SPECK_AREA);
 
     // 内側領域のみカウント
     let mut black_count = 0u32;
@@ -371,6 +375,74 @@ fn measure_inner_black_ratio(img: &RgbaImage, margin_ratio: f64) -> f64 {
         black_count as f64 / total as f64
     } else {
         0.0
+    }
+}
+
+/// 空欄判定用スペック除去のしきい値（連結成分の面積、px）。
+/// 想定する残骸は 3px 角程度（面積 9）のシアン点ノイズなので、面積 9 以下（< 10）だけを消す。
+/// 必要十分な最小値に絞ることで、かすれた細線が断片化しても消し過ぎないようにする。
+/// 手書きの細線は連結成分が長く面積が十分大きいため、この値では消えない。
+const MIN_SPECK_AREA: u32 = 10;
+
+/// 面積が min_area 未満の黒連結成分（4近傍）を白で塗りつぶす。
+/// binary は 0=黒(前景) / 非0=白(背景) の規約。
+fn remove_small_black_components(binary: &mut [u8], w: u32, h: u32, min_area: u32) {
+    let n = (w as usize) * (h as usize);
+    if binary.len() < n {
+        return;
+    }
+    let mut visited = vec![false; n];
+    let mut stack: Vec<usize> = Vec::new();
+    let mut comp: Vec<usize> = Vec::new();
+
+    for start in 0..n {
+        if visited[start] || binary[start] != 0 {
+            continue;
+        }
+        comp.clear();
+        stack.clear();
+        stack.push(start);
+        visited[start] = true;
+
+        while let Some(idx) = stack.pop() {
+            comp.push(idx);
+            let x = (idx as u32) % w;
+            let y = (idx as u32) / w;
+            if x > 0 {
+                let ni = idx - 1;
+                if !visited[ni] && binary[ni] == 0 {
+                    visited[ni] = true;
+                    stack.push(ni);
+                }
+            }
+            if x + 1 < w {
+                let ni = idx + 1;
+                if !visited[ni] && binary[ni] == 0 {
+                    visited[ni] = true;
+                    stack.push(ni);
+                }
+            }
+            if y > 0 {
+                let ni = idx - w as usize;
+                if !visited[ni] && binary[ni] == 0 {
+                    visited[ni] = true;
+                    stack.push(ni);
+                }
+            }
+            if y + 1 < h {
+                let ni = idx + w as usize;
+                if !visited[ni] && binary[ni] == 0 {
+                    visited[ni] = true;
+                    stack.push(ni);
+                }
+            }
+        }
+
+        if (comp.len() as u32) < min_area {
+            for &idx in &comp {
+                binary[idx] = 255; // 白に倒す
+            }
+        }
     }
 }
 
@@ -998,6 +1070,49 @@ mod tests {
         let (mark, density) = analyze_check_mark(&img);
         assert_eq!(mark, CheckMark::Empty);
         assert_eq!(density, 0.0);
+    }
+
+    // ── remove_small_black_components ──
+
+    #[test]
+    fn remove_small_components_drops_specks_keeps_strokes() {
+        // 20x20 白(255)背景に、2x2 の小スペック(面積4)と 6x6 のブロック(面積36)を置く。
+        // MIN_SPECK_AREA=16 未満の小スペックだけ消え、大きいブロックは残るべき。
+        let w = 20u32;
+        let h = 20u32;
+        let mut binary = vec![255u8; (w * h) as usize];
+        // スペック: (1,1)..(3,3)
+        for y in 1..3 {
+            for x in 1..3 {
+                binary[(y * w + x) as usize] = 0;
+            }
+        }
+        // ブロック: (10,10)..(16,16)
+        for y in 10..16 {
+            for x in 10..16 {
+                binary[(y * w + x) as usize] = 0;
+            }
+        }
+        remove_small_black_components(&mut binary, w, h, MIN_SPECK_AREA);
+
+        // スペックは消えている
+        assert_eq!(binary[(1 * w + 1) as usize], 255, "面積4のスペックは消えるべき");
+        // ブロックは残っている
+        assert_eq!(binary[(12 * w + 12) as usize], 0, "面積36のブロックは残るべき");
+    }
+
+    #[test]
+    fn remove_small_components_keeps_thin_stroke() {
+        // かすれ細線の代理: 1px 幅・長さ15 の横線（面積15）。MIN_SPECK_AREA=10 では消えないこと。
+        // 手書きストロークが断片化しても連結していれば残る、を保証するための回帰テスト。
+        let w = 20u32;
+        let h = 20u32;
+        let mut binary = vec![255u8; (w * h) as usize];
+        for x in 2..17 {
+            binary[(10 * w + x) as usize] = 0;
+        }
+        remove_small_black_components(&mut binary, w, h, MIN_SPECK_AREA);
+        assert_eq!(binary[(10 * w + 9) as usize], 0, "面積15の細線は残るべき");
     }
 
     // ── measure_inner_black_ratio ──
