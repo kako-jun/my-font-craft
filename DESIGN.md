@@ -4,6 +4,25 @@
 
 A Solid.js-based font creation tool with warm earth tone skeuomorphism and pixel art influences. The interface feels like a friendly craft workshop — cream paper backgrounds, wooden brown accents, and hand-drawn pixel art iconography. Approachable and cozy rather than clinical or techy.
 
+### Shared Magazine Page Format
+
+my-font-craft belongs to the shared magazine-like page format with break-and-shift, know-it-break-it, and gilga. Treat these projects as a series of web-based fashion/editorial magazine spreads rather than four separately designed websites. They should reuse nearly the same page system; only photography, accent color, and subject matter should change.
+
+- Book / fashion magazine / women's cooking or interior magazine / PDF-like page composition.
+- Design like an art director for stylish magazines such as Pen, not like a conventional website designer.
+- Dark background with thick white gothic/sans-serif display type.
+- Rectangular section headings: a square number block followed by a contrasting title rectangle.
+- Text floating over photos or scanned paper.
+- Print-like page rhythm instead of stacked web cards.
+- Shared components should be reusable across the four projects: magazine section header, full-bleed photo spread, caption strip, numbered feature block.
+- Avoid parallax and fixed photo backgrounds with only text scrolling. They do not feel book-like.
+- Default behavior: photos and text scroll together as one page/spread.
+- A page break can simply be one strong photo, illustration, scan, or spread.
+- Use grid compositions that place photos and text side by side with generous whitespace around the text.
+- Treat photos as page material, not just decorative backgrounds.
+
+my-font-craft-specific variation: night wooden desk photos, desk lamp light, paper templates, handwritten glyphs, scanned sheets, ink/paper/wood accent colors.
+
 ## 2. Color Palette
 
 | Token          | Value              | Usage                                            |
