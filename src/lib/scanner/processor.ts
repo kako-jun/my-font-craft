@@ -5,7 +5,7 @@ import {
   pathsToSvgDataUrl,
   getWasmBuildInfo,
 } from '../wasm/loader';
-import type { WasmProcessedCell } from '../wasm/loader';
+import type { WasmProcessedCell, WasmCellQuality } from '../wasm/loader';
 import { getCharactersForPage, flagToSelection } from '../../data/characters';
 import type { VectorGlyph } from '../font/builder';
 
@@ -110,6 +110,40 @@ export function translateWasmError(rawError: string, buildSha?: string | null): 
     msg += ` [build: ${buildSha}]`;
   }
   return msg;
+}
+
+/**
+ * 1文字分のセル群から要確認フラグを集約する（#110）。
+ * 採用セルのどれかで品質ゲートが発動していたら true。
+ * 採用されていないセルの needs_review はグリフに影響しないため無視する。
+ * quality 欠落（stale wasm）時はクラッシュせず false に倒す
+ * （欠落自体の検知・警告は warnIfQualityMissing が担う）。
+ */
+export function glyphNeedsReview(
+  cells: { adopted: boolean; quality?: WasmCellQuality | null }[],
+): boolean {
+  return cells.some((c) => c.adopted && c.quality?.needs_review === true);
+}
+
+/**
+ * stale wasm ガード（#110）: wasm 出力の quality フィールド欠落を検出する。
+ * Rust 側の ProcessedCell に quality が増えた後、古い wasm ビルドのまま動くと
+ * フィールドが黙って落ちて needs_review が常に false になる（偽緑）。
+ * 黙って false に倒さず、[scan:cells] の error ログで気づけるようにする。
+ * 欠落があれば true を返す。
+ */
+export function warnIfQualityMissing(
+  cells: { quality?: WasmCellQuality | null }[],
+  pageLabel: string,
+): boolean {
+  const missing = cells.filter((c) => c.quality == null).length;
+  if (missing === 0) return false;
+  scanLog(
+    'cells',
+    `${pageLabel} ${missing} セルで quality フィールドが欠落しています（古い wasm ビルドの可能性。npm run wasm:build を実行してください）`,
+    true,
+  );
+  return true;
 }
 
 // メイン処理
@@ -232,6 +266,9 @@ export async function processImages(
       cellsByPos.get(key)!.push(cell);
     }
 
+    // stale wasm ガード（#110）: quality 欠落は error ログで警告（黙って false に倒さない）
+    warnIfQualityMissing(wasmResult.cells, `page=${pageNumber}`);
+
     const totalCells = wasmResult.cells.length;
     const adoptedCellCount = wasmResult.cells.filter((c) => c.adopted).length;
     const emptyCellCount = wasmResult.cells.filter((c) => c.is_empty).length;
@@ -294,7 +331,7 @@ export async function processImages(
         status: 'found',
         cellImageDataUrl,
         // 採用セルのどれかで品質ゲート（#110）が発動していたら要確認
-        needsReview: adoptedCells.some((c) => c.quality?.needs_review === true),
+        needsReview: glyphNeedsReview(cells),
       });
 
       // 既に同 unicode のベースグリフが登録済みなら、対応する旧 alt-variant を破棄

@@ -412,7 +412,8 @@ pub struct CellQuality {
     pub removed_area_ratio: f64,
     /// ゲート通過後に残った黒連結成分の数
     pub kept_components: usize,
-    /// ゲート通過後のインク率（黒画素 / セル全画素）
+    /// ゲート通過後のインク率（黒画素 / セル全画素）。
+    /// ゲートはインクブリード補正（1px erosion）より前に走るため、これは補正**前**の計測値
     pub ink_ratio: f64,
     /// 要確認フラグ。真なら review UI で「要確認」として見せる（黙って空に倒さない）
     pub needs_review: bool,
@@ -438,6 +439,8 @@ impl CellQuality {
 ///    枠・罫線残渣とみなして白に倒す。ただし「はみ出して書いた字」を消さない
 ///    安全弁として、面積比 >= GATE_STROKE_PROTECT_AREA_RATIO かつ bbox 短辺 >
 ///    GATE_LINE_MAX_THICKNESS の成分はストロークと判定して残し、needs_review だけ立てる。
+///    帯内でも面積 < MIN_SPECK_AREA の微小成分はスペックノイズ扱いに降格して除去し、
+///    それ単独では needs_review を立てない（エッジのダストでの偽陽性を防ぐ）。
 /// 2. **面積フィルタ** — 境界に触れない成分でも面積 < MIN_SPECK_AREA は
 ///    スペックノイズとして除去（remove_small_black_components の一般化）。
 /// 3. **品質スコア** — 除去数・除去面積比・残成分数・インク率から needs_review を決める。
@@ -514,15 +517,22 @@ pub fn apply_cell_quality_gate(binary: &mut [u8], w: u32, h: u32) -> CellQuality
         let bbox_min_dim = (bx_max - bx_min + 1).min(by_max - by_min + 1);
 
         let remove = if touches_border {
-            let is_line = bbox_min_dim <= GATE_LINE_MAX_THICKNESS;
-            let is_big = area_ratio >= GATE_STROKE_PROTECT_AREA_RATIO;
-            if is_big && !is_line {
-                // 安全弁: はみ出して書いた字の可能性 → 消さずに要確認だけ立てる
-                protected_border_stroke = true;
-                false
-            } else {
-                removed_border += 1;
+            if (area as u32) < MIN_SPECK_AREA {
+                // 偽陽性の降格: 帯内でも微小成分はスペックノイズ扱いで除去する。
+                // removed_border に数えない = それ単独では needs_review を立てない
+                // （エッジの1pxダスト程度でセルが警告になるオオカミ少年化を防ぐ）
                 true
+            } else {
+                let is_line = bbox_min_dim <= GATE_LINE_MAX_THICKNESS;
+                let is_big = area_ratio >= GATE_STROKE_PROTECT_AREA_RATIO;
+                if is_big && !is_line {
+                    // 安全弁: はみ出して書いた字の可能性 → 消さずに要確認だけ立てる
+                    protected_border_stroke = true;
+                    false
+                } else {
+                    removed_border += 1;
+                    true
+                }
             }
         } else {
             // 面積フィルタ（境界非接触）: スペックノイズのみ除去
@@ -552,6 +562,8 @@ pub fn apply_cell_quality_gate(binary: &mut [u8], w: u32, h: u32) -> CellQuality
         removed_components,
         removed_area_ratio,
         kept_components,
+        // 注意: ゲートはインクブリード補正（1px erosion）より前に走るため、
+        // ink_ratio は補正前の計測値（最終グリフのインク率より少し大きめに出る）
         ink_ratio: kept_area as f64 / total,
         needs_review,
     }
@@ -1256,7 +1268,7 @@ mod tests {
     #[test]
     fn remove_small_components_drops_specks_keeps_strokes() {
         // 20x20 白(255)背景に、2x2 の小スペック(面積4)と 6x6 のブロック(面積36)を置く。
-        // MIN_SPECK_AREA=16 未満の小スペックだけ消え、大きいブロックは残るべき。
+        // MIN_SPECK_AREA=10 未満の小スペックだけ消え、大きいブロックは残るべき。
         let w = 20u32;
         let h = 20u32;
         let mut binary = vec![255u8; (w * h) as usize];
