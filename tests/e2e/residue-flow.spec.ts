@@ -94,18 +94,27 @@ test.describe('残渣注入スキャン: セル品質ゲート (#110)', () => {
           ).toBe(true);
         }
 
-        // 要確認セルをタップ除外すると要確認表示（警告枠クラス + !バッジ）が消える
+        // 要確認セルを検分ビューで「書き直し」に仕分けると要確認表示（明滅クラス + !バッジ）が消える
+        // 操作モデル（#114）: セルをタップ → 検分ビュー → X キーで書き直し → Esc で俯瞰へ
         const targetChar = reviewChars[0];
         const targetCell = page
           .locator('.scan-grid__cell')
           .filter({ has: page.locator('.scan-grid__cell-char', { hasText: targetChar }) });
         await expect(targetCell).toHaveCount(1);
         await targetCell.click();
+        await expect(page.locator('.inspector')).toBeVisible();
+        await page.keyboard.press('x');
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.inspector')).toHaveCount(0);
         await expect(targetCell).not.toHaveClass(/scan-grid__cell--review/);
         await expect(targetCell.locator('.scan-grid__cell-review-mark')).toHaveCount(0);
         await expect(page.locator('.scan-grid__cell--review')).toHaveCount(reviewChars.length - 1);
-        // 復帰させて、以降のグリフ検証（全83文字）に影響させない
+        // Enter（採用）で復帰させて、以降のグリフ検証（全83文字）に影響させない
         await targetCell.click();
+        await expect(page.locator('.inspector')).toBeVisible();
+        await page.keyboard.press('Enter');
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.inspector')).toHaveCount(0);
         await expect(page.locator('.scan-grid__cell--review')).toHaveCount(reviewChars.length);
 
         // フォント生成まで進め、全83文字のグリフが無傷なことを確認
