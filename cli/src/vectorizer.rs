@@ -500,6 +500,45 @@ mod tests {
     }
 
     #[test]
+    fn vectorize_binary_short_buffer_returns_empty() {
+        // binary.len() < w*h の不正入力は空 Vec（パニックしない）
+        let short = vec![0u8; 5];
+        let paths = vectorize_binary(&short, 4, 4);
+        assert!(paths.is_empty(), "不正長入力は空パスを返すべき");
+    }
+
+    #[test]
+    fn gate_passes_residue_floating_off_border() {
+        // 既知の限界の固定化: 境界から4px浮いた残渣線は帯（2px）に接触しないため
+        // ゲートを素通りし、needs_review も立たない。TPS 補正残差（0.5〜1mm ≈ 6〜12px）で
+        // 残渣が帯外へずれるケースの検出は #113 のスコープ（本テストは現状仕様の回帰検知用）。
+        let mut img = make_image(100, 100, Rgba([255, 255, 255, 255]));
+        // 内側ストローク
+        for y in 40..60 {
+            for x in 40..60 {
+                img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+            }
+        }
+        // 境界から4px浮いた3px厚の横線（面積 ≥ MIN_SPECK_AREA なので面積フィルタにも掛からない）
+        for y in 4..7 {
+            for x in 10..90 {
+                img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+            }
+        }
+
+        let (binary, quality) = binarize_with_quality(&img);
+        assert!(!quality.needs_review, "帯外の浮き残渣では要確認は立たない（現状仕様）");
+        assert_eq!(quality.removed_components, 0);
+        assert_eq!(quality.kept_components, 2, "ストロークと浮き残渣の両方が残る");
+        // 残渣線が残留している（rows 3..8 に黒がある）
+        let residue_black = (3u32..8)
+            .flat_map(|y| (0u32..100).map(move |x| (y, x)))
+            .filter(|&(y, x)| binary[(y * 100 + x) as usize] == 0)
+            .count();
+        assert!(residue_black > 0, "帯外の浮き残渣はゲート素通りで残留する（現状仕様）");
+    }
+
+    #[test]
     fn vertical_merge_reduces_rect_count() {
         // 白背景に縦10px×横40pxの縦棒を描画
         // 縦マージにより40行のランが少数の矩形に結合されるはず

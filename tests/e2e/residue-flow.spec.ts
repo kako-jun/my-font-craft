@@ -94,6 +94,20 @@ test.describe('残渣注入スキャン: セル品質ゲート (#110)', () => {
           ).toBe(true);
         }
 
+        // 要確認セルをタップ除外すると要確認表示（警告枠クラス + !バッジ）が消える
+        const targetChar = reviewChars[0];
+        const targetCell = page
+          .locator('.scan-grid__cell')
+          .filter({ has: page.locator('.scan-grid__cell-char', { hasText: targetChar }) });
+        await expect(targetCell).toHaveCount(1);
+        await targetCell.click();
+        await expect(targetCell).not.toHaveClass(/scan-grid__cell--review/);
+        await expect(targetCell.locator('.scan-grid__cell-review-mark')).toHaveCount(0);
+        await expect(page.locator('.scan-grid__cell--review')).toHaveCount(reviewChars.length - 1);
+        // 復帰させて、以降のグリフ検証（全83文字）に影響させない
+        await targetCell.click();
+        await expect(page.locator('.scan-grid__cell--review')).toHaveCount(reviewChars.length);
+
         // フォント生成まで進め、全83文字のグリフが無傷なことを確認
         await page.click('button:has-text("フォントを生成"), button:has-text("このまま生成")');
         await expect(page.locator('text=フォントが完成しました')).toBeVisible({

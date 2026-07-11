@@ -1447,6 +1447,180 @@ mod tests {
         assert!(!q.needs_review);
     }
 
+    // ── QA境界値テスト（#110） ──
+
+    #[test]
+    fn gate_band_boundary_x2_kept_x1_removed() {
+        // 帯は外周2px（x<2 が帯内）。最近接画素 x=2 の成分（面積≥10）は帯外で放置、
+        // x=1 まで達する同形の成分は帯内接触で除去される。
+        let w = 40u32;
+        let h = 40u32;
+
+        // x=2..5（最近接 x=2 = 帯外）、面積 3x10=30
+        let mut outside = white_binary(w, h);
+        fill_black(&mut outside, w, 2, 10, 5, 20);
+        let q1 = apply_cell_quality_gate(&mut outside, w, h);
+        assert_eq!(outside[(15 * w + 3) as usize], 0, "x=2 の成分は帯外なので残るべき");
+        assert_eq!(q1.removed_components, 0);
+        assert!(!q1.needs_review);
+
+        // x=1..4（最近接 x=1 = 帯内）、面積 3x10=30（比率1.9% < 4%）
+        let mut inside = white_binary(w, h);
+        fill_black(&mut inside, w, 1, 10, 4, 20);
+        let q2 = apply_cell_quality_gate(&mut inside, w, h);
+        assert_eq!(inside[(15 * w + 2) as usize], 255, "x=1 の成分は帯内接触で消えるべき");
+        assert_eq!(q2.removed_components, 1);
+        assert!(q2.needs_review, "境界接触除去は要確認");
+    }
+
+    #[test]
+    fn gate_thin_rule_wins_over_big_protection() {
+        // is_big（面積比≥4%）でも短辺 ≤ GATE_LINE_MAX_THICKNESS(3) なら線残渣として除去。
+        // 短辺4なら保護。優先順位（is_big && !is_line のときだけ保護）を固定する。
+        let w = 40u32;
+        let h = 40u32;
+
+        // 厚み3・長さ30 の境界接触線: 面積90 (5.6% ≥ 4%) だが短辺3 → 除去
+        let mut thin = white_binary(w, h);
+        fill_black(&mut thin, w, 0, 0, 30, 3);
+        let q1 = apply_cell_quality_gate(&mut thin, w, h);
+        assert_eq!(thin[(1 * w + 15) as usize], 255, "短辺3の太幅線は面積が大きくても消えるべき");
+        assert_eq!(q1.removed_components, 1);
+        assert!(q1.needs_review);
+
+        // 厚み4・長さ25 の境界接触ブロック: 面積100 (6.25%)・短辺4 → 保護
+        let mut thick = white_binary(w, h);
+        fill_black(&mut thick, w, 0, 0, 25, 4);
+        let q2 = apply_cell_quality_gate(&mut thick, w, h);
+        assert_eq!(thick[(2 * w + 15) as usize], 0, "短辺4かつ面積比≥4%は保護されるべき");
+        assert_eq!(q2.removed_components, 0);
+        assert_eq!(q2.kept_components, 1);
+        assert!(q2.needs_review, "はみ出しストローク保護は要確認");
+    }
+
+    #[test]
+    fn gate_area_ratio_exact_4pct_protected_below_removed() {
+        // 40x40（総画素1600）: 面積比の保護判定は >= なので、64px（ちょうど4%）は保護、
+        // 63px（4%未満）は除去。どちらも短辺 > 3 で thin ルールには掛からない。
+        let w = 40u32;
+        let h = 40u32;
+
+        // 8x8 = 64px = 4.0% ちょうど、左境界に接触 → 保護
+        let mut exact = white_binary(w, h);
+        fill_black(&mut exact, w, 0, 10, 8, 18);
+        let q1 = apply_cell_quality_gate(&mut exact, w, h);
+        assert_eq!(exact[(14 * w + 4) as usize], 0, "面積比ちょうど4%は保護されるべき");
+        assert_eq!(q1.removed_components, 0);
+        assert!(q1.needs_review);
+
+        // 9x7 = 63px < 4%、左境界に接触 → 除去
+        let mut below = white_binary(w, h);
+        fill_black(&mut below, w, 0, 10, 9, 17);
+        let q2 = apply_cell_quality_gate(&mut below, w, h);
+        assert_eq!(below[(13 * w + 4) as usize], 255, "面積比4%未満の境界接触成分は消えるべき");
+        assert_eq!(q2.removed_components, 1);
+        assert!(q2.needs_review);
+    }
+
+    #[test]
+    fn gate_interior_area9_removed_area10_kept() {
+        // 面積フィルタの境界値: 内側成分は面積9（< MIN_SPECK_AREA=10）で除去、10で残す
+        let w = 40u32;
+        let h = 40u32;
+        let mut binary = white_binary(w, h);
+        // 3x3 = 9px の内側スペック
+        fill_black(&mut binary, w, 10, 10, 13, 13);
+        // 2x5 = 10px の内側成分
+        fill_black(&mut binary, w, 20, 20, 22, 25);
+
+        let q = apply_cell_quality_gate(&mut binary, w, h);
+
+        assert_eq!(binary[(11 * w + 11) as usize], 255, "面積9は消えるべき");
+        assert_eq!(binary[(22 * w + 21) as usize], 0, "面積10は残るべき");
+        assert_eq!(q.removed_components, 1);
+        assert_eq!(q.kept_components, 1);
+        assert!(!q.needs_review, "面積9の内側スペック除去（0.56% < 1%）は要確認なし");
+    }
+
+    #[test]
+    fn gate_review_by_removed_area_ratio_threshold() {
+        // 条件③単独（境界除去なし・保護なし・ゼロ化なし）: 内側スペックの除去合計が
+        // 総画素の 1% を超えたときだけ needs_review（判定は厳密な >）。
+        let w = 40u32;
+        let h = 40u32;
+
+        // 3x3 スペック ×2 = 18px (1.125% > 1%) + 残る内側ブロック → review
+        let mut over = white_binary(w, h);
+        fill_black(&mut over, w, 4, 4, 7, 7);
+        fill_black(&mut over, w, 30, 4, 33, 7);
+        fill_black(&mut over, w, 15, 15, 25, 25);
+        let q1 = apply_cell_quality_gate(&mut over, w, h);
+        assert_eq!(q1.removed_components, 2);
+        assert_eq!(q1.kept_components, 1);
+        assert!(q1.needs_review, "除去面積比 1.125% > 1% は要確認");
+
+        // 2x4 スペック ×2 = 16px (ちょうど 1.0%、> でないので発火しない) → review なし
+        let mut exact = white_binary(w, h);
+        fill_black(&mut exact, w, 4, 4, 6, 8);
+        fill_black(&mut exact, w, 30, 4, 32, 8);
+        fill_black(&mut exact, w, 15, 15, 25, 25);
+        let q2 = apply_cell_quality_gate(&mut exact, w, h);
+        assert_eq!(q2.removed_components, 2);
+        assert!((q2.removed_area_ratio - 0.01).abs() < 1e-9);
+        assert!(!q2.needs_review, "除去面積比ちょうど1%は要確認なし");
+    }
+
+    #[test]
+    fn gate_border_band_speck_demoted_no_review() {
+        // 偽陽性の降格（QA修正B）: 帯内でも面積 < MIN_SPECK_AREA の微小成分は
+        // スペック扱いで除去され、それ単独では needs_review を立てない。
+        let w = 40u32;
+        let h = 40u32;
+        let mut binary = white_binary(w, h);
+        // 帯内（角）の 2x2 ダスト
+        fill_black(&mut binary, w, 0, 0, 2, 2);
+        // 残る内側ストローク
+        fill_black(&mut binary, w, 15, 15, 25, 25);
+
+        let q = apply_cell_quality_gate(&mut binary, w, h);
+
+        assert_eq!(binary[0], 255, "帯内ダストは消えるべき");
+        assert_eq!(binary[(20 * w + 20) as usize], 0, "内側ストロークは残るべき");
+        assert_eq!(q.removed_components, 1);
+        assert_eq!(q.kept_components, 1);
+        assert!(!q.needs_review, "帯内ダスト（speck降格）単独では要確認にしない");
+    }
+
+    #[test]
+    fn gate_degenerate_4x4_zeroed_review_no_panic() {
+        // 縮退サイズ（4x4 = 全画素が帯内）でもパニックせず、
+        // 微小成分の除去でゼロ化した場合は needs_review が立つ。
+        let w = 4u32;
+        let h = 4u32;
+        let mut binary = white_binary(w, h);
+        fill_black(&mut binary, w, 1, 1, 3, 3); // 2x2 = 面積4（speck降格で除去）
+
+        let q = apply_cell_quality_gate(&mut binary, w, h);
+
+        assert!(binary.iter().all(|&v| v == 255), "縮退セルの微小成分は消えるべき");
+        assert_eq!(q.removed_components, 1);
+        assert_eq!(q.kept_components, 0);
+        assert!(q.needs_review, "残成分ゼロ化は要確認");
+    }
+
+    #[test]
+    fn gate_short_buffer_returns_empty_quality() {
+        // binary.len() < w*h の不正入力は CellQuality::empty() を返し、バッファは無変更
+        let mut short = vec![0u8; 5];
+        let original = short.clone();
+        let q = apply_cell_quality_gate(&mut short, 4, 4);
+        assert_eq!(short, original, "不正長入力は無変更のはず");
+        assert_eq!(q.removed_components, 0);
+        assert_eq!(q.kept_components, 0);
+        assert_eq!(q.ink_ratio, 0.0);
+        assert!(!q.needs_review);
+    }
+
     // ── measure_inner_black_ratio ──
 
     #[test]
