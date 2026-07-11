@@ -20,32 +20,40 @@ export async function createZipFromFiles(filePaths: string[], zipPath: string): 
   fs.writeFileSync(zipPath, buf);
 }
 
+/** 収集した段階診断ログ1行。type は console のレベル（'error' / 'info' など） */
+export interface StageLogEntry {
+  type: string;
+  text: string;
+}
+
 /**
  * 段階診断ログを収集しながら fn を実行する。
  * 失敗時は `[scan:*]`（processor.ts）と `=== ステップN ===`（WASM 内部）の
  * ログをテスト添付 + コンソールに出力し、どの段階で落ちたか特定できるようにする。
+ * 成功時も収集済みログを返すので、呼び出し側で段階ログ自体を検証できる。
  */
 export async function withStageLogs<T>(
   page: Page,
   testInfo: TestInfo,
   fn: () => Promise<T>,
-): Promise<T> {
-  const logs: string[] = [];
+): Promise<{ result: T; logs: StageLogEntry[] }> {
+  const logs: StageLogEntry[] = [];
   page.on('console', (msg) => {
     const text = msg.text();
     if (text.startsWith('[scan:') || text.startsWith('===')) {
-      logs.push(text);
+      logs.push({ type: msg.type(), text });
     }
   });
   try {
-    return await fn();
+    const result = await fn();
+    return { result, logs };
   } catch (e) {
     await testInfo.attach('scan-stage-logs', {
-      body: logs.length > 0 ? logs.join('\n') : '(段階ログなし)',
+      body: logs.length > 0 ? logs.map((l) => l.text).join('\n') : '(段階ログなし)',
       contentType: 'text/plain',
     });
     console.error('--- scan stage logs (tail) ---');
-    for (const line of logs.slice(-60)) console.error(line);
+    for (const { text } of logs.slice(-60)) console.error(text);
     throw e;
   }
 }
