@@ -35,9 +35,7 @@ export default function Footer() {
           </span>
         </Show>
       </div>
-      <p class="footer__sub">
-        全処理がブラウザ内で完結。画像がサーバーに送られることはありません。
-      </p>
+      <p class="footer__sub">全処理がブラウザ内。画像は端末の外に出ない。</p>
     </footer>
   );
 }
