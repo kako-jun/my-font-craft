@@ -489,6 +489,7 @@ a.flow__label:hover {
 .sample-slip {
   display: block;
   max-width: 100%;
+  height: auto;
   border-radius: 1px;
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.7),
@@ -540,8 +541,9 @@ a.flow__label:hover {
 
 .template-page__note {
   margin: 0 0 1.75rem;
+  max-width: 30rem;
   font-size: 0.85rem;
-  color: var(--ink-faint);
+  color: var(--ink-dim);
   line-height: 1.8;
 }
 
