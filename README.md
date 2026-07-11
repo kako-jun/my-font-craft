@@ -62,6 +62,8 @@ kako-jun — [llll-ll.com](https://llll-ll.com)
 
 MIT License
 
+テスト用フィクスチャの `tests/fixtures/fonts/` に同梱している Noto Sans CJK JP のサブセットフォントは SIL Open Font License 1.1 です（同ディレクトリの `OFL.txt` 参照）。
+
 ## 作成したフォントの利用
 
 作成したフォントはあなたのものです。個人利用・商用利用ともに自由にお使いいただけます。

@@ -158,6 +158,18 @@ fn draw_cell_grid(img: &mut RgbaImage) {
                 let offset = (cell_px - inner_px) / 2;
                 draw_rect_outline(img, px_x + offset, px_y + offset, inner_px, inner_px, cyan);
 
+                // ベースライン/センターガイド（#111、シアン=スキャン時に除去される）
+                // ベースライン: 内枠下端の GUIDE_BASELINE_OFFSET_MM(1.2mm) 上 = em の y=0
+                let inner_offset_mm = (layout::CELL_SIZE - layout::INNER_SIZE) / 2.0;
+                let baseline_y = layout::mm_to_px(
+                    mm_y + inner_offset_mm + layout::INNER_SIZE - layout::GUIDE_BASELINE_OFFSET_MM,
+                )
+                .round() as u32;
+                fill_rect(img, px_x + offset, baseline_y, inner_px, 1, cyan);
+                // センターガイド: 内枠中央の縦線
+                let center_x = layout::mm_to_px(mm_x + layout::CELL_SIZE / 2.0).round() as u32;
+                fill_rect(img, center_x, px_y + offset, 1, inner_px, cyan);
+
                 // チェック欄（3mm、セル外枠の直下）
                 let check_y = px_y + cell_px;
                 draw_rect_outline(img, px_x, check_y, cell_px, check_px, black);
@@ -324,4 +336,74 @@ fn draw_cyan_sample(img: &mut RgbaImage) {
     let cyan = Rgba([layout::COLOR_CYAN[0], layout::COLOR_CYAN[1], layout::COLOR_CYAN[2], 255]);
     fill_rect(img, x, y, size, size, cyan);
     log!("  シアンサンプル描画完了");
+}
+
+// ── テスト（#111 QA） ──
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn guide_pixels_fall_within_erase_band() {
+        // 描画（template.rs）と除去（pipeline.rs erase_grid_lines）のパリティ検証:
+        // 内枠の内側に描かれた全シアン画素（= ガイド線）が、erase のガイド帯
+        // （公称位置 ±4px）に収まること。描画側の座標丸めが erase 帯からずれると
+        // ガイドが消し残される回帰をここで検知する
+        let path = std::env::temp_dir().join("mfc-test-guide-parity-template.png");
+        generate_template(&path, false).expect("テンプレート生成");
+        let img = image::open(&path).expect("テンプレート読込").into_rgba8();
+        let _ = std::fs::remove_file(&path);
+
+        let cyan = Rgba([
+            layout::COLOR_CYAN[0],
+            layout::COLOR_CYAN[1],
+            layout::COLOR_CYAN[2],
+            255,
+        ]);
+        let mut guide_pixels = 0u64;
+
+        for row in 0..layout::ROWS {
+            for col in 0..layout::COLS {
+                if layout::is_skipped_cell(row, col) {
+                    continue;
+                }
+                for cell_idx in 0..2 {
+                    let (mm_x, mm_y) = layout::get_cell_position(row, col, cell_idx);
+                    let inner_offset = (layout::CELL_SIZE - layout::INNER_SIZE) / 2.0;
+                    let ix = layout::mm_to_px(mm_x + inner_offset).round() as i64;
+                    let iy = layout::mm_to_px(mm_y + inner_offset).round() as i64;
+                    let inner_px = layout::mm_to_px(layout::INNER_SIZE).round() as i64;
+                    // erase_grid_lines と同じ丸めで公称位置を算出（パリティの基準）
+                    let baseline_y = layout::mm_to_px(
+                        mm_y + inner_offset + layout::INNER_SIZE
+                            - layout::GUIDE_BASELINE_OFFSET_MM,
+                    )
+                    .round() as i64;
+                    let center_x =
+                        layout::mm_to_px(mm_x + layout::CELL_SIZE / 2.0).round() as i64;
+
+                    // 内枠線（境界 1px）を除いた内側だけ走査 → 残るシアンはガイドのみ
+                    for y in (iy + 3)..(iy + inner_px - 3) {
+                        for x in (ix + 3)..(ix + inner_px - 3) {
+                            if *img.get_pixel(x as u32, y as u32) == cyan {
+                                guide_pixels += 1;
+                                let near_baseline = (y - baseline_y).abs() <= 4;
+                                let near_center = (x - center_x).abs() <= 4;
+                                assert!(
+                                    near_baseline || near_center,
+                                    "erase帯(±4px)外のガイド画素 ({x},{y}) R{row:02}C{col:02}_I{cell_idx}: baseline_y={baseline_y}, center_x={center_x}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        assert!(
+            guide_pixels > 0,
+            "ガイド画素が1つも見つからない（描画が失われている or 色が変わった）"
+        );
+    }
 }

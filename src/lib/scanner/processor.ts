@@ -65,10 +65,12 @@ function correctedImageToCanvas(
  * console から判別できるようにする。UI の挙動には影響しない。
  * WASM 内部の詳細ログ（`=== ステップN ===`）と併せて読む。
  */
-function scanLog(stage: string, message: string, failed = false): void {
+function scanLog(stage: string, message: string, level: 'info' | 'warn' | 'error' = 'info'): void {
   const line = `[scan:${stage}] ${message}`;
-  if (failed) {
+  if (level === 'error') {
     console.error(line);
+  } else if (level === 'warn') {
+    console.warn(line);
   } else {
     console.info(line);
   }
@@ -141,7 +143,7 @@ export function warnIfQualityMissing(
   scanLog(
     'cells',
     `${pageLabel} ${missing} セルで quality フィールドが欠落しています（古い wasm ビルドの可能性。npm run wasm:build を実行してください）`,
-    true,
+    'error',
   );
   return true;
 }
@@ -193,7 +195,7 @@ export async function processImages(
       wasmResult = await processImageWasm(imageFiles[fi]);
     } catch (e) {
       const rawError = e instanceof Error ? e.message : String(e);
-      scanLog(inferFailedStage(rawError), `file="${fileName}" 失敗: ${rawError}`, true);
+      scanLog(inferFailedStage(rawError), `file="${fileName}" 失敗: ${rawError}`, 'error');
       const msg = translateWasmError(rawError, getWasmBuildInfo()?.sha);
       callbacks.onMessage({
         type: 'error',
@@ -208,9 +210,25 @@ export async function processImages(
       `file="${fileName}" ok corrected=${wasmResult.corrected_width}x${wasmResult.corrected_height}`,
     );
 
+    // シアンサンプル未検出の警告昇格（#111 QA）。
+    // モノクロ印刷では内枠・ガイド線が薄グレーで印字され、色ベースのシアン除去（主防御）と
+    // erase_grid_lines の輝度保護（第2防御）が同時に無力化しうる。実質的な検知器はここだけ。
+    // undefined は stale wasm（旧ビルド）なので警告しない（=== false のみ）
+    if (wasmResult.cyan_sample_detected === false) {
+      scanLog(
+        'cyan',
+        `file="${fileName}" シアンサンプル未検出 — シアン除去をスキップ（モノクロ印刷の可能性）`,
+        'warn',
+      );
+      callbacks.onMessage({
+        type: 'warning',
+        text: `画像 ${fi + 1}: シアンの罫線を検出できませんでした。テンプレートがカラー印刷されているか確認してください（モノクロ印刷では枠線・ガイド線が文字に混入することがあります）。`,
+      });
+    }
+
     const pageNumber = wasmResult.page_number;
     if (!pageNumber) {
-      scanLog('qr', `file="${fileName}" 失敗: QR からページ番号を取得できない`, true);
+      scanLog('qr', `file="${fileName}" 失敗: QR からページ番号を取得できない`, 'error');
       callbacks.onMessage({
         type: 'error',
         text: `画像 ${fi + 1} のQRコードを読み取れませんでした。画像が不鮮明な可能性があります。`,
@@ -233,7 +251,7 @@ export async function processImages(
         scanLog(
           'chars',
           `page=${pageNumber} 失敗: 文字セット選択フラグを復元できない (s=${selectionFlag ?? 'null'})`,
-          true,
+          'error',
         );
         callbacks.onMessage({
           type: 'error',
@@ -355,7 +373,7 @@ export async function processImages(
           scanLog(
             'vectorize',
             `page=${pageNumber} char="${char}" (row=${cell.row},col=${cell.col}) 採用セルのパスが空`,
-            true,
+            'error',
           );
         }
 
@@ -368,6 +386,9 @@ export async function processImages(
           name,
           unicode: ai === 0 ? unicode : undefined,
           paths,
+          // 全グリフ全角モノスペース = advanceWidth 1000 固定（#111 時点の仕様）。
+          // 英数字のサイドベアリング算出（プロポーショナル化）は
+          // docs/font-generation.md の段階案を参照（未実装）
           advanceWidth: 1000,
         };
 
@@ -383,7 +404,7 @@ export async function processImages(
     scanLog(
       'vectorize',
       `page=${pageNumber} ok glyphs=${pageGlyphCount} emptyPaths=${pageEmptyPathCount}`,
-      pageEmptyPathCount > 0,
+      pageEmptyPathCount > 0 ? 'error' : 'info',
     );
   }
 

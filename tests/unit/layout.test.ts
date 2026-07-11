@@ -7,10 +7,25 @@ import {
   CENTER_MARKER_X,
   CENTER_MARKER_Y,
   CENTER_MARKER_SIZE,
+  INNER_SIZE,
+  GUIDE_BASELINE_OFFSET,
   isSkippedCell,
   gridToCharIndex,
 } from '../../src/lib/template/layout';
 import { CHARS_PER_PAGE } from '../../src/data/characters';
+
+describe('layout: guide line constants (#111)', () => {
+  it('GUIDE_BASELINE_OFFSET は em マップの関係式 120 / (1000 / INNER_SIZE) と一致する', () => {
+    // セル→em 固定変換: 内枠(INNER_SIZE mm) = em-square(1000 units)、
+    // 内枠下端 = em Y -120（EMBOX_BOTTOM_Y、Rust 正本: cli/src/layout.rs）。
+    // ベースライン（em Y=0）は内枠下端の 120 units 上 = 120 / (1000/INNER_SIZE) mm。
+    // Rust 側の同関係式は vectorizer.rs の baseline_guide_maps_to_em_zero で固定
+    const UNITS_PER_EM = 1000;
+    const EMBOX_BOTTOM_Y = -120;
+    expect(GUIDE_BASELINE_OFFSET).toBe(-EMBOX_BOTTOM_Y / (UNITS_PER_EM / INNER_SIZE));
+    expect(GUIDE_BASELINE_OFFSET).toBe(1.2);
+  });
+});
 
 describe('layout: center marker constants', () => {
   it('center marker is at (103, 147) with size 6', () => {

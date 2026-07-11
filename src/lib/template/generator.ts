@@ -26,6 +26,7 @@ import {
   MARKER_SIZE,
   SAMPLE_WIDTH,
   COLOR_CYAN,
+  GUIDE_BASELINE_OFFSET,
   CENTER_MARKER_X,
   CENTER_MARKER_Y,
   CENTER_MARKER_SIZE,
@@ -330,6 +331,25 @@ async function generateTemplatePDFFromChars(
             height: mm(INNER_SIZE),
             borderColor: rgb(COLOR_CYAN.r, COLOR_CYAN.g, COLOR_CYAN.b),
             borderWidth: 0.5,
+          });
+
+          // ベースライン/センターガイド（#111、シアン=スキャン時に除去される）
+          // ベースライン: 内枠下端の GUIDE_BASELINE_OFFSET(1.2mm) 上 = em の y=0。
+          // 英字はこの線に乗せて書き、g/j/p/q/y の尻尾は線の下（descender 領域）へ
+          const baselineY = pos.y + innerOffset + INNER_SIZE - GUIDE_BASELINE_OFFSET;
+          page.drawLine({
+            start: { x: mm(pos.x + innerOffset), y: toY(baselineY) },
+            end: { x: mm(pos.x + innerOffset + INNER_SIZE), y: toY(baselineY) },
+            color: rgb(COLOR_CYAN.r, COLOR_CYAN.g, COLOR_CYAN.b),
+            thickness: 0.4,
+          });
+          // センターガイド: 内枠中央の縦線（かな・漢字を中央に書く目安）
+          const centerX = pos.x + CELL_SIZE / 2;
+          page.drawLine({
+            start: { x: mm(centerX), y: toY(pos.y + innerOffset) },
+            end: { x: mm(centerX), y: toY(pos.y + innerOffset + INNER_SIZE) },
+            color: rgb(COLOR_CYAN.r, COLOR_CYAN.g, COLOR_CYAN.b),
+            thickness: 0.4,
           });
 
           // チェック欄区切り（シアン）

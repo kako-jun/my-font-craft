@@ -11,10 +11,26 @@
  *   （page-NN-perspective.png / page-NN-rotated.png / page-NN-combined.png、#109）
  */
 
-import { createCanvas } from 'canvas';
+import { createCanvas, registerFont } from 'canvas';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import QRCode from 'qrcode';
+
+// --- フィクスチャ描画フォントの固定（#111 QA） ---
+// 環境フォント（macOS の Hiragino 等）に依存すると、glyph-metrics e2e の
+// 絶対値アサーション（bbox 位置・大きさ）が実行環境でフレークする。
+// OFL 1.1 の Noto Sans CJK JP Regular を かな+ASCII にサブセットして同梱し、
+// 描画フォントを決定的にする（fonts/OFL.txt がライセンス）。
+// 出自: notofonts/noto-cjk Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf を
+//   pyftsubset --unicodes="U+0020-007E,U+3000-303F,U+3040-309F,U+30A0-30FF"
+// でサブセット（96KB）。ファイルが無い場合は registerFont が throw するため、
+// 環境フォントへのサイレントフォールバックは起きない。
+const FIXTURES_DIR = path.dirname(fileURLToPath(import.meta.url));
+const FIXTURE_FONT_FAMILY = 'MockScanNotoSansJP';
+registerFont(path.join(FIXTURES_DIR, 'fonts', 'NotoSansJP-MockScan.otf'), {
+  family: FIXTURE_FONT_FAMILY,
+});
 
 // --- レイアウト定数（layout.ts から取得） ---
 import {
@@ -32,6 +48,7 @@ import {
   CHECK_HEIGHT,
   CELL_GAP,
   SAMPLE_WIDTH,
+  GUIDE_BASELINE_OFFSET,
   MARKER_SIZE,
   MARKERS,
   QR_X,
@@ -121,6 +138,7 @@ async function generatePage(
   pageIdx: number,
   chars: string[],
   residueCharIndices?: Set<number>,
+  qrDataOverride?: string,
 ): Promise<Buffer> {
   const canvas = createCanvas(canvasW, canvasH);
   const ctx = canvas.getContext('2d');
@@ -140,15 +158,18 @@ async function generatePage(
   ctx.font = '24px sans-serif';
   ctx.fillText(`Page ${pageIdx + 1}/${totalPages}`, px(80), px(14));
 
-  // QRコード（#91: v:3 + s フラグ必須。mock はひらがなのみ）
-  const qrData = JSON.stringify({
-    p: 'mfc',
-    v: 3,
-    pg: pageIdx + 1,
-    t: totalPages,
-    m: 2,
-    s: 'h',
-  });
+  // QRコード（#91: v:3 + s フラグ必須。mock はひらがなのみ。
+  // metrics ページは chars ペイロード（#96 リトライPDF形式）で上書きする）
+  const qrData =
+    qrDataOverride ??
+    JSON.stringify({
+      p: 'mfc',
+      v: 3,
+      pg: pageIdx + 1,
+      t: totalPages,
+      m: 2,
+      s: 'h',
+    });
   try {
     const qrBuffer = await QRCode.toBuffer(qrData, {
       errorCorrectionLevel: 'M',
@@ -219,6 +240,21 @@ async function generatePage(
           px(INNER_SIZE),
         );
 
+        // ベースライン/センターガイド（#111、シアン=スキャン時に除去される）
+        // テンプレートPDF（generator.ts）と同じ位置に描き、除去経路を e2e で検証する
+        const baselineY = px(pos.y + innerOffset + INNER_SIZE - GUIDE_BASELINE_OFFSET);
+        ctx.strokeStyle = '#CCFFFF';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(px(pos.x + innerOffset), baselineY);
+        ctx.lineTo(px(pos.x + innerOffset + INNER_SIZE), baselineY);
+        ctx.stroke();
+        const centerGuideX = px(pos.x + CELL_SIZE / 2);
+        ctx.beginPath();
+        ctx.moveTo(centerGuideX, px(pos.y + innerOffset));
+        ctx.lineTo(centerGuideX, px(pos.y + innerOffset + INNER_SIZE));
+        ctx.stroke();
+
         // チェック欄区切り（シアン）
         ctx.beginPath();
         ctx.moveTo(px(pos.x), px(pos.y + CELL_SIZE));
@@ -234,9 +270,15 @@ async function generatePage(
 
         // --- 文字を描画（1つ目のマスにのみ書く。2つ目は空欄） ---
         if (cellIdx === 0) {
-          const fontSize = px(INNER_SIZE * 0.75);
+          // 句読点はフォントグリフのインクが極端に小さく、0.75em 描画だと
+          // 空マス判定（内側60%で黒2%未満）と 2.1% vs 2.0% の際どい勝負になる。
+          // 手書きの句読点はフォントより相対的に大きく書かれるのが実態なので、
+          // 1.0em で描いて閾値境界から離す（#111 metrics ページで使用）
+          const scale = '、。'.includes(char) ? 1.0 : 0.75;
+          const fontSize = px(INNER_SIZE * scale);
           ctx.fillStyle = '#000000';
-          ctx.font = `${fontSize}px "Hiragino Sans", "Noto Sans CJK JP", sans-serif`;
+          // 同梱サブセットフォントのみ指定（フォールバック列挙しない = 環境差を排除）
+          ctx.font = `${fontSize}px "${FIXTURE_FONT_FAMILY}"`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           const cx = px(pos.x + innerOffset) + px(INNER_SIZE) / 2;
@@ -342,6 +384,51 @@ export async function generateResidueScans(outputDir: string): Promise<string[]>
 }
 
 /**
+ * 配置検証（metrics）ページの文字リスト（#111）。
+ * セル→em 固定変換の e2e 検証用: 句読点（、。）・小書きかな（っ vs つ、ぁ vs あ）・
+ * descender（g/j/p/q/y）・長音（ー）をフォント描画でセルに載せる。
+ * QR は #96 リトライPDF形式の `chars` ペイロードで、この配列をそのまま埋め込む。
+ * glyph-metrics-flow.spec.ts と共有する（二重管理しない）。
+ */
+export const METRICS_PAGE_CHARS = [
+  '、',
+  '。',
+  'っ',
+  'つ',
+  'ぁ',
+  'あ',
+  'g',
+  'j',
+  'p',
+  'q',
+  'y',
+  'ー',
+];
+
+/**
+ * 配置検証ページを生成する（#111）。
+ * 出力先を分けているのは、正面 e2e（mock-scans/ 全 PNG を ZIP 化）の
+ * ひらがな83文字検証に metrics ページの重複文字（っ つ ぁ あ）を混入させないため。
+ */
+export async function generateMetricsScans(outputDir: string): Promise<string[]> {
+  prepareOutputDir(outputDir);
+
+  const qrData = JSON.stringify({
+    p: 'mfc',
+    v: 3,
+    pg: 1,
+    t: 1,
+    m: 2,
+    chars: METRICS_PAGE_CHARS,
+  });
+  const buffer = await generatePage(0, METRICS_PAGE_CHARS, undefined, qrData);
+  const filepath = path.join(outputDir, 'page-01-metrics.png');
+  fs.writeFileSync(filepath, buffer);
+  console.log(`Generated: page-01-metrics.png (${METRICS_PAGE_CHARS.join('')})`);
+  return [filepath];
+}
+
+/**
  * 正面画像から斜め撮影風の歪みバリアントを生成する（#109）。
  * 出力先を分けているのは、既存の正面 e2e（mock-scans/ 全 PNG を ZIP 化）に
  * 歪み画像が混入しないようにするため。
@@ -378,9 +465,11 @@ if (
   const outDir = path.join(fixturesDir, 'mock-scans');
   const distortedDir = path.join(fixturesDir, 'mock-scans-distorted');
   const residueDir = path.join(fixturesDir, 'mock-scans-residue');
+  const metricsDir = path.join(fixturesDir, 'mock-scans-metrics');
   generateMockScans(outDir)
     .then((files) => generateDistortedScans(files, distortedDir).then((d) => [...files, ...d]))
     .then((files) => generateResidueScans(residueDir).then((r) => [...files, ...r]))
+    .then((files) => generateMetricsScans(metricsDir).then((m) => [...files, ...m]))
     .then((files) => {
       console.log(`\nDone! Generated ${files.length} mock scan images.`);
     })

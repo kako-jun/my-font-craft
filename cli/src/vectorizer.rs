@@ -12,15 +12,42 @@ use crate::cell::{
     apply_cell_quality_gate, apply_clahe_pub, compensate_ink_bleed, morphological_open_close,
     rgba_to_gray_pub, sauvola_binarize_pub, CellQuality, SAUVOLA_K_PUB, SAUVOLA_WINDOW_PUB,
 };
+use crate::layout;
 
 // ── 定数 ──
 
 pub const UNITS_PER_EM: f64 = 1000.0;
 pub const GLYPH_HEIGHT: f64 = 800.0;
-/// グリフを em-square にフィットさせる際の目標サイズ（長辺、units）。
-/// 日本語フォントの慣例（ideographic body ≒ em の 75%）に合わせて 750 を採用。
-/// em-square の四辺に 125 units ずつマージンが残り、上下の descender/ascender の余地になる。
+/// bbox 正規化（opt-in 救済、#111 で既定経路から除外）の目標サイズ（長辺、units）。
+/// 日本語フォントの慣例（ideographic body ≒ em の 75%）に合わせた 750。
+/// 既定経路はセル→em 固定変換（下記 vectorize_binary）であり、この定数は
+/// vectorize_binary_bbox_fit でのみ使う。
 pub const EM_FIT_SIZE: f64 = 750.0;
+
+/// em 座標系の units / mm。内枠（INNER_SIZE = 10mm）を em-square（1000 units）に写す。
+pub fn em_units_per_mm() -> f64 {
+    UNITS_PER_EM / layout::INNER_SIZE
+}
+
+/// セル crop 内での内枠左端の位置（mm）。crop はセル外枠から
+/// CELL_CROP_MARGIN(1.5mm) 内側、内枠はセル外枠から (15-10)/2 = 2.5mm 内側。
+fn inner_left_in_crop_mm() -> f64 {
+    (layout::CELL_SIZE - layout::INNER_SIZE) / 2.0 - layout::CELL_CROP_MARGIN
+}
+
+/// セル crop 全域が写る em 座標範囲 (x_min, y_min, x_max, y_max)。
+/// SVG プレビューの viewBox 用（descender 領域 y<0 を切らずに表示する）。
+/// 既定レイアウトでは (-100, -220, 1100, 980)。
+pub fn crop_em_bounds() -> (f64, f64, f64, f64) {
+    let em = em_units_per_mm();
+    let inner_left = inner_left_in_crop_mm();
+    let inner_bottom = inner_left + layout::INNER_SIZE;
+    let x_min = -inner_left * em;
+    let x_max = (layout::CELL_CROP_SIZE - inner_left) * em;
+    let y_min = layout::EMBOX_BOTTOM_Y + (inner_bottom - layout::CELL_CROP_SIZE) * em;
+    let y_max = layout::EMBOX_BOTTOM_Y + inner_bottom * em;
+    (x_min, y_min, x_max, y_max)
+}
 
 // ── 型定義（serde 経由で JS 側 PathCommand と同じ JSON 形式を吐く） ──
 
@@ -63,9 +90,107 @@ pub fn vectorize_glyph(img: &RgbaImage) -> Vec<Vec<PathCommand>> {
 ///
 /// pipeline 側で二値化を1回だけ行い、プレビュー RGBA とベクター化の入力を
 /// 完全に一致させるための分割エントリポイント。
+///
+/// 座標変換（#111）: **セル矩形→em の固定アフィン変換**。
+/// 入力画像は「セル外枠から CELL_CROP_MARGIN(1.5mm) 内側を crop した
+/// CELL_CROP_SIZE(12mm) 四方」である前提（cell.rs extract_cell_image_raw）。
+/// 内枠（10mm、書く領域）を em-square [0,1000] × [EMBOX_BOTTOM_Y, EMBOX_BOTTOM_Y+1000]
+/// = [-120, 880] に写す（1mm = 100 units）。書き手がセル内のどこに・どの大きさで
+/// 書いたかがそのままフォントに出る。旧 bbox 正規化は vectorize_binary_bbox_fit
+/// （opt-in 救済、既定 OFF）に格下げ。
 pub fn vectorize_binary(binary_sauvola: &[u8], w: u32, h: u32) -> Vec<Vec<PathCommand>> {
-    if w == 0 || h == 0 || binary_sauvola.len() < (w as usize) * (h as usize) {
+    let Some((rects, uw, uh)) = extract_rects(binary_sauvola, w, h) else {
         return Vec::new();
+    };
+
+    let em = em_units_per_mm();
+    // 幅と高さは同じ mm（正方 crop）だが mm→px の丸めで px 数が異なりうるため軸ごとに算出
+    let px_per_mm_x = uw as f64 / layout::CELL_CROP_SIZE;
+    let px_per_mm_y = uh as f64 / layout::CELL_CROP_SIZE;
+    let inner_left_mm = inner_left_in_crop_mm(); // crop 内での内枠左端 = 1.0mm
+    let inner_bottom_mm = inner_left_mm + layout::INNER_SIZE; // crop 内での内枠下端 = 11.0mm
+
+    // 画像座標(px, Y下向き) → em 座標(units, Y上向き)
+    let fx = |px: f64| ((px / px_per_mm_x - inner_left_mm) * em).round();
+    let fy =
+        |py: f64| (layout::EMBOX_BOTTOM_Y + (inner_bottom_mm - py / px_per_mm_y) * em).round();
+
+    rects_to_paths(&rects, fx, fy)
+}
+
+/// bbox 正規化（旧 #53 方式）: 黒ピクセルの bbox を EM_FIT_SIZE(750) に拡大して
+/// em 中央に配置する。
+///
+/// #111 で既定経路から外した opt-in の救済。書いた位置・大きさを捨てるため、
+/// 句読点が行中央に浮く・小書きかなが等倍化する・descender が失われる副作用がある。
+/// 「セルに対して明らかに小さすぎる字を後から拡大したい」ケース専用で、既定 OFF
+/// （現在プロダクション経路からの呼び出しなし。判断ロジックの保存とテストのために残す）。
+pub fn vectorize_binary_bbox_fit(binary_sauvola: &[u8], w: u32, h: u32) -> Vec<Vec<PathCommand>> {
+    let Some((rects, _uw, _uh)) = extract_rects(binary_sauvola, w, h) else {
+        return Vec::new();
+    };
+
+    // タイトバウンディングボックス検出（#53 Phase 1）
+    let bx_min = rects.iter().map(|r| r.0).min().unwrap() as f64;
+    let by_min = rects.iter().map(|r| r.1).min().unwrap() as f64;
+    let bx_max = rects.iter().map(|r| r.2).max().unwrap() as f64;
+    let by_max = rects.iter().map(|r| r.3).max().unwrap() as f64;
+    let bbox_w = bx_max - bx_min;
+    let bbox_h = by_max - by_min;
+    // rects 非空なら runlength 抽出の不変条件から bbox_w >= 1, bbox_h >= 1 のはずだが、
+    // ゼロ除算と負スケールを防ぐ念のためのガード。
+    if bbox_w < 1.0 || bbox_h < 1.0 {
+        return Vec::new();
+    }
+
+    // em-square フィット（#53 Phase 2）
+    // アスペクト比を保ったまま bbox 長辺が EM_FIT_SIZE になるようスケール。em-square 中央に配置。
+    let scale = EM_FIT_SIZE / bbox_w.max(bbox_h);
+    let final_w = bbox_w * scale;
+    let final_h = bbox_h * scale;
+    let offset_x = (UNITS_PER_EM - final_w) / 2.0;
+    let offset_y = (GLYPH_HEIGHT - final_h) / 2.0;
+
+    let fx = |px: f64| ((px - bx_min) * scale + offset_x).round();
+    let fy = |py: f64| (offset_y + final_h - (py - by_min) * scale).round();
+
+    rects_to_paths(&rects, fx, fy)
+}
+
+/// 矩形群を M→L→L→L→Z の四角形パスに変換する。
+/// fx/fy は画像座標(px, Y下向き)→フォント座標(units, Y上向き)の写像。
+fn rects_to_paths(
+    rects: &[(u32, u32, u32, u32)],
+    fx: impl Fn(f64) -> f64,
+    fy: impl Fn(f64) -> f64,
+) -> Vec<Vec<PathCommand>> {
+    rects
+        .iter()
+        .map(|&(xs, ys, xe, ye)| {
+            let fx0 = fx(xs as f64);
+            let fx1 = fx(xe as f64);
+            // Y は画像座標(Y下向き)をフォント座標(Y上向き)に反転する
+            let fy_top = fy(ys as f64);
+            let fy_bot = fy(ye as f64);
+
+            vec![
+                PathCommand::MoveTo { x: fx0, y: fy_top },
+                PathCommand::LineTo { x: fx1, y: fy_top },
+                PathCommand::LineTo { x: fx1, y: fy_bot },
+                PathCommand::LineTo { x: fx0, y: fy_bot },
+                PathCommand::Close { x: fx0, y: fy_top },
+            ]
+        })
+        .collect()
+}
+
+/// 二値化セルから矩形群を抽出する（アップスケール → ランレングス → 縦マージ → ハングガード）。
+///
+/// 戻り値: (矩形リスト(x_start, y_start, x_end, y_end)（アップスケール後座標）, アップスケール後の幅, 高さ)。
+/// 黒が無い・入力不正・矩形爆発（MAX_RECTS 超）の場合は None。
+fn extract_rects(binary_sauvola: &[u8], w: u32, h: u32) -> Option<(Vec<(u32, u32, u32, u32)>, u32, u32)> {
+    if w == 0 || h == 0 || binary_sauvola.len() < (w as usize) * (h as usize) {
+        return None;
     }
 
     // 内部バイナリ: 1=黒(前景), 0=白(背景)
@@ -140,7 +265,7 @@ pub fn vectorize_binary(binary_sauvola: &[u8], w: u32, h: u32) -> Vec<Vec<PathCo
     }
 
     if rects.is_empty() {
-        return Vec::new();
+        return None;
     }
 
     // 6.5: ハングガード。シアン/影残骸が二値化をすり抜け、行ごとに幅が ±MERGE_TOLERANCE を
@@ -149,52 +274,10 @@ pub fn vectorize_binary(binary_sauvola: &[u8], w: u32, h: u32) -> Vec<Vec<PathCo
     // 上限を大きく超えたものは「ノイズ過多で破綻」とみなし、グリフを空に倒して安全側に倒す。
     const MAX_RECTS: usize = 4000;
     if rects.len() > MAX_RECTS {
-        return Vec::new();
+        return None;
     }
 
-    // 7: タイトバウンディングボックス検出（#53 Phase 1）
-    // 黒ピクセル（= 矩形）の min/max を取り、余白をトリミングしてから em-square にフィットさせる。
-    // セルに対して小さく書かれた文字・端に寄った文字も em-square 中央に揃えられる。
-    let bx_min = rects.iter().map(|r| r.0).min().unwrap() as f64;
-    let by_min = rects.iter().map(|r| r.1).min().unwrap() as f64;
-    let bx_max = rects.iter().map(|r| r.2).max().unwrap() as f64;
-    let by_max = rects.iter().map(|r| r.3).max().unwrap() as f64;
-    let bbox_w = bx_max - bx_min;
-    let bbox_h = by_max - by_min;
-    // rects 非空なら runlength 抽出の不変条件から bbox_w >= 1, bbox_h >= 1 のはずだが、
-    // ゼロ除算と負スケールを防ぐ念のためのガード。
-    if bbox_w < 1.0 || bbox_h < 1.0 {
-        return Vec::new();
-    }
-
-    // 8: em-square フィット（#53 Phase 2）
-    // アスペクト比を保ったまま bbox 長辺が EM_FIT_SIZE になるようスケール。em-square 中央に配置。
-    let scale = EM_FIT_SIZE / bbox_w.max(bbox_h);
-    let final_w = bbox_w * scale;
-    let final_h = bbox_h * scale;
-    let offset_x = (UNITS_PER_EM - final_w) / 2.0;
-    let offset_y = (GLYPH_HEIGHT - final_h) / 2.0;
-
-    let paths: Vec<Vec<PathCommand>> = rects
-        .iter()
-        .map(|&(xs, ys, xe, ye)| {
-            let fx0 = ((xs as f64 - bx_min) * scale + offset_x).round();
-            let fx1 = ((xe as f64 - bx_min) * scale + offset_x).round();
-            // Y は画像座標(Y下向き)をフォント座標(Y上向き)に反転しつつ bbox 基点で再配置
-            let fy_top = (offset_y + final_h - (ys as f64 - by_min) * scale).round();
-            let fy_bot = (offset_y + final_h - (ye as f64 - by_min) * scale).round();
-
-            vec![
-                PathCommand::MoveTo { x: fx0, y: fy_top },
-                PathCommand::LineTo { x: fx1, y: fy_top },
-                PathCommand::LineTo { x: fx1, y: fy_bot },
-                PathCommand::LineTo { x: fx0, y: fy_bot },
-                PathCommand::Close { x: fx0, y: fy_top },
-            ]
-        })
-        .collect();
-
-    paths
+    Some((rects, uw, uh))
 }
 
 /// セル画像を二値化し、品質ゲート（#110）を通した結果を返す。
@@ -247,15 +330,23 @@ pub fn binarize_to_rgba(img: &RgbaImage) -> RgbaImage {
 // ── SVG 出力（CLI の検証用） ──
 
 /// パス配列をシンプルな SVG 文字列に変換する（デバッグ可視化用）
+///
+/// viewBox はセル crop 全域が写る em 範囲（#111 固定変換後は x∈[-100,1100],
+/// y∈[-220,980]）。descender 領域（y<0）に置かれたインクも切れずに表示される。
 #[cfg(not(target_arch = "wasm32"))]
 pub fn paths_to_svg(paths: &[Vec<PathCommand>]) -> String {
-    let vb_w = UNITS_PER_EM as i32;
-    let vb_h = GLYPH_HEIGHT as i32;
+    let (x_min, y_min, x_max, y_max) = crop_em_bounds();
+    let vb_w = (x_max - x_min) as i32;
+    let vb_h = (y_max - y_min) as i32;
+    // フォント座標(Y上向き) → SVG 座標(Y下向き): y_svg = y_max - y_font
+    let flip = |y: f64| y_max - y;
     let mut out = String::new();
     out.push_str(&format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {vb_w} {vb_h}\" width=\"400\" height=\"320\">\n"
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"{x_min:.0} 0 {vb_w} {vb_h}\" width=\"400\" height=\"400\">\n"
     ));
-    out.push_str("  <rect width=\"100%\" height=\"100%\" fill=\"white\"/>\n");
+    out.push_str(&format!(
+        "  <rect x=\"{x_min:.0}\" width=\"100%\" height=\"100%\" fill=\"white\"/>\n"
+    ));
 
     // 全サブパスを1つの <path> にまとめて fill で塗りつぶす
     let mut d = String::new();
@@ -263,18 +354,18 @@ pub fn paths_to_svg(paths: &[Vec<PathCommand>]) -> String {
         for cmd in path {
             match cmd {
                 PathCommand::MoveTo { x, y } => {
-                    d.push_str(&format!("M{x:.0} {y:.0} ", y = vb_h as f64 - y));
+                    d.push_str(&format!("M{x:.0} {y:.0} ", y = flip(*y)));
                 }
                 PathCommand::LineTo { x, y } => {
-                    d.push_str(&format!("L{x:.0} {y:.0} ", y = vb_h as f64 - y));
+                    d.push_str(&format!("L{x:.0} {y:.0} ", y = flip(*y)));
                 }
                 // ランレングス方式では CurveTo は生成されないが、インポートフォントのパス表示用に残す
                 PathCommand::CurveTo { x, y, cp1x, cp1y, cp2x, cp2y } => {
                     d.push_str(&format!(
                         "C{cp1x:.0} {cp1y:.0} {cp2x:.0} {cp2y:.0} {x:.0} {y:.0} ",
-                        cp1y = vb_h as f64 - cp1y,
-                        cp2y = vb_h as f64 - cp2y,
-                        y = vb_h as f64 - y,
+                        cp1y = flip(*cp1y),
+                        cp2y = flip(*cp2y),
+                        y = flip(*y),
                     ));
                 }
                 PathCommand::Close { .. } => d.push_str("Z "),
@@ -350,25 +441,26 @@ mod tests {
         }
     }
 
-    #[test]
-    fn offset_black_rect_is_centered_in_em_square() {
-        // 画像右下（80,80..95,95）の15×15黒矩形を em-square 中央に正規化できるか
-        // = #53 Phase 2 (BBox 中央配置) の回帰テスト
-        let mut img = make_image(100, 100, Rgba([255, 255, 255, 255]));
-        for y in 80..95 {
-            for x in 80..95 {
-                img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+    /// Sauvola 形式（0=黒/255=白）の合成バイナリを作る。rects は (x0, y0, x1, y1) 半開区間
+    fn make_binary(w: u32, h: u32, rects: &[(u32, u32, u32, u32)]) -> Vec<u8> {
+        let mut buf = vec![255u8; (w * h) as usize];
+        for &(x0, y0, x1, y1) in rects {
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    buf[(y * w + x) as usize] = 0;
+                }
             }
         }
-        let paths = vectorize_glyph(&img);
-        assert!(!paths.is_empty());
+        buf
+    }
 
-        // 全パスの x/y 範囲を集計
+    /// 全パスの bbox (min_x, min_y, max_x, max_y) を集計
+    fn paths_bbox(paths: &[Vec<PathCommand>]) -> (f64, f64, f64, f64) {
         let mut min_x = f64::MAX;
         let mut max_x = f64::MIN;
         let mut min_y = f64::MAX;
         let mut max_y = f64::MIN;
-        for path in &paths {
+        for path in paths {
             for cmd in path {
                 if let PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } = cmd {
                     min_x = min_x.min(*x);
@@ -378,6 +470,151 @@ mod tests {
                 }
             }
         }
+        (min_x, min_y, max_x, max_y)
+    }
+
+    // ── セル→em 固定変換（#111） ──
+    //
+    // テストは 120×120px の合成 crop を使う。crop は 12mm 四方（CELL_CROP_SIZE）なので
+    // ちょうど 10px/mm になり、期待値が整数で書ける:
+    //   em_x = (px/10 - 1.0mm) * 100,  em_y = -120 + (11.0mm - py/10) * 100
+
+    #[test]
+    fn fixed_transform_maps_punctuation_position() {
+        // 内枠左下（句読点相当）の小矩形: px x∈[15,35), y∈[85,105)
+        // = crop 内 mm で x∈[1.5,3.5], y∈[8.5,10.5]（内枠は x,y∈[1.0,11.0]）
+        // 期待 em: x∈[50,250], y∈[-70,130] — 左下・小さいまま写り、中央に拡大されない
+        let binary = make_binary(120, 120, &[(15, 85, 35, 105)]);
+        let paths = vectorize_binary(&binary, 120, 120);
+        assert!(!paths.is_empty());
+        let (min_x, min_y, max_x, max_y) = paths_bbox(&paths);
+        assert_eq!((min_x, max_x), (50.0, 250.0), "x が書いた位置のまま写るべき");
+        assert_eq!((min_y, max_y), (-70.0, 130.0), "y がベースライン付近の低い位置に写るべき");
+    }
+
+    #[test]
+    fn fixed_transform_uses_descender_region() {
+        // 内枠下端まで届く成分（descender 相当）: px y∈[90,110) = mm y∈[9.0,11.0]
+        // 下端は内枠下端 = EMBOX_BOTTOM_Y(-120) に写る。y<0 の descender 領域が実際に使われる
+        let binary = make_binary(120, 120, &[(20, 90, 40, 110)]);
+        let paths = vectorize_binary(&binary, 120, 120);
+        let (min_x, min_y, max_x, max_y) = paths_bbox(&paths);
+        assert_eq!((min_x, max_x), (100.0, 300.0));
+        assert_eq!(max_y, 80.0);
+        assert_eq!(min_y, layout::EMBOX_BOTTOM_Y, "内枠下端は EMBOX_BOTTOM_Y に写るべき");
+        assert!(min_y < 0.0, "descender 領域（y<0）が使われるべき");
+    }
+
+    #[test]
+    fn fixed_transform_preserves_scale() {
+        // 1mm 角と 4mm 角は em で 100 / 400 units — bbox 正規化のような等倍化が起きない
+        let small = make_binary(120, 120, &[(30, 30, 40, 40)]);
+        let large = make_binary(120, 120, &[(30, 30, 70, 70)]);
+        let (s_min_x, _, s_max_x, _) = paths_bbox(&vectorize_binary(&small, 120, 120));
+        let (l_min_x, _, l_max_x, _) = paths_bbox(&vectorize_binary(&large, 120, 120));
+        assert_eq!(s_max_x - s_min_x, 100.0, "1mm 角 → 100 units");
+        assert_eq!(l_max_x - l_min_x, 400.0, "4mm 角 → 400 units");
+        assert_eq!(s_min_x, l_min_x, "同じ書き出し位置は同じ em 位置に写る");
+    }
+
+    #[test]
+    fn baseline_guide_maps_to_em_zero() {
+        // 定数の整合: ベースラインガイド（内枠下端の 1.2mm 上）は em の y=0 に写る
+        assert!(
+            (layout::GUIDE_BASELINE_OFFSET_MM * em_units_per_mm() + layout::EMBOX_BOTTOM_Y).abs()
+                < 1e-9,
+            "GUIDE_BASELINE_OFFSET_MM と EMBOX_BOTTOM_Y の関係式が崩れている"
+        );
+        // 実座標でも確認: 下端がベースライン高（crop 内 mm 9.8 = px 98）に接する矩形
+        let binary = make_binary(120, 120, &[(50, 78, 70, 98)]);
+        let (_, min_y, _, _) = paths_bbox(&vectorize_binary(&binary, 120, 120));
+        assert_eq!(min_y, 0.0, "ベースラインに接する成分の下端は y=0 に写るべき");
+    }
+
+    #[test]
+    fn crop_em_bounds_matches_layout() {
+        // crop 全域の em 範囲（SVG viewBox 用）。既定レイアウトで (-100, -220, 1100, 980)
+        let (x_min, y_min, x_max, y_max) = crop_em_bounds();
+        assert_eq!((x_min, y_min, x_max, y_max), (-100.0, -220.0, 1100.0, 980.0));
+    }
+
+    #[test]
+    fn fixed_transform_real_dpi_crop_maps_within_8_units() {
+        // 実DPI経路の回帰防止（#111 QA）: 本番の crop は mm_to_px(12mm).round() = 142px
+        // （300dpi）で、理想 10px/mm のテストでは丸め経路を踏まない。
+        // 内枠4辺（crop 内 1.0/11.0mm）をピクセルグリッドに丸めて置いた成分が、
+        // 理想 em 座標（0 / 1000 / -120 / 880）から 8 units 以内に写ることを固定する
+        let crop = layout::mm_to_px(layout::CELL_CROP_SIZE).round() as u32; // 142
+        let to_px = |mm: f64| layout::mm_to_px(mm).round() as u32;
+        // 内枠位置は crop 幾何の正本（inner_left_in_crop_mm = 1.0mm）から導出する
+        let inner_left_mm = inner_left_in_crop_mm();
+        let inner_bottom_mm = inner_left_mm + layout::INNER_SIZE;
+        let x0 = to_px(inner_left_mm); // 内枠左端/上端
+        let x1 = to_px(inner_bottom_mm); // 内枠右端/下端
+        let binary = make_binary(crop, crop, &[(x0, x0, x1, x1)]);
+        let (min_x, min_y, max_x, max_y) = paths_bbox(&vectorize_binary(&binary, crop, crop));
+        assert!((min_x - 0.0).abs() <= 8.0, "内枠左端の写像誤差: {min_x}");
+        assert!(
+            (max_x - UNITS_PER_EM).abs() <= 8.0,
+            "内枠右端の写像誤差: {max_x}"
+        );
+        assert!(
+            (max_y - (layout::EMBOX_BOTTOM_Y + UNITS_PER_EM)).abs() <= 8.0,
+            "内枠上端の写像誤差: {max_y}"
+        );
+        assert!(
+            (min_y - layout::EMBOX_BOTTOM_Y).abs() <= 8.0,
+            "内枠下端の写像誤差: {min_y}"
+        );
+
+        // ベースライン（内枠下端の GUIDE_BASELINE_OFFSET_MM 上）に下端が接する成分
+        // → y=0 から 8 units 以内
+        let yb = to_px(inner_bottom_mm - layout::GUIDE_BASELINE_OFFSET_MM);
+        let binary = make_binary(crop, crop, &[(x0, yb - to_px(1.8), x1, yb)]);
+        let (_, min_y, _, _) = paths_bbox(&vectorize_binary(&binary, crop, crop));
+        assert!(min_y.abs() <= 8.0, "ベースラインの写像誤差: {min_y}");
+    }
+
+    #[test]
+    fn guide_line_surviving_binarization_becomes_paths_without_review() {
+        // 仕様文書化テスト（#111 QA、防御層デシジョンテーブル行5の固定）:
+        // 全防御層（L1 シアン除去・L2 erase_grid_lines）を抜けて二値化まで生き残った
+        // ガイド線は、セル crop の境界帯(2px)に接触しない（線の端点は crop 端から
+        // 約1mm ≈ 11.8px 離れている）ため品質ゲート(#110)では原理的に検出できず、
+        // needs_review も立たずに非空グリフとして混入する。これは現状の既知の限界。
+        // 実運用の検知器はシアンサンプル未検出警告（remove_cyan → UI 警告）。
+        // 将来ここに防御を追加したら、このテストの期待を反転させること。
+        let crop = layout::mm_to_px(layout::CELL_CROP_SIZE).round() as u32;
+        let to_px = |mm: f64| layout::mm_to_px(mm).round() as u32;
+        // ガイド線の位置は crop 幾何の正本（inner_left_in_crop_mm）から導出する
+        let inner_left_mm = inner_left_in_crop_mm();
+        let inner_bottom_mm = inner_left_mm + layout::INNER_SIZE;
+        let yb = to_px(inner_bottom_mm - layout::GUIDE_BASELINE_OFFSET_MM);
+        let mut img = make_image(crop, crop, Rgba([255, 255, 255, 255]));
+        // ベースラインガイド相当: 内枠幅いっぱい・太さ3px の黒線（モノクロ印刷の代理）
+        for y in yb..yb + 3 {
+            for x in to_px(inner_left_mm)..to_px(inner_bottom_mm) {
+                img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+            }
+        }
+        let (binary, quality) = binarize_with_quality(&img);
+        assert!(
+            !quality.needs_review,
+            "境界非接触のガイド線では要確認が立たない（現状仕様）"
+        );
+        assert!(quality.kept_components >= 1, "ガイド線成分が生き残る（現状仕様）");
+        let paths = vectorize_binary(&binary, crop, crop);
+        assert!(!paths.is_empty(), "ガイド線が非空グリフとして混入する（現状仕様）");
+    }
+
+    #[test]
+    fn bbox_fit_rescue_centers_offset_rect() {
+        // opt-in 救済（旧 #53 方式）の判断ロジック保存テスト:
+        // 右下に寄った矩形が em-square 中央に EM_FIT_SIZE で正規化される
+        let binary = make_binary(100, 100, &[(80, 80, 95, 95)]);
+        let paths = vectorize_binary_bbox_fit(&binary, 100, 100);
+        assert!(!paths.is_empty());
+        let (min_x, min_y, max_x, max_y) = paths_bbox(&paths);
 
         // 左右マージンが均等（±2 units 以内）で EM_FIT_SIZE 相当にスケールされている
         let left_margin = min_x;

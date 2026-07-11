@@ -72,19 +72,24 @@ pub fn extract_and_judge(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CharR
 
                 let (check_mark, check_density) = analyze_check_mark(&check_img);
 
-                // 生セル画像（従来互換）
+                // ベクター化入力は WASM 経路（pipeline.rs）と同じ標準 crop
+                // （CELL_CROP_MARGIN=1.5mm、12mm四方）を使う。セル→em 固定変換（#111）は
+                // この物理寸法を前提にしているため、解析用 crop（1.0mm）と分ける
+                let vec_cell = extract_cell_image_raw(img, row, col, cell_idx);
+
+                // 生セル画像（ベクター化入力と同じ crop）
                 let filename_raw = format!("R{row:02}C{col:02}_I{cell_idx}_raw.png");
-                cell_img.save(output_dir.join(&filename_raw))
+                vec_cell.save(output_dir.join(&filename_raw))
                     .map_err(|e| format!("セル保存エラー {filename_raw}: {e}"))?;
 
                 // 二値化+品質ゲート（#110）はセルごとに1回だけ実行し、
                 // プレビュー画像とベクター化の両方に同じバイナリを使い回す（pipeline.rs と同じ流儀）
                 let (gated_binary, quality) =
-                    crate::vectorizer::binarize_with_quality(&cell_img);
+                    crate::vectorizer::binarize_with_quality(&vec_cell);
                 let binarized = crate::vectorizer::binary_to_rgba(
                     &gated_binary,
-                    cell_img.width(),
-                    cell_img.height(),
+                    vec_cell.width(),
+                    vec_cell.height(),
                 );
                 let filename = format!("R{row:02}C{col:02}_I{cell_idx}.png");
                 binarized.save(output_dir.join(&filename))
@@ -93,8 +98,8 @@ pub fn extract_and_judge(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CharR
                 // ベジェパス（JSON + SVG）
                 let paths = crate::vectorizer::vectorize_binary(
                     &gated_binary,
-                    cell_img.width(),
-                    cell_img.height(),
+                    vec_cell.width(),
+                    vec_cell.height(),
                 );
                 let json = serde_json::to_string_pretty(&paths)
                     .map_err(|e| format!("paths JSONシリアライズエラー: {e}"))?;
@@ -251,17 +256,18 @@ pub fn extract_and_judge_in_memory(img: &RgbaImage) -> Result<Vec<CharResult>, S
 }
 
 /// セル画像を切り出して返す（生RGBA、ベクター化前の内部処理用）
+///
+/// マージンは layout::CELL_CROP_MARGIN（#34 で 1.5mm。1mm だと台形補正+TPS 後の
+/// 残差ズレで下端に外枠線が写り込むケースがあった。INNER_SIZE=10mm に対して
+/// まだ 1mm の余裕がある）。この crop の物理寸法（CELL_CROP_SIZE=12mm 四方）が
+/// vectorizer.rs のセル→em 固定変換（#111）の前提なので、変更は必ず layout の
+/// 定数を通すこと。
 pub fn extract_cell_image_raw(img: &RgbaImage, row: usize, col: usize, cell_index: usize) -> RgbaImage {
-    // #34: 1mm マージンだと台形補正+TPS 後の残差ズレ（mid-page で0.5〜1mm）で
-    // 下端に外枠線が写り込むケースがあったため 1.5mm に拡げる。
-    // INNER_SIZE=10mm に対してはまだ 1mm の余裕がある（手書きが切れるリスクは低い）。
-    let border_margin = 1.5;
-    let crop_size = layout::CELL_SIZE - border_margin * 2.0;
-    let crop_size_px = layout::mm_to_px(crop_size).round() as u32;
+    let crop_size_px = layout::mm_to_px(layout::CELL_CROP_SIZE).round() as u32;
 
     let (mm_x, mm_y) = layout::get_cell_position(row, col, cell_index);
-    let crop_px_x = layout::mm_to_px(mm_x + border_margin).round() as u32;
-    let crop_px_y = layout::mm_to_px(mm_y + border_margin).round() as u32;
+    let crop_px_x = layout::mm_to_px(mm_x + layout::CELL_CROP_MARGIN).round() as u32;
+    let crop_px_y = layout::mm_to_px(mm_y + layout::CELL_CROP_MARGIN).round() as u32;
     crop_region(img, crop_px_x, crop_px_y, crop_size_px, crop_size_px)
 }
 
