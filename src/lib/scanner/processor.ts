@@ -368,6 +368,9 @@ export async function processImages(
           name,
           unicode: ai === 0 ? unicode : undefined,
           paths,
+          // 全グリフ全角モノスペース = advanceWidth 1000 固定（#111 時点の仕様）。
+          // 英数字のサイドベアリング算出（プロポーショナル化）は
+          // docs/font-generation.md の段階案を参照（未実装）
           advanceWidth: 1000,
         };
 

@@ -39,6 +39,30 @@ pub const CHECK_HEIGHT: f64 = 3.0;
 pub const CELL_GAP: f64 = 2.0;
 pub const SAMPLE_WIDTH: f64 = 10.0;
 
+// ── セル→em 固定変換（#111） ──
+
+/// セル切り出しマージン（mm）。外枠からこの幅だけ内側を crop する。
+/// #34: 1mm だと台形補正+TPS 後の残差ズレ（mid-page で 0.5〜1mm）で
+/// 下端に外枠線が写り込むケースがあったため 1.5mm。
+/// cell.rs の extract_cell_image_raw と vectorizer.rs の固定変換で共有する
+/// （crop の物理寸法が変換の前提になるため、二重管理禁止）。
+pub const CELL_CROP_MARGIN: f64 = 1.5;
+
+/// セル切り出しの一辺（mm）= 12mm
+pub const CELL_CROP_SIZE: f64 = CELL_SIZE - CELL_CROP_MARGIN * 2.0;
+
+/// 内枠（書く領域）の下端が写る em Y 座標。
+/// CJK フォントの ideographic embox 慣例（1000 upm で embox 下端 = -120）に合わせる。
+/// descender(-200) の内側に収まり、内枠上端は -120 + 1000 = 880（ascender 800 の少し上）。
+/// 根拠の詳細は docs/font-generation.md。
+pub const EMBOX_BOTTOM_Y: f64 = -120.0;
+
+/// ベースラインガイド線の位置: 内枠下端からの高さ（mm）。
+/// この高さが em の y=0（ベースライン）に写る:
+/// -EMBOX_BOTTOM_Y / (UNITS_PER_EM / INNER_SIZE) = 120 / 100 = 1.2mm
+/// （関係式は vectorizer.rs のテストで固定）
+pub const GUIDE_BASELINE_OFFSET_MM: f64 = 1.2;
+
 // QRコード
 pub const QR_X: f64 = 20.0;
 pub const QR_Y: f64 = 267.0;

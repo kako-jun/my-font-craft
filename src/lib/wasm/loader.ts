@@ -176,14 +176,19 @@ export function cellToDataUrl(cell: WasmProcessedCell): string {
 
 /**
  * ベジェパスを SVG Data URL に変換する（TTF に近い見た目のプレビュー用）
- * 座標系: Rust 側 normalize_contour は x ∈ [0, UNITS_PER_EM], y ∈ [0, GLYPH_HEIGHT] で
- *   font 座標（y 上向き）を出力する。SVG は y 下向きなので反転する。
- * viewBox は GLYPH_HEIGHT に揃えてグリフ本体を枠いっぱいに配置する
+ * 座標系: Rust 側のセル→em 固定変換（#111、vectorizer.rs）はセル crop 全域を
+ *   x ∈ [-100, 1100], y ∈ [-220, 980]（font 座標、y 上向き）に写す
+ *   （Rust 側 crop_em_bounds() と同じ値。内枠10mm = em-square、内枠下端 = y=-120）。
+ * SVG は y 下向きなので反転する。viewBox を crop 全域に揃えることで、
+ * 書いた位置・大きさ（descender の y<0 も含む）がプレビューにそのまま出る
  */
 export function pathsToSvgDataUrl(paths: WasmPathCommand[][]): string {
-  const UNITS_PER_EM = 1000;
-  const GLYPH_HEIGHT = 800;
-  const flipY = (y: number) => GLYPH_HEIGHT - y;
+  // Rust vectorizer::crop_em_bounds() と一致させること
+  const CROP_X_MIN = -100;
+  const CROP_Y_MIN = -220;
+  const CROP_X_MAX = 1100;
+  const CROP_Y_MAX = 980;
+  const flipY = (y: number) => CROP_Y_MAX - y;
   const d: string[] = [];
   for (const sub of paths) {
     for (const c of sub) {
@@ -203,6 +208,8 @@ export function pathsToSvgDataUrl(paths: WasmPathCommand[][]): string {
       }
     }
   }
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${UNITS_PER_EM} ${GLYPH_HEIGHT}" preserveAspectRatio="xMidYMid meet"><path d="${d.join(' ')}" fill="black" fill-rule="evenodd"/></svg>`;
+  const vbW = CROP_X_MAX - CROP_X_MIN;
+  const vbH = CROP_Y_MAX - CROP_Y_MIN;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${CROP_X_MIN} 0 ${vbW} ${vbH}" preserveAspectRatio="xMidYMid meet"><path d="${d.join(' ')}" fill="black" fill-rule="evenodd"/></svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
