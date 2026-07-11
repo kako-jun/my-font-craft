@@ -44,25 +44,28 @@ test.describe('失敗系スキャン: マーカー欠落', () => {
     await createZipFromFiles([blankPng], zipPath);
 
     try {
-      const { logs } = await withStageLogs(page, testInfo, async () => {
+      await withStageLogs(page, testInfo, async (logs) => {
         await page.goto('/');
         await page.getByRole('link', { name: '2. フォント作成', exact: true }).click();
         await expect(page.locator('h2')).toContainText('フォントを作成する');
 
         await page.locator('#zip-input').setInputFiles(zipPath);
 
-        // UI にユーザー向けエラーメッセージ（translateWasmError の撮影ガイド）が出る
+        // UI にユーザー向けエラーメッセージ（translateWasmError の撮影ガイド）が出る。
+        // timeout は test timeout（120s）より十分短くし、遅い環境でも expect 側の
+        // 明確なメッセージで落ちるようにする（実測 2〜3 秒で表示される）
         await expect(page.locator('.message--error')).toContainText(
           'マーカーを検出できませんでした',
-          { timeout: 120_000 },
+          { timeout: 30_000 },
         );
-      });
 
-      // 段階診断ログ: marker 段階のエラーとして console.error に出ている
-      const markerErrors = logs.filter(
-        (l) => l.type === 'error' && l.text.startsWith('[scan:marker]'),
-      );
-      expect(markerErrors.length, '[scan:marker] エラーログがない').toBeGreaterThan(0);
+        // 段階診断ログ: marker 段階のエラーとして console.error に出ている。
+        // fn 内で検証することで、この検証だけが失敗した場合も scan-stage-logs 添付が付く
+        const markerErrors = logs.filter(
+          (l) => l.type === 'error' && l.text.startsWith('[scan:marker]'),
+        );
+        expect(markerErrors.length, '[scan:marker] エラーログがない').toBeGreaterThan(0);
+      });
     } finally {
       if (fs.existsSync(blankPng)) fs.unlinkSync(blankPng);
       if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);

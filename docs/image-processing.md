@@ -400,6 +400,6 @@ Phase 3: フォント生成
 
 スキャン失敗時にどの段階で落ちたか console から判別できる。
 
-- TS 側（`src/lib/scanner/processor.ts`）: `[scan:{stage}] ...` 形式。stage は `pipeline` / `marker` / `dpi` / `perspective` / `qr` / `chars` / `cells` / `vectorize` / `font-input`。WASM エラーはエラー文言から失敗段階を推定する（`inferFailedStage`）
+- TS 側（`src/lib/scanner/processor.ts`）: `[scan:{stage}] ...` 形式。stage は `pipeline` / `marker` / `dpi` / `perspective` / `decode` / `qr` / `chars` / `cells` / `vectorize` / `font-input`、および文言から段階を推定できない WASM エラーのフォールバック `wasm`。WASM エラーはエラー文言から失敗段階を推定する（`inferFailedStage`）
 - WASM 側（Rust `log!`）: `=== ステップN: ... ===` 形式で内部段階（二値化・マーカー検出・ホモグラフィー・QR・セル切り出し等）を出力
 - e2e は `page.on('console')` で両方を収集し、テスト失敗時に添付（`scan-stage-logs`）+ コンソール出力する

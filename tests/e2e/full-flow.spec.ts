@@ -69,7 +69,7 @@ test.describe('フルフロー: テンプレート→スキャン→フォント
     await createZipFromFiles(files, zipPath);
 
     try {
-      const { logs } = await withStageLogs(page, testInfo, async () => {
+      await withStageLogs(page, testInfo, async (logs) => {
         const fontPath = await runScanToFontFlow(page, zipPath);
 
         // TTFファイルサイズ確認
@@ -80,16 +80,18 @@ test.describe('フルフロー: テンプレート→スキャン→フォント
         // グリフが存在し（index > 0）かつパスが空でないことを検証する
         const font = loadFont(fontPath);
         expectGlyphsForChars(font, HIRAGANA);
-      });
 
-      // 段階診断ログ（#109）: golden path 成功時は最終段階 font-input まで ok で到達し、
-      // 途中段階のエラーログ（[scan:*] の console.error）が1件も出ていないこと
-      expect(
-        logs.some((l) => l.text.startsWith('[scan:font-input] ok')),
-        '段階ログに [scan:font-input] ok がない',
-      ).toBe(true);
-      const scanErrors = logs.filter((l) => l.type === 'error' && l.text.startsWith('[scan:'));
-      expect(scanErrors, '成功パスなのに [scan:*] エラーログがある').toEqual([]);
+        // 段階診断ログ（#109）: golden path 成功時は最終段階 font-input まで ok で到達し、
+        // 途中段階のエラーログ（[scan:*] の console.error）が1件も出ていないこと。
+        // withStageLogs の fn 内で検証することで、この検証だけが失敗した場合も
+        // scan-stage-logs 添付が付く
+        expect(
+          logs.some((l) => l.text.startsWith('[scan:font-input] ok')),
+          '段階ログに [scan:font-input] ok がない',
+        ).toBe(true);
+        const scanErrors = logs.filter((l) => l.type === 'error' && l.text.startsWith('[scan:'));
+        expect(scanErrors, '成功パスなのに [scan:*] エラーログがある').toEqual([]);
+      });
     } finally {
       // テスト用ZIPを削除
       if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);

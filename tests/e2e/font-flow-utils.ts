@@ -30,22 +30,24 @@ export interface StageLogEntry {
  * 段階診断ログを収集しながら fn を実行する。
  * 失敗時は `[scan:*]`（processor.ts）と `=== ステップN ===`（WASM 内部）の
  * ログをテスト添付 + コンソールに出力し、どの段階で落ちたか特定できるようにする。
- * 成功時も収集済みログを返すので、呼び出し側で段階ログ自体を検証できる。
+ * fn には収集中のログ配列を渡す。段階ログ自体の検証は fn 内で行うこと
+ * （fn 内での失敗なら scan-stage-logs 添付が付く）。成功時も収集済みログを返す。
  */
 export async function withStageLogs<T>(
   page: Page,
   testInfo: TestInfo,
-  fn: () => Promise<T>,
+  fn: (logs: StageLogEntry[]) => Promise<T>,
 ): Promise<{ result: T; logs: StageLogEntry[] }> {
   const logs: StageLogEntry[] = [];
-  page.on('console', (msg) => {
+  const onConsole = (msg: { type(): string; text(): string }) => {
     const text = msg.text();
     if (text.startsWith('[scan:') || text.startsWith('===')) {
       logs.push({ type: msg.type(), text });
     }
-  });
+  };
+  page.on('console', onConsole);
   try {
-    const result = await fn();
+    const result = await fn(logs);
     return { result, logs };
   } catch (e) {
     await testInfo.attach('scan-stage-logs', {
@@ -55,6 +57,9 @@ export async function withStageLogs<T>(
     console.error('--- scan stage logs (tail) ---');
     for (const { text } of logs.slice(-60)) console.error(text);
     throw e;
+  } finally {
+    // 同一 page で複数回使ったときに listener が残って二重収集になるのを防ぐ
+    page.off('console', onConsole);
   }
 }
 
