@@ -5,7 +5,10 @@
  * 各マスの内枠にフォントで文字を描画する。
  * QRコード・四隅マーカー・シアン要素も含める。
  *
- * 出力: tests/fixtures/mock-scans/ に PNG ファイル
+ * 出力:
+ * - tests/fixtures/mock-scans/ に正面 PNG（page-NN.png）
+ * - tests/fixtures/mock-scans-distorted/ に斜め撮影風バリアント
+ *   （page-NN-perspective.png / page-NN-rotated.png / page-NN-combined.png、#109）
  */
 
 import { createCanvas } from 'canvas';
@@ -47,95 +50,10 @@ import {
   gridToCharIndex,
 } from '../../src/lib/template/layout';
 
-// ひらがな（characters.ts と同じ順序）
-const HIRAGANA = [
-  'あ',
-  'い',
-  'う',
-  'え',
-  'お',
-  'か',
-  'き',
-  'く',
-  'け',
-  'こ',
-  'さ',
-  'し',
-  'す',
-  'せ',
-  'そ',
-  'た',
-  'ち',
-  'つ',
-  'て',
-  'と',
-  'な',
-  'に',
-  'ぬ',
-  'ね',
-  'の',
-  'は',
-  'ひ',
-  'ふ',
-  'へ',
-  'ほ',
-  'ま',
-  'み',
-  'む',
-  'め',
-  'も',
-  'や',
-  'ゆ',
-  'よ',
-  'ら',
-  'り',
-  'る',
-  'れ',
-  'ろ',
-  'わ',
-  'を',
-  'ん',
-  'が',
-  'ぎ',
-  'ぐ',
-  'げ',
-  'ご',
-  'ざ',
-  'じ',
-  'ず',
-  'ぜ',
-  'ぞ',
-  'だ',
-  'ぢ',
-  'づ',
-  'で',
-  'ど',
-  'ば',
-  'び',
-  'ぶ',
-  'べ',
-  'ぼ',
-  'ぱ',
-  'ぴ',
-  'ぷ',
-  'ぺ',
-  'ぽ',
-  'ぁ',
-  'ぃ',
-  'ぅ',
-  'ぇ',
-  'ぉ',
-  'っ',
-  'ゃ',
-  'ゅ',
-  'ょ',
-  'ゎ',
-  'ゐ',
-  'ゑ',
-];
-
-import { CHARS_PER_PAGE } from '../../src/data/characters';
+// ひらがな83文字はテンプレート生成と同じ正本（characters.ts）から取得する（二重管理禁止）
+import { HIRAGANA, CHARS_PER_PAGE } from '../../src/data/characters';
 import { getCellPosition } from '../../src/lib/template/layout';
+import { distortPng, DISTORT_VARIANTS } from './distort';
 
 // 解像度: 300dpi 相当（mm→pixel 変換）
 const DPI = 300;
@@ -337,13 +255,45 @@ export async function generateMockScans(outputDir: string): Promise<string[]> {
   return files;
 }
 
+/**
+ * 正面画像から斜め撮影風の歪みバリアントを生成する（#109）。
+ * 出力先を分けているのは、既存の正面 e2e（mock-scans/ 全 PNG を ZIP 化）に
+ * 歪み画像が混入しないようにするため。
+ */
+export async function generateDistortedScans(
+  frontalFiles: string[],
+  outputDir: string,
+): Promise<string[]> {
+  fs.mkdirSync(outputDir, { recursive: true });
+  const files: string[] = [];
+
+  for (const frontalPath of frontalFiles) {
+    const input = fs.readFileSync(frontalPath);
+    const base = path.basename(frontalPath, '.png'); // page-NN
+    for (const { suffix, opts } of DISTORT_VARIANTS) {
+      const buffer = await distortPng(input, opts);
+      const filename = `${base}-${suffix}.png`;
+      const filepath = path.join(outputDir, filename);
+      fs.writeFileSync(filepath, buffer);
+      files.push(filepath);
+      console.log(`Generated: ${filename}`);
+    }
+  }
+
+  return files;
+}
+
 // CLI から直接実行された場合
 if (
   process.argv[1]?.endsWith('generate-mock-scans.ts') ||
   process.argv[1]?.endsWith('generate-mock-scans.js')
 ) {
-  const outDir = path.join(import.meta.dirname ?? path.dirname(process.argv[1]), 'mock-scans');
-  generateMockScans(outDir).then((files) => {
-    console.log(`\nDone! Generated ${files.length} mock scan images.`);
-  });
+  const fixturesDir = import.meta.dirname ?? path.dirname(process.argv[1]);
+  const outDir = path.join(fixturesDir, 'mock-scans');
+  const distortedDir = path.join(fixturesDir, 'mock-scans-distorted');
+  generateMockScans(outDir)
+    .then((files) => generateDistortedScans(files, distortedDir).then((d) => [...files, ...d]))
+    .then((files) => {
+      console.log(`\nDone! Generated ${files.length} mock scan images.`);
+    });
 }

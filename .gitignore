@@ -6,6 +6,7 @@ dist/
 
 # Test fixtures (generated at test time)
 tests/fixtures/mock-scans/
+tests/fixtures/mock-scans-distorted/
 tests/fixtures/test-output.ttf
 
 # Playwright
