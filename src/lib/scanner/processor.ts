@@ -54,6 +54,37 @@ function correctedImageToCanvas(
 }
 
 /**
+ * 段階診断ログ（#109）。
+ * スキャンパイプラインのどの段階まで到達したか／どこで落ちたかを
+ * console から判別できるようにする。UI の挙動には影響しない。
+ * WASM 内部の詳細ログ（`=== ステップN ===`）と併せて読む。
+ */
+function scanLog(stage: string, message: string, failed = false): void {
+  const line = `[scan:${stage}] ${message}`;
+  if (failed) {
+    console.error(line);
+  } else {
+    console.info(line);
+  }
+}
+
+/**
+ * WASM エラーメッセージから、パイプラインのどの段階で失敗したかを推定する。
+ * Rust 側のエラー文言（marker.rs / pipeline.rs）に依存する。
+ */
+export function inferFailedStage(rawError: string): string {
+  if (rawError.includes('マーカー')) return 'marker';
+  if (rawError.includes('解像度') || rawError.includes('DPI')) return 'dpi';
+  if (rawError.includes('歪み') || rawError.includes('撮り直し')) return 'perspective';
+  if (
+    rawError.includes('画像') &&
+    (rawError.includes('デコード') || rawError.includes('フォーマット'))
+  )
+    return 'decode';
+  return 'wasm';
+}
+
+/**
  * WASMからのエラーメッセージをユーザーフレンドリーな日本語に変換する。
  * `buildSha` が渡された場合はエラー末尾に `[build: sha]` を付加し、報告時に版特定を容易にする。
  * 省略時は純粋な変換のみ行う（テスト容易性のため副作用なし）。
@@ -114,15 +145,16 @@ export async function processImages(
 
   for (let fi = 0; fi < imageFiles.length; fi++) {
     callbacks.onPageStart(fi + 1, imageFiles.length);
+    const fileName = imageFiles[fi].name;
+    scanLog('pipeline', `file="${fileName}" (${fi + 1}/${imageFiles.length}) 開始`);
 
     let wasmResult;
     try {
       wasmResult = await processImageWasm(imageFiles[fi]);
     } catch (e) {
-      const msg = translateWasmError(
-        e instanceof Error ? e.message : String(e),
-        getWasmBuildInfo()?.sha,
-      );
+      const rawError = e instanceof Error ? e.message : String(e);
+      scanLog(inferFailedStage(rawError), `file="${fileName}" 失敗: ${rawError}`, true);
+      const msg = translateWasmError(rawError, getWasmBuildInfo()?.sha);
       callbacks.onMessage({
         type: 'error',
         text: `ファイル "${imageFiles[fi].name}" の処理に失敗しました: ${msg}`,
@@ -130,14 +162,22 @@ export async function processImages(
       continue;
     }
 
+    // WASM 成功 = マーカー検出・台形補正・セル切り出し・二値化・ベクター化は完走している
+    scanLog(
+      'perspective',
+      `file="${fileName}" ok corrected=${wasmResult.corrected_width}x${wasmResult.corrected_height}`,
+    );
+
     const pageNumber = wasmResult.page_number;
     if (!pageNumber) {
+      scanLog('qr', `file="${fileName}" 失敗: QR からページ番号を取得できない`, true);
       callbacks.onMessage({
         type: 'error',
         text: `画像 ${fi + 1} のQRコードを読み取れませんでした。画像が不鮮明な可能性があります。`,
       });
       continue;
     }
+    scanLog('qr', `file="${fileName}" ok page=${pageNumber}/${wasmResult.total_pages ?? '?'}`);
 
     // Issue #96: リトライ用 PDF は QR に文字リスト (`chars`) を直接埋め込むため、
     // それを最優先で使う。CharSelection に当てはまらない任意文字リストでも復元できる。
@@ -145,10 +185,16 @@ export async function processImages(
     let pageChars: string[];
     if (wasmResult.qr_chars && wasmResult.qr_chars.length > 0) {
       pageChars = wasmResult.qr_chars;
+      scanLog('chars', `page=${pageNumber} ok count=${pageChars.length} source=qr_chars`);
     } else {
       const selectionFlag = wasmResult.char_selection;
       const selection = selectionFlag ? flagToSelection(selectionFlag) : null;
       if (!selection) {
+        scanLog(
+          'chars',
+          `page=${pageNumber} 失敗: 文字セット選択フラグを復元できない (s=${selectionFlag ?? 'null'})`,
+          true,
+        );
         callbacks.onMessage({
           type: 'error',
           text: `画像 ${fi + 1} のQRから文字セット情報を取得できませんでした。古い版のテンプレートの可能性があります。PDF を再生成して印刷してください。`,
@@ -156,6 +202,10 @@ export async function processImages(
         continue;
       }
       pageChars = getCharactersForPage(pageNumber - 1, selection);
+      scanLog(
+        'chars',
+        `page=${pageNumber} ok count=${pageChars.length} source=selection(${selectionFlag})`,
+      );
     }
 
     // 補正後キャンバスをコールバックで通知
@@ -175,6 +225,17 @@ export async function processImages(
       if (!cellsByPos.has(key)) cellsByPos.set(key, []);
       cellsByPos.get(key)!.push(cell);
     }
+
+    const totalCells = wasmResult.cells.length;
+    const adoptedCellCount = wasmResult.cells.filter((c) => c.adopted).length;
+    const emptyCellCount = wasmResult.cells.filter((c) => c.is_empty).length;
+    scanLog(
+      'cells',
+      `page=${pageNumber} ok cells=${totalCells} adopted=${adoptedCellCount} empty=${emptyCellCount}`,
+    );
+
+    let pageGlyphCount = 0;
+    let pageEmptyPathCount = 0; // 採用されたのにベクター化結果が空のセル数
 
     for (const [, cells] of cellsByPos) {
       const firstCell = cells[0];
@@ -233,10 +294,20 @@ export async function processImages(
         }
       }
 
+      pageGlyphCount++;
+
       for (let ai = 0; ai < adoptedCells.length; ai++) {
         const cell = adoptedCells[ai];
         // ベクター化は Rust 側で完結済み。WASM 出力の paths をそのまま使う
         const paths = cell.paths;
+        if (paths.length === 0) {
+          pageEmptyPathCount++;
+          scanLog(
+            'vectorize',
+            `page=${pageNumber} char="${char}" (row=${cell.row},col=${cell.col}) 採用セルのパスが空`,
+            true,
+          );
+        }
 
         const name =
           ai === 0
@@ -258,7 +329,14 @@ export async function processImages(
         }
       }
     }
+
+    scanLog(
+      'vectorize',
+      `page=${pageNumber} ok glyphs=${pageGlyphCount} emptyPaths=${pageEmptyPathCount}`,
+      pageEmptyPathCount > 0,
+    );
   }
 
+  scanLog('font-input', `ok base=${baseGlyphs.size} alt=${altGlyphs.length}`);
   return { glyphs: [...baseGlyphs.values(), ...altGlyphs] };
 }
