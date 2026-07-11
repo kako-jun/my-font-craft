@@ -215,7 +215,9 @@ export default function ScanResultGrid(props: Props) {
                         </Show>
                         {/* 品質ゲート（#110）の要確認マーク。ノイズを自動除去したセルは
                             結果画像を目視確認してもらう（黙って空に倒さない） */}
-                        <Show when={gs.status === 'found' && gs.needsReview && !excluded()}>
+                        <Show
+                          when={gs.status === 'found' && gs.needsReview === true && !excluded()}
+                        >
                           <div
                             class="scan-grid__cell-review-mark"
                             title="要確認: 枠残渣などのノイズを自動除去しました。画像を確認してください"
