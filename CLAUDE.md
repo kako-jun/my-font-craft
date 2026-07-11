@@ -139,7 +139,7 @@ npm test
 # テスト（ウォッチモード）
 npm run test:watch
 
-# 模擬スキャン画像の再生成
+# 模擬スキャン画像の再生成（正面 + 斜め撮影風の歪みバリアント、#109）
 npm run test:generate-fixtures
 
 # リント（ESLint）

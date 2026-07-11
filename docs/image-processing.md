@@ -366,3 +366,40 @@ Phase 3: フォント生成
 - 1ページずつ処理してプログレスバー更新
 - 必要に応じてWeb Worker使用（UIブロック防止）
 - 将来的にはOpenCV.js → WebAssembly（Rust）で高速化
+
+---
+
+## テスト用合成スキャン画像（#109）
+
+印刷・手書き・カメラ撮影の実物ループなしで、スキャンパイプラインの成否を高速に検証するための合成フィクスチャ。`npm run test:generate-fixtures`（`tests/fixtures/generate-mock-scans.ts`）で生成する。`npm run test:e2e` は生成を内包している。
+
+### 正面画像
+
+- 出力先: `tests/fixtures/mock-scans/page-NN.png`
+- テンプレートPDFと同一レイアウト（layout.ts の定数を import）を node-canvas で描画し、各セルにひらがな83文字をフォント描画する。QR・四隅マーカー・グレースケールバー・シアン要素も含む
+- 文字リストは `src/data/characters.ts` の `HIRAGANA` が正本（二重管理しない）
+
+### 歪みバリアント（斜め撮影風）
+
+- 出力先: `tests/fixtures/mock-scans-distorted/page-NN-{variant}.png`
+- 実装: `tests/fixtures/distort.ts`。4隅対応点からホモグラフィ（8自由度）を解き、出力→入力の逆写像 + バイリニア補間で射影変換する（node-canvas は台形変形を直接サポートしないため）。パラメータは `cli/src/distort.rs` と同系統
+
+| バリアント    | 内容                                                            |
+| ------------- | --------------------------------------------------------------- |
+| `perspective` | 台形変形（上辺を狭く、強さ0.05）+ グレー背景 + 余白200px        |
+| `rotated`     | 3°回転 + グレー背景 + 余白200px                                 |
+| `combined`    | 2°回転 + 台形0.03 + 縮小0.92 + 明度ムラ + 3x3ぼかし + 余白200px |
+
+### e2e での検証
+
+- `tests/e2e/full-flow.spec.ts`: 正面画像2ページ → ひらがな83文字全部の TTF グリフ存在（index > 0）と非空パス（`path.commands.length > 0`）を検証
+- `tests/e2e/distorted-flow.spec.ts`: 歪みバリアントを ZIP アップロードし、台形補正を通してフォント生成まで到達することを検証
+- 共通ヘルパー: `tests/e2e/font-flow-utils.ts`
+
+### 段階診断ログ
+
+スキャン失敗時にどの段階で落ちたか console から判別できる。
+
+- TS 側（`src/lib/scanner/processor.ts`）: `[scan:{stage}] ...` 形式。stage は `pipeline` / `marker` / `dpi` / `perspective` / `decode` / `qr` / `chars` / `cells` / `vectorize` / `font-input`、および文言から段階を推定できない WASM エラーのフォールバック `wasm`。WASM エラーはエラー文言から失敗段階を推定する（`inferFailedStage`）
+- WASM 側（Rust `log!`）: `=== ステップN: ... ===` 形式で内部段階（二値化・マーカー検出・ホモグラフィー・QR・セル切り出し等）を出力
+- e2e は `page.on('console')` で両方を収集し、テスト失敗時に添付（`scan-stage-logs`）+ コンソール出力する
