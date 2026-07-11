@@ -2,30 +2,18 @@ import { test, expect } from '@playwright/test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import JSZip from 'jszip';
-import opentype from 'opentype.js';
+import { HIRAGANA } from '../../src/data/characters';
+import {
+  createZipFromFiles,
+  expectGlyphsForChars,
+  loadFont,
+  runScanToFontFlow,
+  withStageLogs,
+} from './font-flow-utils';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const MOCK_SCANS_DIR = path.join(__dirname, '..', 'fixtures', 'mock-scans');
-
-/**
- * 模擬スキャン画像3枚をZIPにまとめる
- */
-async function createMockZip(): Promise<Buffer> {
-  const zip = new JSZip();
-  const files = fs.readdirSync(MOCK_SCANS_DIR).filter((f) => f.endsWith('.png'));
-  // ひらがな83文字は 2 ページに収まる（generate-mock-scans.ts の出力枚数と一致）
-  expect(files.length).toBeGreaterThanOrEqual(2);
-
-  for (const file of files) {
-    const data = fs.readFileSync(path.join(MOCK_SCANS_DIR, file));
-    zip.file(file, data);
-  }
-
-  const buf = await zip.generateAsync({ type: 'nodebuffer' });
-  return buf;
-}
 
 test.describe('フルフロー: テンプレート→スキャン→フォント生成', () => {
   test('テンプレートPDFをダウンロードできる', async ({ page }) => {
@@ -65,70 +53,34 @@ test.describe('フルフロー: テンプレート→スキャン→フォント
     expect(stat.size).toBeGreaterThan(5000);
   });
 
-  test('模擬スキャン画像をアップロードしてフォントを生成できる', async ({ page }) => {
-    await page.goto('/');
+  test('模擬スキャン画像をアップロードしてフォントを生成できる', async ({ page }, testInfo) => {
+    test.setTimeout(300_000);
 
-    // フォント作成ページへ遷移（#98: ヘッダー nav は <a> リンク化済み）
-    await page.getByRole('link', { name: '2. フォント作成', exact: true }).click();
-    await expect(page.locator('h2')).toContainText('フォントを作成する');
+    // ZIPファイルを作成（正面画像の全ページ）
+    const files = fs
+      .readdirSync(MOCK_SCANS_DIR)
+      .filter((f) => f.endsWith('.png'))
+      .sort()
+      .map((f) => path.join(MOCK_SCANS_DIR, f));
+    // ひらがな83文字は 2 ページに収まる（generate-mock-scans.ts の出力枚数と一致）
+    expect(files.length).toBeGreaterThanOrEqual(2);
 
-    // ZIPファイルを作成
-    const zipBuffer = await createMockZip();
     const zipPath = path.join(MOCK_SCANS_DIR, '..', 'test-upload.zip');
-    fs.writeFileSync(zipPath, zipBuffer);
+    await createZipFromFiles(files, zipPath);
 
     try {
-      // ZIPをアップロード（hidden input に直接セット）
-      const fileInput = page.locator('#zip-input');
-      await fileInput.setInputFiles(zipPath);
+      await withStageLogs(page, testInfo, async () => {
+        const fontPath = await runScanToFontFlow(page, zipPath);
 
-      // スキャン処理の完了を待つ（review フェーズ）
-      // プログレスバーが表示され、その後 review フェーズのボタンが出る
-      await expect(page.locator('button', { hasText: /フォントを生成|このまま生成/ })).toBeVisible({
-        timeout: 90_000,
+        // TTFファイルサイズ確認
+        const stat = fs.statSync(fontPath);
+        expect(stat.size).toBeGreaterThan(1000);
+
+        // フィクスチャに描画した全ひらがな83文字について、
+        // グリフが存在し（index > 0）かつパスが空でないことを検証する
+        const font = loadFont(fontPath);
+        expectGlyphsForChars(font, HIRAGANA);
       });
-
-      // 「フォントを生成する」または「このまま生成する」ボタンをクリック
-      await page.click('button:has-text("フォントを生成"), button:has-text("このまま生成")');
-
-      // フォント生成完了を待つ
-      await expect(page.locator('text=フォントが完成しました')).toBeVisible({
-        timeout: 90_000,
-      });
-
-      // TTFダウンロード
-      const downloadPromise = page.waitForEvent('download');
-      await page.click('text=フォントをダウンロード');
-      const download = await downloadPromise;
-
-      expect(download.suggestedFilename()).toMatch(/\.ttf$/);
-      const downloadPath = await download.path();
-      expect(downloadPath).toBeTruthy();
-
-      // TTFファイルサイズ確認
-      const stat = fs.statSync(downloadPath!);
-      expect(stat.size).toBeGreaterThan(1000);
-
-      // opentype.js でフォントを読み込み、ひらがなグリフを検証
-      const fontBuffer = fs.readFileSync(downloadPath!);
-      const arrayBuffer = fontBuffer.buffer.slice(
-        fontBuffer.byteOffset,
-        fontBuffer.byteOffset + fontBuffer.byteLength,
-      );
-      const font = opentype.parse(arrayBuffer);
-
-      // ひらがな「あ」のグリフが存在するか
-      const glyphA = font.charToGlyph('あ');
-      expect(glyphA).toBeTruthy();
-      // .notdef (index 0) でなければ実際のグリフがある
-      expect(glyphA.index).toBeGreaterThan(0);
-
-      // 複数のひらがなを検証
-      const testChars = ['あ', 'い', 'う', 'か', 'さ'];
-      for (const char of testChars) {
-        const glyph = font.charToGlyph(char);
-        expect(glyph.index, `グリフが見つからない: ${char}`).toBeGreaterThan(0);
-      }
     } finally {
       // テスト用ZIPを削除
       if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
