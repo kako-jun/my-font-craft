@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { inferFailedStage, translateWasmError } from '../../src/lib/scanner/processor';
+import { describe, it, expect, vi } from 'vitest';
+import {
+  inferFailedStage,
+  translateWasmError,
+  glyphNeedsReview,
+  warnIfQualityMissing,
+} from '../../src/lib/scanner/processor';
+import type { WasmCellQuality } from '../../src/lib/wasm/loader';
 
 describe('translateWasmError', () => {
   it('マーカー検出失敗を撮影ガイド付きメッセージに変換する', () => {
@@ -94,5 +100,82 @@ describe('inferFailedStage', () => {
 
   it('空文字は wasm にフォールバックする', () => {
     expect(inferFailedStage('')).toBe('wasm');
+  });
+});
+
+// ── #110: セル品質ゲートの伝搬 ──
+
+function quality(needsReview: boolean): WasmCellQuality {
+  return {
+    removed_components: needsReview ? 1 : 0,
+    removed_area_ratio: 0,
+    kept_components: 1,
+    ink_ratio: 0.1,
+    needs_review: needsReview,
+  };
+}
+
+describe('glyphNeedsReview (#110)', () => {
+  it('採用セルに needs_review があれば true', () => {
+    expect(
+      glyphNeedsReview([
+        { adopted: true, quality: quality(true) },
+        { adopted: true, quality: quality(false) },
+      ]),
+    ).toBe(true);
+  });
+
+  it('adopted=false のセルだけ review=true なら false（不採用セルはグリフに影響しない）', () => {
+    expect(
+      glyphNeedsReview([
+        { adopted: false, quality: quality(true) },
+        { adopted: true, quality: quality(false) },
+      ]),
+    ).toBe(false);
+  });
+
+  it('全セル review なしなら false', () => {
+    expect(
+      glyphNeedsReview([
+        { adopted: true, quality: quality(false) },
+        { adopted: false, quality: quality(false) },
+      ]),
+    ).toBe(false);
+  });
+
+  it('quality 欠落（stale wasm）でもクラッシュせず false に倒す', () => {
+    expect(glyphNeedsReview([{ adopted: true }])).toBe(false);
+    expect(glyphNeedsReview([{ adopted: true, quality: null }])).toBe(false);
+  });
+});
+
+describe('warnIfQualityMissing (#110 stale wasm ガード)', () => {
+  it('quality 欠落があれば true を返し [scan:cells] の error ログを出す', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const result = warnIfQualityMissing(
+        [{ quality: undefined }, { quality: quality(false) }, { quality: null }],
+        'page=1',
+      );
+      expect(result).toBe(true);
+      expect(spy).toHaveBeenCalledTimes(1);
+      const logged = String(spy.mock.calls[0][0]);
+      expect(logged).toContain('[scan:cells]');
+      expect(logged).toContain('page=1');
+      expect(logged).toContain('2 セル'); // 欠落セル数
+      expect(logged).toContain('wasm:build'); // 復旧手順の案内
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('欠落がなければ false でログも出さない', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(warnIfQualityMissing([{ quality: quality(false) }], 'page=1')).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

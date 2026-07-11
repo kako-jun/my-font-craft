@@ -12,6 +12,11 @@
   --success: #27ae60;
   --error: #e74c3c;
   --warning: #f39c12;
+  /* 警告 tint（#110 要確認セル）: --warning の淡色系。
+     Upload の警告ボックス（#FFF3CD 地 + #856404 文字）と同系統の DESIGN.md warning ペアリング */
+  --warning-tint: #fdf6e8;
+  --warning-tint-hover: #f8ecd2;
+  --warning-text: #856404;
   --border: #e0d8c8;
   --btn-gradient-from: #f5f0e6;
   --btn-gradient-to: #e8e0d0;
@@ -830,6 +835,16 @@ body {
   opacity: 0.7;
 }
 
+/* 品質ゲート（#110）で要確認になったセル: 警告色の枠で目視確認を促す */
+.scan-grid__cell--review {
+  border-color: var(--warning);
+  background: var(--warning-tint);
+}
+
+.scan-grid__cell--review:hover {
+  background: var(--warning-tint-hover);
+}
+
 .scan-grid__cell-char {
   font-size: 0.65rem;
   color: var(--accent-light);
@@ -858,6 +873,28 @@ body {
   line-height: 1;
   color: var(--error);
   opacity: 0.5;
+  pointer-events: none;
+}
+
+/* 品質ゲート（#110）の要確認マーク: セル右上の小さな警告バッジ。
+   DESIGN.md の warning 流儀（淡色地 + dark orange 文字）に合わせて
+   白抜きでなく濃色文字にする（コントラスト比改善） */
+.scan-grid__cell-review-mark {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--warning-text);
+  background: #fff3cd; /* Upload の警告ボックスと同色（要確認セル地 --warning-tint より一段濃く） */
+  border: 1px solid var(--warning);
+  border-radius: 50%;
   pointer-events: none;
 }
 

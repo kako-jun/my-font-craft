@@ -45,6 +45,8 @@ pub struct ProcessedCell {
     pub height: u32,
     /// ベジェパス配列（輪郭単位）。採用セルのみ埋める（空配列の場合あり）
     pub paths: Vec<Vec<PathCommand>>,
+    /// セル品質ゲートの結果（#110）。needs_review なら review UI で「要確認」表示する
+    pub quality: cell::CellQuality,
 }
 
 /// パイプライン全体の処理結果
@@ -449,20 +451,31 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
     for cr in &char_results {
         let char_index = layout::grid_to_char_index(cr.row, cr.col);
         for slot in &cr.slots {
-            // 生セルから「二値化済み RGBA」と「ベジェパス」を生成
-            // binarize_to_rgba と vectorize_glyph は同じ二値化パイプラインを通るので
-            // プレビュー画像とベクター化結果が一致する
+            // 生セルを一度だけ二値化+品質ゲート（#110）し、
+            // プレビュー RGBA とベクター化に同じバイナリを使う（結果が必ず一致する）
             let raw_cell = cell::extract_cell_image_raw(&normalized, cr.row, cr.col, slot.cell_index);
-            let binarized = vectorizer::binarize_to_rgba(&raw_cell);
+            let cell_w = raw_cell.width();
+            let cell_h = raw_cell.height();
+            let (gated_binary, quality) = vectorizer::binarize_with_quality(&raw_cell);
             let adopted = cr.adopted.contains(&slot.cell_index);
             let paths = if adopted {
-                vectorizer::vectorize_glyph(&raw_cell)
+                vectorizer::vectorize_binary(&gated_binary, cell_w, cell_h)
             } else {
                 Vec::new()
             };
 
-            let width = binarized.width();
-            let height = binarized.height();
+            if quality.needs_review {
+                log!(
+                    "  ⚠ R{:02}C{:02}_I{}: 品質ゲート要確認 (removed={}, removed_area={:.2}%, kept={}, ink={:.1}%)",
+                    cr.row, cr.col, slot.cell_index,
+                    quality.removed_components,
+                    quality.removed_area_ratio * 100.0,
+                    quality.kept_components,
+                    quality.ink_ratio * 100.0,
+                );
+            }
+
+            let binarized = vectorizer::binary_to_rgba(&gated_binary, cell_w, cell_h);
             let image_data = binarized.into_raw();
 
             cells.push(ProcessedCell {
@@ -473,9 +486,10 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
                 adopted,
                 cell_index: slot.cell_index,
                 image_data,
-                width,
-                height,
+                width: cell_w,
+                height: cell_h,
                 paths,
+                quality,
             });
         }
     }

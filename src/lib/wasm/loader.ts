@@ -54,6 +54,20 @@ export type WasmPathCommand =
     }
   | { type: 'Z'; x: number; y: number };
 
+/** Rust側の CellQuality（#110: セル品質ゲートの結果）に対応 */
+export interface WasmCellQuality {
+  /** 除去した連結成分の数（境界接触 + 微小スペック） */
+  removed_components: number;
+  /** 除去した黒画素のセル全画素に対する比率 */
+  removed_area_ratio: number;
+  /** ゲート通過後に残った黒連結成分の数 */
+  kept_components: number;
+  /** ゲート通過後のインク率（黒画素 / セル全画素） */
+  ink_ratio: number;
+  /** 要確認フラグ。真なら review UI で「要確認」として見せる */
+  needs_review: boolean;
+}
+
 /** Rust側の ProcessedCell に対応 */
 export interface WasmProcessedCell {
   row: number;
@@ -67,6 +81,12 @@ export interface WasmProcessedCell {
   height: number;
   /** 採用セルに対して Rust 側で生成されたベジェパス（輪郭単位の配列） */
   paths: WasmPathCommand[][];
+  /**
+   * セル品質ゲートの結果（#110）。
+   * optional なのは信頼境界の可視化: 古い wasm ビルド（stale wasm）の出力には
+   * このフィールドが存在しない。欠落の検知・警告は processor.ts の warnIfQualityMissing。
+   */
+  quality?: WasmCellQuality;
 }
 
 /** Rust側の ProcessResult に対応 */

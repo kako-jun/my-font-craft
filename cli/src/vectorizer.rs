@@ -9,8 +9,8 @@ use image::RgbaImage;
 use serde::{Deserialize, Serialize};
 
 use crate::cell::{
-    apply_clahe_pub, compensate_ink_bleed, morphological_open_close, rgba_to_gray_pub,
-    sauvola_binarize_pub, SAUVOLA_K_PUB, SAUVOLA_WINDOW_PUB,
+    apply_cell_quality_gate, apply_clahe_pub, compensate_ink_bleed, morphological_open_close,
+    rgba_to_gray_pub, sauvola_binarize_pub, CellQuality, SAUVOLA_K_PUB, SAUVOLA_WINDOW_PUB,
 };
 
 // ── 定数 ──
@@ -49,20 +49,30 @@ pub enum PathCommand {
 
 /// セル画像（RGBA）→ パス配列
 ///
-/// 1. グレー化 + CLAHE + Sauvola 二値化 + モルフォロジ open-close
+/// 1. グレー化 + CLAHE + Sauvola 二値化 + モルフォロジ open-close + 品質ゲート（#110）
 /// 2. 2x nearest-neighbor アップスケール（ドット細粒化）
 /// 3. ランレングス抽出（各行の黒ピクセル連続区間を検出）
 /// 4. 縦方向マージ（±2px 許容で隣接行のランを矩形に結合）
 /// 5. フォント座標変換（各矩形を M→L→L→L→Z の四角形パスに変換）
 pub fn vectorize_glyph(img: &RgbaImage) -> Vec<Vec<PathCommand>> {
-    let w = img.width();
-    let h = img.height();
-    if w == 0 || h == 0 {
+    let (binary, _quality) = binarize_with_quality(img);
+    vectorize_binary(&binary, img.width(), img.height())
+}
+
+/// 二値化済みセル（Sauvola 形式: 0=黒/255=白、品質ゲート適用済み）→ パス配列
+///
+/// pipeline 側で二値化を1回だけ行い、プレビュー RGBA とベクター化の入力を
+/// 完全に一致させるための分割エントリポイント。
+pub fn vectorize_binary(binary_sauvola: &[u8], w: u32, h: u32) -> Vec<Vec<PathCommand>> {
+    if w == 0 || h == 0 || binary_sauvola.len() < (w as usize) * (h as usize) {
         return Vec::new();
     }
 
-    // 1-4: 二値化（内部バイナリ: 1=黒(前景), 0=白(背景)）
-    let binary = binarize_for_contour(img);
+    // 内部バイナリ: 1=黒(前景), 0=白(背景)
+    let binary: Vec<u8> = binary_sauvola
+        .iter()
+        .map(|&v| if v == 0 { 1u8 } else { 0u8 })
+        .collect();
 
     // 2: 2倍アップスケール（nearest neighbor）— ドットを細かくしてギザギザを目立ちにくくする
     const UPSCALE: u32 = 2;
@@ -187,32 +197,31 @@ pub fn vectorize_glyph(img: &RgbaImage) -> Vec<Vec<PathCommand>> {
     paths
 }
 
-/// セル画像を二値化してフラグ配列に変換する（1=黒=前景, 0=白=背景）
-fn binarize_for_contour(img: &RgbaImage) -> Vec<u8> {
-    let w = img.width();
-    let h = img.height();
-    let gray = rgba_to_gray_pub(img);
-    let gray = apply_clahe_pub(&gray, w, h);
-    let binary = sauvola_binarize_pub(&gray, w, h, SAUVOLA_K_PUB, SAUVOLA_WINDOW_PUB);
-    let binary = morphological_open_close(&binary, w, h);
-    let binary = compensate_ink_bleed(&binary, w, h);
-    // Sauvola 出力は 0=黒, 255=白。内部では 1=前景(黒) のフラグに変換
-    binary.iter().map(|&v| if v == 0 { 1u8 } else { 0u8 }).collect()
-}
-
-/// セル画像を二値化済み白背景+黒ストロークの RGBA として返す（プレビュー・ベクター化入力用）
-pub fn binarize_to_rgba(img: &RgbaImage) -> RgbaImage {
+/// セル画像を二値化し、品質ゲート（#110）を通した結果を返す。
+///
+/// 戻り値: (Sauvola 形式のバイナリ: 0=黒/255=白, 品質情報)
+///
+/// 処理順: グレー化 → CLAHE → Sauvola → モルフォロジ open-close →
+/// **品質ゲート（境界接触成分の除去 + 面積フィルタ）** → インクブリード補正。
+/// ゲートをインクブリード補正（1px erosion）より前に置くのは、erosion で
+/// 残渣の境界接触が1px後退して検出帯から外れるのを防ぐため。
+pub fn binarize_with_quality(img: &RgbaImage) -> (Vec<u8>, CellQuality) {
     let w = img.width();
     let h = img.height();
     if w == 0 || h == 0 {
-        return img.clone();
+        return (Vec::new(), CellQuality::empty());
     }
     let gray = rgba_to_gray_pub(img);
     let gray = apply_clahe_pub(&gray, w, h);
     let binary = sauvola_binarize_pub(&gray, w, h, SAUVOLA_K_PUB, SAUVOLA_WINDOW_PUB);
-    let binary = morphological_open_close(&binary, w, h);
+    let mut binary = morphological_open_close(&binary, w, h);
+    let quality = apply_cell_quality_gate(&mut binary, w, h);
     let binary = compensate_ink_bleed(&binary, w, h);
+    (binary, quality)
+}
 
+/// Sauvola 形式バイナリ（0=黒/255=白）を白背景+黒ストロークの RGBA に変換する
+pub fn binary_to_rgba(binary: &[u8], w: u32, h: u32) -> RgbaImage {
     let mut out = RgbaImage::new(w, h);
     for y in 0..h {
         for x in 0..w {
@@ -222,6 +231,17 @@ pub fn binarize_to_rgba(img: &RgbaImage) -> RgbaImage {
         }
     }
     out
+}
+
+/// セル画像を二値化済み白背景+黒ストロークの RGBA として返す（プレビュー・ベクター化入力用）
+pub fn binarize_to_rgba(img: &RgbaImage) -> RgbaImage {
+    let w = img.width();
+    let h = img.height();
+    if w == 0 || h == 0 {
+        return img.clone();
+    }
+    let (binary, _quality) = binarize_with_quality(img);
+    binary_to_rgba(&binary, w, h)
 }
 
 // ── SVG 出力（CLI の検証用） ──
@@ -404,6 +424,118 @@ mod tests {
             "矩形爆発時はハングガードで空に倒すべき: 実際={}",
             paths.len()
         );
+    }
+
+    #[test]
+    fn vectorize_strips_border_residue_keeps_stroke_intact() {
+        // #110: セル境界に接触する細い残渣（枠・罫線の消し残り代理）が
+        // ベクター化結果に混入せず、ストロークのパスは残渣なしの画像と一致する。
+        let mut clean = make_image(100, 100, Rgba([255, 255, 255, 255]));
+        for y in 30..70 {
+            for x in 30..70 {
+                clean.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+            }
+        }
+        let mut residue = clean.clone();
+        // 上辺に接触する 3px 厚の横線（罫線残渣風）
+        for y in 0..3 {
+            for x in 10..90 {
+                residue.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+            }
+        }
+        // 左辺に接触する 3px 厚の縦線（シアン枠残渣風）
+        for y in 20..80 {
+            for x in 0..3 {
+                residue.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+            }
+        }
+
+        let clean_paths = vectorize_glyph(&clean);
+        let residue_paths = vectorize_glyph(&residue);
+        assert!(!clean_paths.is_empty());
+
+        let clean_json = serde_json::to_string(&clean_paths).unwrap();
+        let residue_json = serde_json::to_string(&residue_paths).unwrap();
+        assert_eq!(
+            residue_json, clean_json,
+            "残渣入りセルのベクター化結果は残渣なしと一致するべき（残渣が混入しない）"
+        );
+    }
+
+    #[test]
+    fn binarize_with_quality_flags_border_residue() {
+        // 残渣入りセルは needs_review が立ち、除去後のバイナリに境界帯の黒が残らない
+        let mut img = make_image(100, 100, Rgba([255, 255, 255, 255]));
+        for y in 40..60 {
+            for x in 40..60 {
+                img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+            }
+        }
+        for y in 0..3 {
+            for x in 10..90 {
+                img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+            }
+        }
+
+        let (binary, quality) = binarize_with_quality(&img);
+        assert!(quality.needs_review, "境界接触残渣を除去したら要確認が立つべき");
+        assert!(quality.removed_components >= 1);
+        assert_eq!(quality.kept_components, 1, "ストローク成分だけが残るべき");
+        // 上端3行に黒が残っていない
+        for y in 0..3u32 {
+            for x in 0..100u32 {
+                assert_eq!(binary[(y * 100 + x) as usize], 255, "({x},{y}) に残渣が残留");
+            }
+        }
+
+        // 対照: 残渣なしのクリーンセルでは要確認は立たない
+        let mut clean = make_image(100, 100, Rgba([255, 255, 255, 255]));
+        for y in 40..60 {
+            for x in 40..60 {
+                clean.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+            }
+        }
+        let (_binary, clean_quality) = binarize_with_quality(&clean);
+        assert!(!clean_quality.needs_review, "クリーンセルは要確認なし");
+    }
+
+    #[test]
+    fn vectorize_binary_short_buffer_returns_empty() {
+        // binary.len() < w*h の不正入力は空 Vec（パニックしない）
+        let short = vec![0u8; 5];
+        let paths = vectorize_binary(&short, 4, 4);
+        assert!(paths.is_empty(), "不正長入力は空パスを返すべき");
+    }
+
+    #[test]
+    fn gate_passes_residue_floating_off_border() {
+        // 既知の限界の固定化: 境界から4px浮いた残渣線は帯（2px）に接触しないため
+        // ゲートを素通りし、needs_review も立たない。TPS 補正残差（0.5〜1mm ≈ 6〜12px）で
+        // 残渣が帯外へずれるケースの検出は #113 のスコープ（本テストは現状仕様の回帰検知用）。
+        let mut img = make_image(100, 100, Rgba([255, 255, 255, 255]));
+        // 内側ストローク
+        for y in 40..60 {
+            for x in 40..60 {
+                img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+            }
+        }
+        // 境界から4px浮いた3px厚の横線（面積 ≥ MIN_SPECK_AREA なので面積フィルタにも掛からない）
+        for y in 4..7 {
+            for x in 10..90 {
+                img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+            }
+        }
+
+        let (binary, quality) = binarize_with_quality(&img);
+        assert!(!quality.needs_review, "帯外の浮き残渣では要確認は立たない（現状仕様）");
+        assert_eq!(quality.removed_components, 0);
+        assert_eq!(quality.kept_components, 2, "ストロークと浮き残渣の両方が残る");
+        // 残渣線が残留している（rows 3..8 に黒がある）
+        let residue_black = (3u32..8)
+            .flat_map(|y| (0u32..100).map(move |x| (y, x)))
+            .filter(|&(y, x)| binary[(y * 100 + x) as usize] == 0)
+            .count();
+        assert!(residue_black > 0, "帯外の浮き残渣はゲート素通りで残留する（現状仕様）");
     }
 
     #[test]
