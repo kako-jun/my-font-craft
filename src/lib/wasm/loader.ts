@@ -104,6 +104,13 @@ export interface WasmProcessResult {
   corrected_image: number[]; // RGBA raw bytes
   corrected_width: number;
   corrected_height: number;
+  /**
+   * シアンサンプルを検出できたか（#111 QA）。false はモノクロ印刷の可能性 =
+   * 色ベースのシアン除去（ガイド線・内枠の主防御）が無効化されているため
+   * UI 警告に昇格する。optional なのは stale wasm（旧ビルド）でフィールドが
+   * 欠落しても落ちないようにするため — undefined は警告しない
+   */
+  cyan_sample_detected?: boolean;
 }
 
 let wasmModule: MfcWasm | null = null;

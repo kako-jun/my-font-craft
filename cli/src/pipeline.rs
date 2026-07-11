@@ -64,6 +64,10 @@ pub struct ProcessResult {
     pub corrected_image: Vec<u8>,  // 補正後画像のRGBA
     pub corrected_width: u32,
     pub corrected_height: u32,
+    /// シアンサンプルを検出できたか（#111 QA）。false はモノクロ印刷・色褪せ印刷の
+    /// 可能性があり、色ベースのシアン除去（内枠・ガイド線の主防御）が
+    /// 無効化されているため、scanner 側で UI 警告に昇格する
+    pub cyan_sample_detected: bool,
 }
 
 // ── DPI算出 ──
@@ -268,7 +272,7 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
 
     // ステップ9: シアン除去
     log!("\n=== ステップ9: シアン除去 ===");
-    let cyan_removed = remove_cyan(&shadow_corrected);
+    let (cyan_removed, _cyan_sample_detected) = remove_cyan(&shadow_corrected);
     cyan_removed
         .save(output_dir.join("08_cyan_removed.png"))
         .map_err(|e| format!("保存エラー: {e}"))?;
@@ -429,7 +433,7 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
 
     // ステップ9: シアン除去
     log!("=== シアン除去 ===");
-    let cyan_removed = remove_cyan(&shadow_corrected);
+    let (cyan_removed, cyan_sample_detected) = remove_cyan(&shadow_corrected);
 
     // ステップ9.3: 紙白正規化
     log!("=== 紙白正規化 ===");
@@ -505,6 +509,7 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
         corrected_image,
         corrected_width,
         corrected_height,
+        cyan_sample_detected,
     })
 }
 
@@ -1386,27 +1391,34 @@ fn sample_region_brightness(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> 
     }
 }
 
+// シアン除去のしきい値（緩め: 薄シアン対応）。テストで境界値を固定するため module スコープ
+const CYAN_SAMPLE_SCORE_MIN: f64 = 1.5;
+const CYAN_SCORE_THRESHOLD: i32 = 3;
+const MIN_BRIGHTNESS: i32 = 140;
+
 /// シアン除去: "cyan signature" (G,B が R より高い) を閾値判定で白化
 /// 固定 RGB 距離より、薄いシアン縁まで拾えて黒ストロークを保護しやすい。
 /// - cyan_score = min(G, B) - R: 純シアンなら ~50、薄い縁でも 5〜20。黒ペンは 0 前後
 /// - 暗いピクセル(輝度低)は手書きとしてゲート除外
-fn remove_cyan(img: &RgbaImage) -> RgbaImage {
+///
+/// 戻り値: (処理後画像, シアンサンプルを検出できたか)。
+/// サンプル未検出（= モノクロ印刷・色褪せ印刷の可能性）は第2要素 false。
+/// モノクロ印刷では内枠・ガイド線が薄グレーで印字されて色ベースの除去（L1）が
+/// 無力化し、濃い印字だと第2防御 erase_grid_lines の輝度150保護も同時に素通りする。
+/// そのため未検出は WASM 出力 → scanner の UI 警告に昇格する（#111 QA）
+fn remove_cyan(img: &RgbaImage) -> (RgbaImage, bool) {
     let sample_x = layout::mm_to_px(layout::CYAN_SAMPLE_X).round() as u32;
     let sample_y = layout::mm_to_px(layout::CYAN_SAMPLE_Y).round() as u32;
     let sample_size = layout::mm_to_px(layout::CYAN_SAMPLE_SIZE).round() as u32;
     let (cyan_r, cyan_g, cyan_b) = sample_region_rgb(img, sample_x, sample_y, sample_size, sample_size);
     log!("  シアンサンプル平均色: R={cyan_r:.1} G={cyan_g:.1} B={cyan_b:.1}");
 
-    // しきい値は緩め: 薄シアン対応。検出できなくても erase_grid_lines (inner_margin=5px)
-    // が layout 既知で内枠を白塗りするので致命的ではない
-    const CYAN_SAMPLE_SCORE_MIN: f64 = 1.5;
-    const CYAN_SCORE_THRESHOLD: i32 = 3;
-    const MIN_BRIGHTNESS: i32 = 140;
-
+    // 検出できなくても erase_grid_lines (inner_margin=5px)
+    // が layout 既知で内枠を白塗りするので即座に致命的ではない
     let sample_score = cyan_g.min(cyan_b) - cyan_r;
     if sample_score < CYAN_SAMPLE_SCORE_MIN {
         log!("  ⚠ シアンサンプルに有意な cyan 成分なし (score={sample_score:.1}) — スキップ");
-        return img.clone();
+        return (img.clone(), false);
     }
 
     let mut out = img.clone();
@@ -1437,7 +1449,7 @@ fn remove_cyan(img: &RgbaImage) -> RgbaImage {
         removed_count as f64 / total as f64 * 100.0
     );
 
-    out
+    (out, true)
 }
 
 /// 紙白正規化: 紙色（ヒストグラム最頻値）を 255 にスケールし、紙の地色を純白に寄せる
