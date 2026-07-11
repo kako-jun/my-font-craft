@@ -81,8 +81,12 @@ export interface WasmProcessedCell {
   height: number;
   /** 採用セルに対して Rust 側で生成されたベジェパス（輪郭単位の配列） */
   paths: WasmPathCommand[][];
-  /** セル品質ゲートの結果（#110） */
-  quality: WasmCellQuality;
+  /**
+   * セル品質ゲートの結果（#110）。
+   * optional なのは信頼境界の可視化: 古い wasm ビルド（stale wasm）の出力には
+   * このフィールドが存在しない。欠落の検知・警告は processor.ts の warnIfQualityMissing。
+   */
+  quality?: WasmCellQuality;
 }
 
 /** Rust側の ProcessResult に対応 */

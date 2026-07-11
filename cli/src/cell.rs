@@ -77,14 +77,25 @@ pub fn extract_and_judge(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CharR
                 cell_img.save(output_dir.join(&filename_raw))
                     .map_err(|e| format!("セル保存エラー {filename_raw}: {e}"))?;
 
-                // 二値化済みセル画像（ベクター化と同じ前処理を通したもの）
-                let binarized = crate::vectorizer::binarize_to_rgba(&cell_img);
+                // 二値化+品質ゲート（#110）はセルごとに1回だけ実行し、
+                // プレビュー画像とベクター化の両方に同じバイナリを使い回す（pipeline.rs と同じ流儀）
+                let (gated_binary, quality) =
+                    crate::vectorizer::binarize_with_quality(&cell_img);
+                let binarized = crate::vectorizer::binary_to_rgba(
+                    &gated_binary,
+                    cell_img.width(),
+                    cell_img.height(),
+                );
                 let filename = format!("R{row:02}C{col:02}_I{cell_idx}.png");
                 binarized.save(output_dir.join(&filename))
                     .map_err(|e| format!("セル保存エラー {filename}: {e}"))?;
 
                 // ベジェパス（JSON + SVG）
-                let paths = crate::vectorizer::vectorize_glyph(&cell_img);
+                let paths = crate::vectorizer::vectorize_binary(
+                    &gated_binary,
+                    cell_img.width(),
+                    cell_img.height(),
+                );
                 let json = serde_json::to_string_pretty(&paths)
                     .map_err(|e| format!("paths JSONシリアライズエラー: {e}"))?;
                 let json_filename = format!("R{row:02}C{col:02}_I{cell_idx}_paths.json");
@@ -107,6 +118,16 @@ pub fn extract_and_judge(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CharR
                     check_mark,
                     check_density * 100.0,
                 );
+
+                if quality.needs_review {
+                    log!(
+                        "  ⚠ R{row:02}C{col:02}_I{cell_idx}: 品質ゲート要確認 (removed={}, removed_area={:.2}%, kept={}, ink={:.1}%)",
+                        quality.removed_components,
+                        quality.removed_area_ratio * 100.0,
+                        quality.kept_components,
+                        quality.ink_ratio * 100.0,
+                    );
+                }
 
                 slots.push(SlotResult {
                     cell_index: cell_idx,
@@ -1287,7 +1308,7 @@ mod tests {
         remove_small_black_components(&mut binary, w, h, MIN_SPECK_AREA);
 
         // スペックは消えている
-        assert_eq!(binary[(1 * w + 1) as usize], 255, "面積4のスペックは消えるべき");
+        assert_eq!(binary[(w + 1) as usize], 255, "面積4のスペックは消えるべき");
         // ブロックは残っている
         assert_eq!(binary[(12 * w + 12) as usize], 0, "面積36のブロックは残るべき");
     }
@@ -1359,7 +1380,7 @@ mod tests {
 
         let q = apply_cell_quality_gate(&mut binary, w, h);
 
-        assert_eq!(binary[(1 * w + 30) as usize], 255, "L字残渣（横腕）は消えるべき");
+        assert_eq!(binary[(w + 30) as usize], 255, "L字残渣（横腕）は消えるべき");
         assert_eq!(binary[(30 * w + 1) as usize], 255, "L字残渣（縦腕）は消えるべき");
         assert_eq!(binary[(50 * w + 50) as usize], 0, "内側ストロークは残るべき");
         assert_eq!(q.removed_components, 1);
@@ -1484,7 +1505,7 @@ mod tests {
         let mut thin = white_binary(w, h);
         fill_black(&mut thin, w, 0, 0, 30, 3);
         let q1 = apply_cell_quality_gate(&mut thin, w, h);
-        assert_eq!(thin[(1 * w + 15) as usize], 255, "短辺3の太幅線は面積が大きくても消えるべき");
+        assert_eq!(thin[(w + 15) as usize], 255, "短辺3の太幅線は面積が大きくても消えるべき");
         assert_eq!(q1.removed_components, 1);
         assert!(q1.needs_review);
 
