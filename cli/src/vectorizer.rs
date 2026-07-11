@@ -539,6 +539,62 @@ mod tests {
     }
 
     #[test]
+    fn fixed_transform_real_dpi_crop_maps_within_8_units() {
+        // 実DPI経路の回帰防止（#111 QA）: 本番の crop は mm_to_px(12mm).round() = 142px
+        // （300dpi）で、理想 10px/mm のテストでは丸め経路を踏まない。
+        // 内枠4辺（crop 内 1.0/11.0mm）をピクセルグリッドに丸めて置いた成分が、
+        // 理想 em 座標（0 / 1000 / -120 / 880）から 8 units 以内に写ることを固定する
+        let crop = layout::mm_to_px(layout::CELL_CROP_SIZE).round() as u32; // 142
+        let to_px = |mm: f64| layout::mm_to_px(mm).round() as u32;
+        let x0 = to_px(1.0); // 内枠左端/上端
+        let x1 = to_px(11.0); // 内枠右端/下端
+        let binary = make_binary(crop, crop, &[(x0, x0, x1, x1)]);
+        let (min_x, min_y, max_x, max_y) = paths_bbox(&vectorize_binary(&binary, crop, crop));
+        assert!((min_x - 0.0).abs() <= 8.0, "内枠左端の写像誤差: {min_x}");
+        assert!((max_x - 1000.0).abs() <= 8.0, "内枠右端の写像誤差: {max_x}");
+        assert!((max_y - 880.0).abs() <= 8.0, "内枠上端の写像誤差: {max_y}");
+        assert!(
+            (min_y - layout::EMBOX_BOTTOM_Y).abs() <= 8.0,
+            "内枠下端の写像誤差: {min_y}"
+        );
+
+        // ベースライン（crop 内 9.8mm）に下端が接する成分 → y=0 から 8 units 以内
+        let yb = to_px(11.0 - layout::GUIDE_BASELINE_OFFSET_MM);
+        let binary = make_binary(crop, crop, &[(x0, to_px(8.0), x1, yb)]);
+        let (_, min_y, _, _) = paths_bbox(&vectorize_binary(&binary, crop, crop));
+        assert!(min_y.abs() <= 8.0, "ベースラインの写像誤差: {min_y}");
+    }
+
+    #[test]
+    fn guide_line_surviving_binarization_becomes_paths_without_review() {
+        // 仕様文書化テスト（#111 QA、防御層デシジョンテーブル行5の固定）:
+        // 全防御層（L1 シアン除去・L2 erase_grid_lines）を抜けて二値化まで生き残った
+        // ガイド線は、セル crop の境界帯(2px)に接触しない（線の端点は crop 端から
+        // 約1mm ≈ 11.8px 離れている）ため品質ゲート(#110)では原理的に検出できず、
+        // needs_review も立たずに非空グリフとして混入する。これは現状の既知の限界。
+        // 実運用の検知器はシアンサンプル未検出警告（remove_cyan → UI 警告）。
+        // 将来ここに防御を追加したら、このテストの期待を反転させること。
+        let crop = layout::mm_to_px(layout::CELL_CROP_SIZE).round() as u32;
+        let to_px = |mm: f64| layout::mm_to_px(mm).round() as u32;
+        let yb = to_px(11.0 - layout::GUIDE_BASELINE_OFFSET_MM);
+        let mut img = make_image(crop, crop, Rgba([255, 255, 255, 255]));
+        // ベースラインガイド相当: 内枠幅いっぱい・太さ3px の黒線（モノクロ印刷の代理）
+        for y in yb..yb + 3 {
+            for x in to_px(1.0)..to_px(11.0) {
+                img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+            }
+        }
+        let (binary, quality) = binarize_with_quality(&img);
+        assert!(
+            !quality.needs_review,
+            "境界非接触のガイド線では要確認が立たない（現状仕様）"
+        );
+        assert!(quality.kept_components >= 1, "ガイド線成分が生き残る（現状仕様）");
+        let paths = vectorize_binary(&binary, crop, crop);
+        assert!(!paths.is_empty(), "ガイド線が非空グリフとして混入する（現状仕様）");
+    }
+
+    #[test]
     fn bbox_fit_rescue_centers_offset_rect() {
         // opt-in 救済（旧 #53 方式）の判断ロジック保存テスト:
         // 右下に寄った矩形が em-square 中央に EM_FIT_SIZE で正規化される

@@ -11,10 +11,26 @@
  *   （page-NN-perspective.png / page-NN-rotated.png / page-NN-combined.png、#109）
  */
 
-import { createCanvas } from 'canvas';
+import { createCanvas, registerFont } from 'canvas';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import QRCode from 'qrcode';
+
+// --- フィクスチャ描画フォントの固定（#111 QA） ---
+// 環境フォント（macOS の Hiragino 等）に依存すると、glyph-metrics e2e の
+// 絶対値アサーション（bbox 位置・大きさ）が実行環境でフレークする。
+// OFL 1.1 の Noto Sans CJK JP Regular を かな+ASCII にサブセットして同梱し、
+// 描画フォントを決定的にする（fonts/OFL.txt がライセンス）。
+// 出自: notofonts/noto-cjk Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf を
+//   pyftsubset --unicodes="U+0020-007E,U+3000-303F,U+3040-309F,U+30A0-30FF"
+// でサブセット（96KB）。ファイルが無い場合は registerFont が throw するため、
+// 環境フォントへのサイレントフォールバックは起きない。
+const FIXTURES_DIR = path.dirname(fileURLToPath(import.meta.url));
+const FIXTURE_FONT_FAMILY = 'MockScanNotoSansJP';
+registerFont(path.join(FIXTURES_DIR, 'fonts', 'NotoSansJP-MockScan.otf'), {
+  family: FIXTURE_FONT_FAMILY,
+});
 
 // --- レイアウト定数（layout.ts から取得） ---
 import {
@@ -261,7 +277,8 @@ async function generatePage(
           const scale = '、。'.includes(char) ? 1.0 : 0.75;
           const fontSize = px(INNER_SIZE * scale);
           ctx.fillStyle = '#000000';
-          ctx.font = `${fontSize}px "Hiragino Sans", "Noto Sans CJK JP", sans-serif`;
+          // 同梱サブセットフォントのみ指定（フォールバック列挙しない = 環境差を排除）
+          ctx.font = `${fontSize}px "${FIXTURE_FONT_FAMILY}"`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           const cx = px(pos.x + innerOffset) + px(INNER_SIZE) / 2;

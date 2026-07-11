@@ -1692,3 +1692,201 @@ fn draw_cross(img: &mut RgbaImage, cx: i32, cy: i32, size: i32, color: Rgba<u8>)
         }
     }
 }
+
+// ── 画像処理関数のテスト（#111 QA） ──
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod image_ops_tests {
+    use super::*;
+
+    fn white_page() -> RgbaImage {
+        RgbaImage::from_pixel(
+            layout::image_width(),
+            layout::image_height(),
+            Rgba([255, 255, 255, 255]),
+        )
+    }
+
+    /// セル(0,0,I0) のガイド線公称位置（erase_grid_lines と同じ丸めで算出）
+    /// 戻り値: (baseline_y, center_x, inner_left_x, inner_top_y)
+    fn cell_guide_coords() -> (u32, u32, u32, u32) {
+        let (mm_x, mm_y) = layout::get_cell_position(0, 0, 0);
+        let inner_offset = (layout::CELL_SIZE - layout::INNER_SIZE) / 2.0;
+        let ix = mm_x + inner_offset;
+        let iy = mm_y + inner_offset;
+        let baseline_y = layout::mm_to_px(iy + layout::INNER_SIZE - layout::GUIDE_BASELINE_OFFSET_MM)
+            .round() as u32;
+        let center_x = layout::mm_to_px(mm_x + layout::CELL_SIZE / 2.0).round() as u32;
+        let inner_left_x = layout::mm_to_px(ix).round() as u32;
+        let inner_top_y = layout::mm_to_px(iy).round() as u32;
+        (baseline_y, center_x, inner_left_x, inner_top_y)
+    }
+
+    const WHITE: Rgba<u8> = Rgba([255, 255, 255, 255]);
+
+    #[test]
+    fn erase_grid_lines_whitens_baseline_guide_within_margin_only() {
+        // ガイド白塗り帯の境界固定: 公称位置と ±4px は白化、±5px は残存（帯の外）
+        let (baseline_y, center_x, inner_left_x, _) = cell_guide_coords();
+        let gray = Rgba([200, 200, 200, 255]);
+        // 検査セグメントは縦帯（センターガイド ±4px・内枠左 ±5px）を避けた x 範囲
+        let seg_x0 = inner_left_x + 8;
+        let seg_x1 = center_x - 8;
+        let mut img = white_page();
+        for x in seg_x0..seg_x1 {
+            img.put_pixel(x, baseline_y, gray); // 公称位置
+            img.put_pixel(x, baseline_y + 4, gray); // 帯の内側端（inclusive）
+            img.put_pixel(x, baseline_y + 5, gray); // 帯の外
+        }
+        let out = erase_grid_lines(&img);
+        for x in seg_x0..seg_x1 {
+            assert_eq!(*out.get_pixel(x, baseline_y), WHITE, "公称位置 x={x} は白化されるべき");
+            assert_eq!(*out.get_pixel(x, baseline_y + 4), WHITE, "+4px x={x} は白化されるべき");
+            assert_eq!(*out.get_pixel(x, baseline_y + 5), gray, "+5px x={x} は帯の外で残存すべき");
+        }
+    }
+
+    #[test]
+    fn erase_grid_lines_whitens_center_guide_within_margin_only() {
+        let (baseline_y, center_x, _, inner_top_y) = cell_guide_coords();
+        let gray = Rgba([200, 200, 200, 255]);
+        // 検査セグメントは横帯（内枠上 ±5px・ベースライン ±4px）を避けた y 範囲
+        let seg_y0 = inner_top_y + 8;
+        let seg_y1 = baseline_y - 8;
+        let mut img = white_page();
+        for y in seg_y0..seg_y1 {
+            img.put_pixel(center_x, y, gray);
+            img.put_pixel(center_x + 4, y, gray);
+            img.put_pixel(center_x + 5, y, gray);
+        }
+        let out = erase_grid_lines(&img);
+        for y in seg_y0..seg_y1 {
+            assert_eq!(*out.get_pixel(center_x, y), WHITE, "公称位置 y={y} は白化されるべき");
+            assert_eq!(*out.get_pixel(center_x + 4, y), WHITE, "+4px y={y} は白化されるべき");
+            assert_eq!(*out.get_pixel(center_x + 5, y), gray, "+5px y={y} は帯の外で残存すべき");
+        }
+    }
+
+    #[test]
+    fn erase_grid_lines_luminance_boundary_at_150() {
+        // ガイド帯を跨ぐストローク保護の ±1 境界: 輝度149 は保護、150 ちょうどは塗られる
+        // （is_overpaintable: lum >= 150*1000 なら塗ってよい）
+        let (baseline_y, center_x, inner_left_x, _) = cell_guide_coords();
+        let dark149 = Rgba([149, 149, 149, 255]); // lum 149,000 < 150,000 → 保護
+        let dark150 = Rgba([150, 150, 150, 255]); // lum 150,000 >= 150,000 → 塗られる
+        let x149 = inner_left_x + 10;
+        let x150 = inner_left_x + 12;
+        assert!(x150 < center_x - 4, "検査画素がセンターガイド帯に入らないこと");
+        let mut img = white_page();
+        img.put_pixel(x149, baseline_y, dark149);
+        img.put_pixel(x150, baseline_y, dark150);
+        let out = erase_grid_lines(&img);
+        assert_eq!(*out.get_pixel(x149, baseline_y), dark149, "輝度149 は手書きとして保護");
+        assert_eq!(*out.get_pixel(x150, baseline_y), WHITE, "輝度150 は白塗り対象");
+    }
+
+    #[test]
+    fn remove_cyan_score_and_brightness_thresholds() {
+        // cyan_score 境界（>=3 で除去）と輝度ゲート境界（avg>=140 で処理対象）の固定
+        let mut img = white_page();
+        // シアンサンプル領域を有効な薄シアンで塗る（sample_score = 25 >= 1.5）
+        let sx = layout::mm_to_px(layout::CYAN_SAMPLE_X).round() as u32;
+        let sy = layout::mm_to_px(layout::CYAN_SAMPLE_Y).round() as u32;
+        let ss = layout::mm_to_px(layout::CYAN_SAMPLE_SIZE).round() as u32;
+        for y in sy..sy + ss {
+            for x in sx..sx + ss {
+                img.put_pixel(x, y, Rgba([230, 255, 255, 255]));
+            }
+        }
+        // 検査画素（本文領域内の任意位置）
+        img.put_pixel(1000, 1000, Rgba([200, 203, 203, 255])); // score=3, avg=202 → 除去
+        img.put_pixel(1010, 1000, Rgba([200, 202, 202, 255])); // score=2 → 残存
+        img.put_pixel(1020, 1000, Rgba([135, 143, 143, 255])); // avg=140（=境界）, score=8 → 除去
+        img.put_pixel(1030, 1000, Rgba([134, 142, 142, 255])); // avg=139 → 暗色ゲートでスキップ
+
+        let (out, detected) = remove_cyan(&img);
+        assert!(detected, "有効なサンプルがあるので検出される");
+        assert_eq!(*out.get_pixel(1000, 1000), WHITE, "cyan_score=3 は除去");
+        assert_eq!(
+            *out.get_pixel(1010, 1000),
+            Rgba([200, 202, 202, 255]),
+            "cyan_score=2 は残存"
+        );
+        assert_eq!(*out.get_pixel(1020, 1000), WHITE, "avg=140 は処理対象（境界含む）");
+        assert_eq!(
+            *out.get_pixel(1030, 1000),
+            Rgba([134, 142, 142, 255]),
+            "avg=139 は暗色（手書き）としてスキップ"
+        );
+    }
+
+    #[test]
+    fn remove_cyan_skips_all_when_sample_score_below_threshold() {
+        // sample_score < 1.5（シアンサンプルが白 = モノクロ印刷相当）なら
+        // 画像中に強いシアンがあっても全スキップし、検出フラグ false を返す
+        let mut img = white_page();
+        let strong_cyan = Rgba([180, 255, 255, 255]); // score=75
+        img.put_pixel(1000, 1000, strong_cyan);
+        let (out, detected) = remove_cyan(&img);
+        assert!(!detected, "サンプル未検出フラグが返るべき");
+        assert_eq!(*out.get_pixel(1000, 1000), strong_cyan, "全スキップで残存すべき");
+    }
+
+    #[test]
+    fn layout_defense_alone_erases_guides_and_keeps_cells_empty() {
+        // ネイティブ統合テスト（#111 QA）: シアンサンプルを白潰しした合成テンプレート
+        // （= L1 色ベース除去が無効化された状況）でも、L2 erase_grid_lines だけで
+        // 内枠・ガイド線が消え、全マスが空のまま判定されること
+        let path = std::env::temp_dir().join("mfc-test-l2-defense-template.png");
+        crate::template::generate_template(&path, false).expect("テンプレート生成");
+        let mut img = image::open(&path).expect("テンプレート読込").into_rgba8();
+        let _ = std::fs::remove_file(&path);
+
+        // シアンサンプル領域を白潰し（モノクロ印刷でシアン成分が失われた状況の代理）
+        let sx = layout::mm_to_px(layout::CYAN_SAMPLE_X).round() as u32;
+        let sy = layout::mm_to_px(layout::CYAN_SAMPLE_Y).round() as u32;
+        let ss = layout::mm_to_px(layout::CYAN_SAMPLE_SIZE).round() as u32;
+        for y in sy..sy + ss {
+            for x in sx..sx + ss {
+                img.put_pixel(x, y, Rgba([255, 255, 255, 255]));
+            }
+        }
+
+        let (after_cyan, detected) = remove_cyan(&img);
+        assert!(!detected, "サンプル白潰しで L1 は無効化されるはず");
+        let normalized = normalize_paper_white(&after_cyan);
+        let erased = erase_grid_lines(&normalized);
+
+        // ガイド線の公称位置が白化されている（セル(0,0,I0) の帯回避セグメントで確認）
+        let (baseline_y, center_x, inner_left_x, inner_top_y) = cell_guide_coords();
+        for x in (inner_left_x + 8)..(center_x - 8) {
+            assert_eq!(
+                *erased.get_pixel(x, baseline_y),
+                WHITE,
+                "ベースラインガイド x={x} が L2 で消えるべき"
+            );
+        }
+        for y in (inner_top_y + 8)..(baseline_y - 8) {
+            assert_eq!(
+                *erased.get_pixel(center_x, y),
+                WHITE,
+                "センターガイド y={y} が L2 で消えるべき"
+            );
+        }
+
+        // 全47文字 × 2マスが空のまま（ガイド線・内枠がインクとして誤検出されない）
+        let results = cell::extract_and_judge_in_memory(&erased).expect("セル判定");
+        for cr in &results {
+            for slot in &cr.slots {
+                assert!(
+                    slot.is_empty,
+                    "R{:02}C{:02}_I{} が非空判定（black={:.2}%）: ガイド/枠がインク扱いされている",
+                    cr.row,
+                    cr.col,
+                    slot.cell_index,
+                    slot.black_ratio * 100.0
+                );
+            }
+        }
+    }
+}
