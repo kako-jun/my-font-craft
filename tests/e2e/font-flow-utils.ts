@@ -4,7 +4,7 @@
  * full-flow.spec.ts（正面画像）と distorted-flow.spec.ts（歪み画像）で共用する。
  */
 
-import { expect, type Page, type TestInfo } from '@playwright/test';
+import { expect, type ConsoleMessage, type Page, type TestInfo } from '@playwright/test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import JSZip from 'jszip';
@@ -39,7 +39,7 @@ export async function withStageLogs<T>(
   fn: (logs: StageLogEntry[]) => Promise<T>,
 ): Promise<{ result: T; logs: StageLogEntry[] }> {
   const logs: StageLogEntry[] = [];
-  const onConsole = (msg: { type(): string; text(): string }) => {
+  const onConsole = (msg: ConsoleMessage) => {
     const text = msg.text();
     if (text.startsWith('[scan:') || text.startsWith('===')) {
       logs.push({ type: msg.type(), text });
