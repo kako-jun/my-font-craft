@@ -22,6 +22,12 @@ export interface GlyphStatus {
   col: number;
   status: 'found' | 'empty' | 'imported';
   cellImageDataUrl?: string; // セル切り出し画像のData URL
+  /**
+   * 要確認フラグ（#110: セル品質ゲート）。
+   * 採用セルで境界接触残渣の除去・はみ出しストローク保護などが発生した場合に真。
+   * review UI で「要確認」マークを付けてユーザーに目視確認を促す（黙って空に倒さない）。
+   */
+  needsReview?: boolean;
 }
 
 export interface ProcessCallbacks {
@@ -229,9 +235,14 @@ export async function processImages(
     const totalCells = wasmResult.cells.length;
     const adoptedCellCount = wasmResult.cells.filter((c) => c.adopted).length;
     const emptyCellCount = wasmResult.cells.filter((c) => c.is_empty).length;
+    // 品質ゲート（#110）で要確認になった採用セル数。採用されていないセルの
+    // 残渣除去はグリフに影響しないため、採用セルだけを数える
+    const reviewCellCount = wasmResult.cells.filter(
+      (c) => c.adopted && c.quality?.needs_review === true,
+    ).length;
     scanLog(
       'cells',
-      `page=${pageNumber} ok cells=${totalCells} adopted=${adoptedCellCount} empty=${emptyCellCount}`,
+      `page=${pageNumber} ok cells=${totalCells} adopted=${adoptedCellCount} empty=${emptyCellCount} review=${reviewCellCount}`,
     );
 
     let pageGlyphCount = 0;
@@ -282,6 +293,8 @@ export async function processImages(
         col: firstCell.col,
         status: 'found',
         cellImageDataUrl,
+        // 採用セルのどれかで品質ゲート（#110）が発動していたら要確認
+        needsReview: adoptedCells.some((c) => c.quality?.needs_review === true),
       });
 
       // 既に同 unicode のベースグリフが登録済みなら、対応する旧 alt-variant を破棄
