@@ -1218,6 +1218,33 @@ a.flow__label:hover {
   padding-bottom: 7rem;
 }
 
+/* ---- Upload の状態表示 ---- */
+
+.upload-status {
+  margin-top: 1.75rem;
+  color: var(--ink-dim);
+  letter-spacing: 0.08em;
+}
+
+.upload-done {
+  margin-top: 2.25rem;
+}
+
+.upload-done h3 {
+  color: var(--lamp);
+  text-shadow:
+    0 0 16px var(--lamp-glow),
+    var(--shadow-text);
+  margin-bottom: 0.9rem;
+}
+
+.upload-done__actions {
+  display: flex;
+  gap: 2rem;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
 /* ---- About ---- */
 
 .about-page section {
