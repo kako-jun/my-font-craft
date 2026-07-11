@@ -232,8 +232,22 @@ async function generatePage(pageIdx: number, chars: string[]): Promise<Buffer> {
   return canvas.toBuffer('image/png');
 }
 
-export async function generateMockScans(outputDir: string): Promise<string[]> {
+/**
+ * 出力ディレクトリを用意し、既存の PNG を削除する。
+ * ページ数や歪みバリアントが減った時に前回生成の stale なフィクスチャが
+ * 残留して e2e に混入するのを防ぐ（ZIP 化は「ディレクトリ内の全 PNG」で拾うため）。
+ */
+function prepareOutputDir(outputDir: string): void {
   fs.mkdirSync(outputDir, { recursive: true });
+  for (const entry of fs.readdirSync(outputDir)) {
+    if (entry.endsWith('.png')) {
+      fs.unlinkSync(path.join(outputDir, entry));
+    }
+  }
+}
+
+export async function generateMockScans(outputDir: string): Promise<string[]> {
+  prepareOutputDir(outputDir);
 
   const totalPages = Math.ceil(HIRAGANA.length / CHARS_PER_PAGE);
   const files: string[] = [];
@@ -264,7 +278,7 @@ export async function generateDistortedScans(
   frontalFiles: string[],
   outputDir: string,
 ): Promise<string[]> {
-  fs.mkdirSync(outputDir, { recursive: true });
+  prepareOutputDir(outputDir);
   const files: string[] = [];
 
   for (const frontalPath of frontalFiles) {
@@ -295,5 +309,11 @@ if (
     .then((files) => generateDistortedScans(files, distortedDir).then((d) => [...files, ...d]))
     .then((files) => {
       console.log(`\nDone! Generated ${files.length} mock scan images.`);
+    })
+    .catch((e) => {
+      // 失敗を握りつぶすと test:e2e が古いフィクスチャのまま走ってしまうため、
+      // 原因を出力して非0で終了する
+      console.error('mock scan generation failed:', e);
+      process.exitCode = 1;
     });
 }
