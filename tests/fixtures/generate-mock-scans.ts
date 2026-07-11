@@ -90,7 +90,38 @@ function drawCircleMarker(
   }
 }
 
-async function generatePage(pageIdx: number, chars: string[]): Promise<Buffer> {
+/**
+ * 残渣注入バリアント（#110）で各ページの先頭から何文字に残渣を注入するか。
+ * e2e（residue-flow.spec.ts）はこの値から要確認フラグの期待文字を計算する。
+ */
+export const RESIDUE_INJECT_CHARS_PER_PAGE = 5;
+
+/**
+ * セルに枠残渣風のノイズを描き込む（#110 品質ゲートの検証用）。
+ *
+ * Rust 側のセル切り出しは cell 左上から 1.5mm マージンで crop するので、
+ * crop 境界（1.5mm）を跨ぐ位置に細い黒線を描くと「セル境界に接触する残渣」になる。
+ * - 横線: crop 上端に接触する罫線残渣風（幅8mm、厚み5px）
+ * - 縦線: crop 左端に接触するシアン枠残渣風（長さ7mm、厚み5px）
+ * - スペック: 内側の 3x3px 黒点（面積フィルタで除去される想定）
+ * 黒(#000)で描くのは、シアン除去・罫線残骸除去（輝度150未満は保護）を
+ * 意図的にすり抜けさせて「二値化まで生き残る残渣」を再現するため。
+ */
+function drawCellResidue(ctx: CanvasRenderingContext2D, posX: number, posY: number) {
+  ctx.fillStyle = '#000000';
+  // 横線: y = 1.35mm（crop 上端 1.5mm を跨ぐ）、x = 3mm から 8mm 分
+  ctx.fillRect(px(posX + 3), px(posY + 1.35), px(8), 5);
+  // 縦線: x = 1.35mm（crop 左端 1.5mm を跨ぐ）、y = 4mm から 7mm 分
+  ctx.fillRect(px(posX + 1.35), px(posY + 4), 5, px(7));
+  // 微小スペック: crop 内側（境界非接触）の 3x3px
+  ctx.fillRect(px(posX + 3.0), px(posY + 3.0), 3, 3);
+}
+
+async function generatePage(
+  pageIdx: number,
+  chars: string[],
+  residueCharIndices?: Set<number>,
+): Promise<Buffer> {
   const canvas = createCanvas(canvasW, canvasH);
   const ctx = canvas.getContext('2d');
 
@@ -224,6 +255,11 @@ async function generatePage(pageIdx: number, chars: string[]): Promise<Buffer> {
           ctx.lineTo(checkCx + px(2), checkCy + px(1.2));
           ctx.lineTo(checkCx + px(5), checkCy - px(1));
           ctx.stroke();
+
+          // 残渣注入バリアント（#110）: 指定文字の記入マスに枠残渣風ノイズを描く
+          if (residueCharIndices?.has(charIdx)) {
+            drawCellResidue(ctx, pos.x, pos.y);
+          }
         }
       }
     }
@@ -270,6 +306,42 @@ export async function generateMockScans(outputDir: string): Promise<string[]> {
 }
 
 /**
+ * 残渣注入バリアントを生成する（#110）。
+ * 各ページの先頭 RESIDUE_INJECT_CHARS_PER_PAGE 文字の記入マスに、
+ * 枠残渣風の細い黒線・微小スペックを描き込んだ正面画像を出力する。
+ * 出力先を分けているのは、正面 e2e（mock-scans/ 全 PNG を ZIP 化）に
+ * 残渣画像が混入しないようにするため。
+ */
+export async function generateResidueScans(outputDir: string): Promise<string[]> {
+  prepareOutputDir(outputDir);
+
+  const totalPages = Math.ceil(HIRAGANA.length / CHARS_PER_PAGE);
+  const residueIndices = new Set(
+    Array.from({ length: RESIDUE_INJECT_CHARS_PER_PAGE }, (_, i) => i),
+  );
+  const files: string[] = [];
+
+  for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+    const start = pageIdx * CHARS_PER_PAGE;
+    const pageChars = HIRAGANA.slice(start, start + CHARS_PER_PAGE);
+
+    const buffer = await generatePage(pageIdx, pageChars, residueIndices);
+    const filename = `page-${String(pageIdx + 1).padStart(2, '0')}-residue.png`;
+    const filepath = path.join(outputDir, filename);
+    fs.writeFileSync(filepath, buffer);
+    files.push(filepath);
+    console.log(
+      `Generated: ${filename} (residue on ${Math.min(
+        RESIDUE_INJECT_CHARS_PER_PAGE,
+        pageChars.length,
+      )} cells)`,
+    );
+  }
+
+  return files;
+}
+
+/**
  * 正面画像から斜め撮影風の歪みバリアントを生成する（#109）。
  * 出力先を分けているのは、既存の正面 e2e（mock-scans/ 全 PNG を ZIP 化）に
  * 歪み画像が混入しないようにするため。
@@ -305,8 +377,10 @@ if (
   const fixturesDir = import.meta.dirname ?? path.dirname(process.argv[1]);
   const outDir = path.join(fixturesDir, 'mock-scans');
   const distortedDir = path.join(fixturesDir, 'mock-scans-distorted');
+  const residueDir = path.join(fixturesDir, 'mock-scans-residue');
   generateMockScans(outDir)
     .then((files) => generateDistortedScans(files, distortedDir).then((d) => [...files, ...d]))
+    .then((files) => generateResidueScans(residueDir).then((r) => [...files, ...r]))
     .then((files) => {
       console.log(`\nDone! Generated ${files.length} mock scan images.`);
     })

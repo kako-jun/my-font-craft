@@ -7,6 +7,7 @@ dist/
 # Test fixtures (generated at test time)
 tests/fixtures/mock-scans/
 tests/fixtures/mock-scans-distorted/
+tests/fixtures/mock-scans-residue/
 tests/fixtures/test-output.ttf
 tests/fixtures/test-blank-page.png
 tests/fixtures/test-upload*.zip
