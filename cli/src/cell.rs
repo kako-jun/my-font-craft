@@ -378,6 +378,185 @@ fn measure_inner_black_ratio(img: &RgbaImage, margin_ratio: f64) -> f64 {
     }
 }
 
+// ── セル品質ゲート（#110: 連結成分分析による枠残渣の決定論的除去） ──
+
+/// 品質ゲートの境界帯の幅（px）。
+/// モルフォロジ Closing の最終 Erosion は「画像外=白」扱いのため、二値化後の
+/// 最外周1pxは常に白になる。境界から侵入した枠・罫線残渣は必ず2px目以降に
+/// 残るので、帯を2pxにして「境界接触」を判定する。
+const GATE_BORDER_BAND: u32 = 2;
+
+/// 境界接触成分を「はみ出した手書きストローク」とみなして保護する面積比の下限。
+/// セル全体に対する成分の占有率がこれ以上なら、除去せず needs_review だけ立てる。
+/// 手書き文字の連結成分は太く面積が大きい（典型でセルの5〜15%）のに対し、
+/// erase_grid_lines をすり抜けた枠・罫線残渣は細線で 1〜3% 程度に収まる。
+const GATE_STROKE_PROTECT_AREA_RATIO: f64 = 0.04;
+
+/// 境界接触成分を「罫線・枠線」とみなす bbox の最小辺の上限（px）。
+/// バウンディングボックスの短辺がこれ以下の成分は面積に関わらず線残渣として
+/// 除去する。手書きペンのストロークは 300DPI で 5px 以上の太さがあり、
+/// はみ出し文字は成分全体（文字1字）の bbox が正方形に近くなるため誤爆しない。
+const GATE_LINE_MAX_THICKNESS: u32 = 3;
+
+/// needs_review を立てる除去面積比（除去した黒画素 / セル全画素）。
+/// 内側の微小スペック除去は日常的に起きる正常動作なので、この閾値を超える
+/// 「まとまった量の除去」だけを要確認にする。
+const GATE_REVIEW_REMOVED_AREA_RATIO: f64 = 0.01;
+
+/// 品質ゲートの結果（wasm 出力 JSON に載せて scanner / review UI へ伝搬する）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CellQuality {
+    /// 除去した連結成分の数（境界接触 + 微小スペック）
+    pub removed_components: usize,
+    /// 除去した黒画素のセル全画素に対する比率
+    pub removed_area_ratio: f64,
+    /// ゲート通過後に残った黒連結成分の数
+    pub kept_components: usize,
+    /// ゲート通過後のインク率（黒画素 / セル全画素）
+    pub ink_ratio: f64,
+    /// 要確認フラグ。真なら review UI で「要確認」として見せる（黙って空に倒さない）
+    pub needs_review: bool,
+}
+
+impl CellQuality {
+    /// ゲート対象がない空入力用のデフォルト
+    pub fn empty() -> Self {
+        Self {
+            removed_components: 0,
+            removed_area_ratio: 0.0,
+            kept_components: 0,
+            ink_ratio: 0.0,
+            needs_review: false,
+        }
+    }
+}
+
+/// セル品質ゲート: 二値化・モルフォロジ後の binary（0=黒/255=白）に対して
+/// 8近傍ラベリングで黒連結成分を列挙し、以下を適用する。
+///
+/// 1. **境界接触成分の除去** — セル外周 GATE_BORDER_BAND px の帯に触れる成分は
+///    枠・罫線残渣とみなして白に倒す。ただし「はみ出して書いた字」を消さない
+///    安全弁として、面積比 >= GATE_STROKE_PROTECT_AREA_RATIO かつ bbox 短辺 >
+///    GATE_LINE_MAX_THICKNESS の成分はストロークと判定して残し、needs_review だけ立てる。
+/// 2. **面積フィルタ** — 境界に触れない成分でも面積 < MIN_SPECK_AREA は
+///    スペックノイズとして除去（remove_small_black_components の一般化）。
+/// 3. **品質スコア** — 除去数・除去面積比・残成分数・インク率から needs_review を決める。
+///    条件（保守的）: 境界接触除去が発生 / 保護したはみ出しストロークがある /
+///    除去面積比 > GATE_REVIEW_REMOVED_AREA_RATIO / 除去の結果 残成分がゼロ化。
+pub fn apply_cell_quality_gate(binary: &mut [u8], w: u32, h: u32) -> CellQuality {
+    let n = (w as usize) * (h as usize);
+    if n == 0 || binary.len() < n {
+        return CellQuality::empty();
+    }
+
+    let total = n as f64;
+    let mut visited = vec![false; n];
+    let mut stack: Vec<usize> = Vec::new();
+    let mut comp: Vec<usize> = Vec::new();
+
+    let mut removed_components = 0usize;
+    let mut removed_area = 0usize;
+    let mut kept_components = 0usize;
+    let mut kept_area = 0usize;
+    let mut removed_border = 0usize;
+    let mut protected_border_stroke = false;
+
+    for start in 0..n {
+        if visited[start] || binary[start] != 0 {
+            continue;
+        }
+        // 8近傍で連結成分を収集
+        comp.clear();
+        stack.clear();
+        stack.push(start);
+        visited[start] = true;
+
+        let mut touches_border = false;
+        let (mut bx_min, mut bx_max, mut by_min, mut by_max) = (u32::MAX, 0u32, u32::MAX, 0u32);
+
+        while let Some(idx) = stack.pop() {
+            comp.push(idx);
+            let x = (idx as u32) % w;
+            let y = (idx as u32) / w;
+            if x < GATE_BORDER_BAND
+                || y < GATE_BORDER_BAND
+                || x >= w.saturating_sub(GATE_BORDER_BAND)
+                || y >= h.saturating_sub(GATE_BORDER_BAND)
+            {
+                touches_border = true;
+            }
+            bx_min = bx_min.min(x);
+            bx_max = bx_max.max(x);
+            by_min = by_min.min(y);
+            by_max = by_max.max(y);
+
+            for dy in -1i64..=1 {
+                for dx in -1i64..=1 {
+                    if dx == 0 && dy == 0 {
+                        continue;
+                    }
+                    let nx = x as i64 + dx;
+                    let ny = y as i64 + dy;
+                    if nx < 0 || ny < 0 || nx >= w as i64 || ny >= h as i64 {
+                        continue;
+                    }
+                    let ni = (ny as u32 * w + nx as u32) as usize;
+                    if !visited[ni] && binary[ni] == 0 {
+                        visited[ni] = true;
+                        stack.push(ni);
+                    }
+                }
+            }
+        }
+
+        let area = comp.len();
+        let area_ratio = area as f64 / total;
+        let bbox_min_dim = (bx_max - bx_min + 1).min(by_max - by_min + 1);
+
+        let remove = if touches_border {
+            let is_line = bbox_min_dim <= GATE_LINE_MAX_THICKNESS;
+            let is_big = area_ratio >= GATE_STROKE_PROTECT_AREA_RATIO;
+            if is_big && !is_line {
+                // 安全弁: はみ出して書いた字の可能性 → 消さずに要確認だけ立てる
+                protected_border_stroke = true;
+                false
+            } else {
+                removed_border += 1;
+                true
+            }
+        } else {
+            // 面積フィルタ（境界非接触）: スペックノイズのみ除去
+            (area as u32) < MIN_SPECK_AREA
+        };
+
+        if remove {
+            removed_components += 1;
+            removed_area += area;
+            for &idx in &comp {
+                binary[idx] = 255;
+            }
+        } else {
+            kept_components += 1;
+            kept_area += area;
+        }
+    }
+
+    let removed_area_ratio = removed_area as f64 / total;
+    let zeroed = removed_components > 0 && kept_components == 0;
+    let needs_review = removed_border > 0
+        || protected_border_stroke
+        || removed_area_ratio > GATE_REVIEW_REMOVED_AREA_RATIO
+        || zeroed;
+
+    CellQuality {
+        removed_components,
+        removed_area_ratio,
+        kept_components,
+        ink_ratio: kept_area as f64 / total,
+        needs_review,
+    }
+}
+
 /// 空欄判定用スペック除去のしきい値（連結成分の面積、px）。
 /// 想定する残骸は 3px 角程度（面積 9）のシアン点ノイズなので、面積 9 以下（< 10）だけを消す。
 /// 必要十分な最小値に絞ることで、かすれた細線が断片化しても消し過ぎないようにする。
@@ -1113,6 +1292,147 @@ mod tests {
         }
         remove_small_black_components(&mut binary, w, h, MIN_SPECK_AREA);
         assert_eq!(binary[(10 * w + 9) as usize], 0, "面積15の細線は残るべき");
+    }
+
+    // ── apply_cell_quality_gate（#110: セル品質ゲート） ──
+
+    /// w×h の白バイナリ（255）を作る
+    fn white_binary(w: u32, h: u32) -> Vec<u8> {
+        vec![255u8; (w * h) as usize]
+    }
+
+    /// 矩形領域を黒(0)で塗る
+    fn fill_black(binary: &mut [u8], w: u32, x0: u32, y0: u32, x1: u32, y1: u32) {
+        for y in y0..y1 {
+            for x in x0..x1 {
+                binary[(y * w + x) as usize] = 0;
+            }
+        }
+    }
+
+    #[test]
+    fn gate_removes_border_touching_thin_line_keeps_stroke() {
+        // 境界帯(2px)に接触する細い線（罫線残渣の代理）は除去され、
+        // 内側の太いストロークは無傷で残る。needs_review が立つ。
+        let w = 40u32;
+        let h = 40u32;
+        let mut binary = white_binary(w, h);
+        // 罫線残渣: y=1..3 の横線（厚み2px ≤ GATE_LINE_MAX_THICKNESS、境界帯に接触）
+        fill_black(&mut binary, w, 0, 1, 40, 3);
+        // ストローク: 内側の 8x8 ブロック
+        fill_black(&mut binary, w, 15, 15, 23, 23);
+
+        let q = apply_cell_quality_gate(&mut binary, w, h);
+
+        assert_eq!(binary[(2 * w + 20) as usize], 255, "境界接触の線残渣は消えるべき");
+        assert_eq!(binary[(18 * w + 18) as usize], 0, "内側ストロークは残るべき");
+        assert_eq!(q.removed_components, 1);
+        assert_eq!(q.kept_components, 1);
+        assert!(q.needs_review, "境界接触除去が発生したら要確認");
+        assert!((q.ink_ratio - 64.0 / 1600.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn gate_removes_corner_l_shaped_residue_by_area_rule() {
+        // L字型の枠残渣（bbox は正方形に近いので thin ルールに掛からない）でも、
+        // 面積比が保護閾値未満なら境界接触ルールで除去される。
+        let w = 100u32;
+        let h = 100u32;
+        let mut binary = white_binary(w, h);
+        // 上辺 + 左辺の L 字（2px厚、腕60px。面積 236/10000 = 2.4% < 4%）
+        fill_black(&mut binary, w, 0, 0, 60, 2);
+        fill_black(&mut binary, w, 0, 2, 2, 60);
+        // 内側ストローク
+        fill_black(&mut binary, w, 40, 40, 60, 60);
+
+        let q = apply_cell_quality_gate(&mut binary, w, h);
+
+        assert_eq!(binary[(1 * w + 30) as usize], 255, "L字残渣（横腕）は消えるべき");
+        assert_eq!(binary[(30 * w + 1) as usize], 255, "L字残渣（縦腕）は消えるべき");
+        assert_eq!(binary[(50 * w + 50) as usize], 0, "内側ストロークは残るべき");
+        assert_eq!(q.removed_components, 1);
+        assert!(q.needs_review);
+    }
+
+    #[test]
+    fn gate_protects_overflowing_stroke() {
+        // はみ出して書いた字の代理: 境界に接触するが太く面積の大きい成分は
+        // 除去されず、needs_review だけ立つ（最悪の退行 = 字が丸ごと消える の安全弁）。
+        let w = 40u32;
+        let h = 40u32;
+        let mut binary = white_binary(w, h);
+        // 左境界に接触する 20x30 ブロック（面積 600/1600 = 37.5% ≥ 4%、短辺 20 > 3）
+        fill_black(&mut binary, w, 0, 5, 20, 35);
+
+        let q = apply_cell_quality_gate(&mut binary, w, h);
+
+        assert_eq!(binary[(20 * w + 10) as usize], 0, "はみ出しストロークは残るべき");
+        assert_eq!(q.removed_components, 0);
+        assert_eq!(q.kept_components, 1);
+        assert!(q.needs_review, "境界接触ストロークを保護したら要確認");
+    }
+
+    #[test]
+    fn gate_removes_interior_speck_without_review() {
+        // 内側の微小スペック除去（面積フィルタ）は日常動作なので needs_review は立たない
+        let w = 40u32;
+        let h = 40u32;
+        let mut binary = white_binary(w, h);
+        // スペック: 2x2（面積4 < MIN_SPECK_AREA）
+        fill_black(&mut binary, w, 10, 10, 12, 12);
+        // ストローク: 8x8
+        fill_black(&mut binary, w, 20, 20, 28, 28);
+
+        let q = apply_cell_quality_gate(&mut binary, w, h);
+
+        assert_eq!(binary[(10 * w + 10) as usize], 255, "微小スペックは消えるべき");
+        assert_eq!(binary[(24 * w + 24) as usize], 0, "ストロークは残るべき");
+        assert_eq!(q.removed_components, 1);
+        assert_eq!(q.kept_components, 1);
+        assert!(!q.needs_review, "内側スペック除去だけなら要確認にしない");
+    }
+
+    #[test]
+    fn gate_flags_zeroed_cell() {
+        // 除去の結果、残成分がゼロ化したセルは needs_review（黙って空に倒さない）
+        let w = 40u32;
+        let h = 40u32;
+        let mut binary = white_binary(w, h);
+        // 内側の微小スペックのみ（境界非接触）
+        fill_black(&mut binary, w, 10, 10, 12, 12);
+
+        let q = apply_cell_quality_gate(&mut binary, w, h);
+
+        assert_eq!(q.removed_components, 1);
+        assert_eq!(q.kept_components, 0);
+        assert!(q.needs_review, "残成分ゼロ化は要確認");
+    }
+
+    #[test]
+    fn gate_clean_cell_untouched() {
+        // 正常セル（内側ストロークのみ）は無変更・要確認なし
+        let w = 40u32;
+        let h = 40u32;
+        let mut binary = white_binary(w, h);
+        fill_black(&mut binary, w, 10, 10, 30, 30);
+        let original = binary.clone();
+
+        let q = apply_cell_quality_gate(&mut binary, w, h);
+
+        assert_eq!(binary, original, "正常セルは無変更");
+        assert_eq!(q.removed_components, 0);
+        assert_eq!(q.kept_components, 1);
+        assert!(!q.needs_review);
+        assert!((q.ink_ratio - 400.0 / 1600.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn gate_empty_input() {
+        let mut binary: Vec<u8> = vec![];
+        let q = apply_cell_quality_gate(&mut binary, 0, 0);
+        assert_eq!(q.removed_components, 0);
+        assert_eq!(q.kept_components, 0);
+        assert!(!q.needs_review);
     }
 
     // ── measure_inner_black_ratio ──
