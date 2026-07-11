@@ -32,6 +32,7 @@ import {
   CHECK_HEIGHT,
   CELL_GAP,
   SAMPLE_WIDTH,
+  GUIDE_BASELINE_OFFSET,
   MARKER_SIZE,
   MARKERS,
   QR_X,
@@ -218,6 +219,21 @@ async function generatePage(
           px(INNER_SIZE),
           px(INNER_SIZE),
         );
+
+        // ベースライン/センターガイド（#111、シアン=スキャン時に除去される）
+        // テンプレートPDF（generator.ts）と同じ位置に描き、除去経路を e2e で検証する
+        const baselineY = px(pos.y + innerOffset + INNER_SIZE - GUIDE_BASELINE_OFFSET);
+        ctx.strokeStyle = '#CCFFFF';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(px(pos.x + innerOffset), baselineY);
+        ctx.lineTo(px(pos.x + innerOffset + INNER_SIZE), baselineY);
+        ctx.stroke();
+        const centerGuideX = px(pos.x + CELL_SIZE / 2);
+        ctx.beginPath();
+        ctx.moveTo(centerGuideX, px(pos.y + innerOffset));
+        ctx.lineTo(centerGuideX, px(pos.y + innerOffset + INNER_SIZE));
+        ctx.stroke();
 
         // チェック欄区切り（シアン）
         ctx.beginPath();

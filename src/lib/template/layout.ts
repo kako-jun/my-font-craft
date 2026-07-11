@@ -31,6 +31,14 @@ export const CHECK_HEIGHT = 3;
 export const CELL_GAP = 2;
 export const SAMPLE_WIDTH = 10;
 
+// ガイド線（#111）
+// セル→em 固定変換では内枠(10mm) = em-square で、内枠下端が em Y=-120
+// （ideographic embox 慣例）に写る。ベースライン（em Y=0）は内枠下端の 1.2mm 上
+// = -(-120) / (1000units / 10mm)。この高さに薄いシアンの水平ガイド線を引き、
+// 内枠中央に縦のセンターガイドを引く（Rust 側の正本: cli/src/layout.rs
+// GUIDE_BASELINE_OFFSET_MM / EMBOX_BOTTOM_Y、関係式は vectorizer.rs のテストで固定）
+export const GUIDE_BASELINE_OFFSET = 1.2;
+
 // QRコード（本文領域下、左下付近）
 // 本文最終行チェック欄下端: y=266、bottomマーカー: y=287〜295
 // QR下端(267+15=282)はbottomマーカー(y=287)より上で干渉なし

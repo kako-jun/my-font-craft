@@ -1517,6 +1517,28 @@ fn erase_grid_lines(img: &RgbaImage) -> RgbaImage {
                 erase_vertical_line(&mut out, ix, iy, layout::INNER_SIZE, inner_margin);
                 erase_vertical_line(&mut out, ix + layout::INNER_SIZE, iy, layout::INNER_SIZE, inner_margin);
 
+                // ベースライン/センターガイド線（#111）。
+                // 除去の主防御はシアン除去。ここは layout 既知の第2防御で、
+                // 輝度150未満の手書きストロークは is_overpaintable が保護する。
+                // ガイド線はセル中央付近を横切るため、シアン除去も本白塗りも
+                // 抜けた場合はセル品質ゲート（#110）の境界接触除去には掛からない
+                // （境界帯に触れない）— ゲートはあくまで保険であり主防御ではない
+                let guide_margin = 4u32;
+                erase_horizontal_line(
+                    &mut out,
+                    ix,
+                    iy + layout::INNER_SIZE - layout::GUIDE_BASELINE_OFFSET_MM,
+                    layout::INNER_SIZE,
+                    guide_margin,
+                );
+                erase_vertical_line(
+                    &mut out,
+                    mm_x + layout::CELL_SIZE / 2.0,
+                    iy,
+                    layout::INNER_SIZE,
+                    guide_margin,
+                );
+
                 let check_y = mm_y + layout::CELL_SIZE;
                 erase_horizontal_line(&mut out, mm_x, check_y + layout::CHECK_HEIGHT, layout::CELL_SIZE, line_margin);
                 erase_vertical_line(&mut out, mm_x, check_y, layout::CHECK_HEIGHT, line_margin);

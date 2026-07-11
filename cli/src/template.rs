@@ -158,6 +158,18 @@ fn draw_cell_grid(img: &mut RgbaImage) {
                 let offset = (cell_px - inner_px) / 2;
                 draw_rect_outline(img, px_x + offset, px_y + offset, inner_px, inner_px, cyan);
 
+                // ベースライン/センターガイド（#111、シアン=スキャン時に除去される）
+                // ベースライン: 内枠下端の GUIDE_BASELINE_OFFSET_MM(1.2mm) 上 = em の y=0
+                let inner_offset_mm = (layout::CELL_SIZE - layout::INNER_SIZE) / 2.0;
+                let baseline_y = layout::mm_to_px(
+                    mm_y + inner_offset_mm + layout::INNER_SIZE - layout::GUIDE_BASELINE_OFFSET_MM,
+                )
+                .round() as u32;
+                fill_rect(img, px_x + offset, baseline_y, inner_px, 1, cyan);
+                // センターガイド: 内枠中央の縦線
+                let center_x = layout::mm_to_px(mm_x + layout::CELL_SIZE / 2.0).round() as u32;
+                fill_rect(img, center_x, px_y + offset, 1, inner_px, cyan);
+
                 // チェック欄（3mm、セル外枠の直下）
                 let check_y = px_y + cell_px;
                 draw_rect_outline(img, px_x, check_y, cell_px, check_px, black);
