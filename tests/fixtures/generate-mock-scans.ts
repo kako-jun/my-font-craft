@@ -122,6 +122,7 @@ async function generatePage(
   pageIdx: number,
   chars: string[],
   residueCharIndices?: Set<number>,
+  qrDataOverride?: string,
 ): Promise<Buffer> {
   const canvas = createCanvas(canvasW, canvasH);
   const ctx = canvas.getContext('2d');
@@ -141,15 +142,18 @@ async function generatePage(
   ctx.font = '24px sans-serif';
   ctx.fillText(`Page ${pageIdx + 1}/${totalPages}`, px(80), px(14));
 
-  // QRコード（#91: v:3 + s フラグ必須。mock はひらがなのみ）
-  const qrData = JSON.stringify({
-    p: 'mfc',
-    v: 3,
-    pg: pageIdx + 1,
-    t: totalPages,
-    m: 2,
-    s: 'h',
-  });
+  // QRコード（#91: v:3 + s フラグ必須。mock はひらがなのみ。
+  // metrics ページは chars ペイロード（#96 リトライPDF形式）で上書きする）
+  const qrData =
+    qrDataOverride ??
+    JSON.stringify({
+      p: 'mfc',
+      v: 3,
+      pg: pageIdx + 1,
+      t: totalPages,
+      m: 2,
+      s: 'h',
+    });
   try {
     const qrBuffer = await QRCode.toBuffer(qrData, {
       errorCorrectionLevel: 'M',
@@ -250,7 +254,12 @@ async function generatePage(
 
         // --- 文字を描画（1つ目のマスにのみ書く。2つ目は空欄） ---
         if (cellIdx === 0) {
-          const fontSize = px(INNER_SIZE * 0.75);
+          // 句読点はフォントグリフのインクが極端に小さく、0.75em 描画だと
+          // 空マス判定（内側60%で黒2%未満）と 2.1% vs 2.0% の際どい勝負になる。
+          // 手書きの句読点はフォントより相対的に大きく書かれるのが実態なので、
+          // 1.0em で描いて閾値境界から離す（#111 metrics ページで使用）
+          const scale = '、。'.includes(char) ? 1.0 : 0.75;
+          const fontSize = px(INNER_SIZE * scale);
           ctx.fillStyle = '#000000';
           ctx.font = `${fontSize}px "Hiragino Sans", "Noto Sans CJK JP", sans-serif`;
           ctx.textAlign = 'center';
@@ -358,6 +367,51 @@ export async function generateResidueScans(outputDir: string): Promise<string[]>
 }
 
 /**
+ * 配置検証（metrics）ページの文字リスト（#111）。
+ * セル→em 固定変換の e2e 検証用: 句読点（、。）・小書きかな（っ vs つ、ぁ vs あ）・
+ * descender（g/j/p/q/y）・長音（ー）をフォント描画でセルに載せる。
+ * QR は #96 リトライPDF形式の `chars` ペイロードで、この配列をそのまま埋め込む。
+ * glyph-metrics-flow.spec.ts と共有する（二重管理しない）。
+ */
+export const METRICS_PAGE_CHARS = [
+  '、',
+  '。',
+  'っ',
+  'つ',
+  'ぁ',
+  'あ',
+  'g',
+  'j',
+  'p',
+  'q',
+  'y',
+  'ー',
+];
+
+/**
+ * 配置検証ページを生成する（#111）。
+ * 出力先を分けているのは、正面 e2e（mock-scans/ 全 PNG を ZIP 化）の
+ * ひらがな83文字検証に metrics ページの重複文字（っ つ ぁ あ）を混入させないため。
+ */
+export async function generateMetricsScans(outputDir: string): Promise<string[]> {
+  prepareOutputDir(outputDir);
+
+  const qrData = JSON.stringify({
+    p: 'mfc',
+    v: 3,
+    pg: 1,
+    t: 1,
+    m: 2,
+    chars: METRICS_PAGE_CHARS,
+  });
+  const buffer = await generatePage(0, METRICS_PAGE_CHARS, undefined, qrData);
+  const filepath = path.join(outputDir, 'page-01-metrics.png');
+  fs.writeFileSync(filepath, buffer);
+  console.log(`Generated: page-01-metrics.png (${METRICS_PAGE_CHARS.join('')})`);
+  return [filepath];
+}
+
+/**
  * 正面画像から斜め撮影風の歪みバリアントを生成する（#109）。
  * 出力先を分けているのは、既存の正面 e2e（mock-scans/ 全 PNG を ZIP 化）に
  * 歪み画像が混入しないようにするため。
@@ -394,9 +448,11 @@ if (
   const outDir = path.join(fixturesDir, 'mock-scans');
   const distortedDir = path.join(fixturesDir, 'mock-scans-distorted');
   const residueDir = path.join(fixturesDir, 'mock-scans-residue');
+  const metricsDir = path.join(fixturesDir, 'mock-scans-metrics');
   generateMockScans(outDir)
     .then((files) => generateDistortedScans(files, distortedDir).then((d) => [...files, ...d]))
     .then((files) => generateResidueScans(residueDir).then((r) => [...files, ...r]))
+    .then((files) => generateMetricsScans(metricsDir).then((m) => [...files, ...m]))
     .then((files) => {
       console.log(`\nDone! Generated ${files.length} mock scan images.`);
     })
