@@ -1535,6 +1535,9 @@ fn erase_grid_lines(img: &RgbaImage) -> RgbaImage {
                 // ガイド線はセル中央付近を横切るため、シアン除去も本白塗りも
                 // 抜けた場合はセル品質ゲート（#110）の境界接触除去には掛からない
                 // （境界帯に触れない）— ゲートはあくまで保険であり主防御ではない
+                // 4px は帯の中で最小: ガイドは手書きの最密集地帯（書く領域の中央）を
+                // 通るため外枠 6px・内枠 5px より狭くして誤白塗りの面を減らす。
+                // TPS 残差が 4px を超えるケースはシアン除去（色ベース・位置非依存）が主防御
                 let guide_margin = 4u32;
                 erase_horizontal_line(
                     &mut out,
@@ -1735,14 +1738,18 @@ mod image_ops_tests {
         let mut img = white_page();
         for x in seg_x0..seg_x1 {
             img.put_pixel(x, baseline_y, gray); // 公称位置
-            img.put_pixel(x, baseline_y + 4, gray); // 帯の内側端（inclusive）
-            img.put_pixel(x, baseline_y + 5, gray); // 帯の外
+            img.put_pixel(x, baseline_y + 4, gray); // 帯の内側端（+側、inclusive）
+            img.put_pixel(x, baseline_y + 5, gray); // 帯の外（+側）
+            img.put_pixel(x, baseline_y - 4, gray); // 帯の内側端（-側、inclusive）
+            img.put_pixel(x, baseline_y - 5, gray); // 帯の外（-側）
         }
         let out = erase_grid_lines(&img);
         for x in seg_x0..seg_x1 {
             assert_eq!(*out.get_pixel(x, baseline_y), WHITE, "公称位置 x={x} は白化されるべき");
             assert_eq!(*out.get_pixel(x, baseline_y + 4), WHITE, "+4px x={x} は白化されるべき");
             assert_eq!(*out.get_pixel(x, baseline_y + 5), gray, "+5px x={x} は帯の外で残存すべき");
+            assert_eq!(*out.get_pixel(x, baseline_y - 4), WHITE, "-4px x={x} は白化されるべき");
+            assert_eq!(*out.get_pixel(x, baseline_y - 5), gray, "-5px x={x} は帯の外で残存すべき");
         }
     }
 
@@ -1758,12 +1765,16 @@ mod image_ops_tests {
             img.put_pixel(center_x, y, gray);
             img.put_pixel(center_x + 4, y, gray);
             img.put_pixel(center_x + 5, y, gray);
+            img.put_pixel(center_x - 4, y, gray);
+            img.put_pixel(center_x - 5, y, gray);
         }
         let out = erase_grid_lines(&img);
         for y in seg_y0..seg_y1 {
             assert_eq!(*out.get_pixel(center_x, y), WHITE, "公称位置 y={y} は白化されるべき");
             assert_eq!(*out.get_pixel(center_x + 4, y), WHITE, "+4px y={y} は白化されるべき");
             assert_eq!(*out.get_pixel(center_x + 5, y), gray, "+5px y={y} は帯の外で残存すべき");
+            assert_eq!(*out.get_pixel(center_x - 4, y), WHITE, "-4px y={y} は白化されるべき");
+            assert_eq!(*out.get_pixel(center_x - 5, y), gray, "-5px y={y} は帯の外で残存すべき");
         }
     }
 

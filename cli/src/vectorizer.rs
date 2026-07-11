@@ -546,21 +546,31 @@ mod tests {
         // 理想 em 座標（0 / 1000 / -120 / 880）から 8 units 以内に写ることを固定する
         let crop = layout::mm_to_px(layout::CELL_CROP_SIZE).round() as u32; // 142
         let to_px = |mm: f64| layout::mm_to_px(mm).round() as u32;
-        let x0 = to_px(1.0); // 内枠左端/上端
-        let x1 = to_px(11.0); // 内枠右端/下端
+        // 内枠位置は crop 幾何の正本（inner_left_in_crop_mm = 1.0mm）から導出する
+        let inner_left_mm = inner_left_in_crop_mm();
+        let inner_bottom_mm = inner_left_mm + layout::INNER_SIZE;
+        let x0 = to_px(inner_left_mm); // 内枠左端/上端
+        let x1 = to_px(inner_bottom_mm); // 内枠右端/下端
         let binary = make_binary(crop, crop, &[(x0, x0, x1, x1)]);
         let (min_x, min_y, max_x, max_y) = paths_bbox(&vectorize_binary(&binary, crop, crop));
         assert!((min_x - 0.0).abs() <= 8.0, "内枠左端の写像誤差: {min_x}");
-        assert!((max_x - 1000.0).abs() <= 8.0, "内枠右端の写像誤差: {max_x}");
-        assert!((max_y - 880.0).abs() <= 8.0, "内枠上端の写像誤差: {max_y}");
+        assert!(
+            (max_x - UNITS_PER_EM).abs() <= 8.0,
+            "内枠右端の写像誤差: {max_x}"
+        );
+        assert!(
+            (max_y - (layout::EMBOX_BOTTOM_Y + UNITS_PER_EM)).abs() <= 8.0,
+            "内枠上端の写像誤差: {max_y}"
+        );
         assert!(
             (min_y - layout::EMBOX_BOTTOM_Y).abs() <= 8.0,
             "内枠下端の写像誤差: {min_y}"
         );
 
-        // ベースライン（crop 内 9.8mm）に下端が接する成分 → y=0 から 8 units 以内
-        let yb = to_px(11.0 - layout::GUIDE_BASELINE_OFFSET_MM);
-        let binary = make_binary(crop, crop, &[(x0, to_px(8.0), x1, yb)]);
+        // ベースライン（内枠下端の GUIDE_BASELINE_OFFSET_MM 上）に下端が接する成分
+        // → y=0 から 8 units 以内
+        let yb = to_px(inner_bottom_mm - layout::GUIDE_BASELINE_OFFSET_MM);
+        let binary = make_binary(crop, crop, &[(x0, yb - to_px(1.8), x1, yb)]);
         let (_, min_y, _, _) = paths_bbox(&vectorize_binary(&binary, crop, crop));
         assert!(min_y.abs() <= 8.0, "ベースラインの写像誤差: {min_y}");
     }
@@ -576,11 +586,14 @@ mod tests {
         // 将来ここに防御を追加したら、このテストの期待を反転させること。
         let crop = layout::mm_to_px(layout::CELL_CROP_SIZE).round() as u32;
         let to_px = |mm: f64| layout::mm_to_px(mm).round() as u32;
-        let yb = to_px(11.0 - layout::GUIDE_BASELINE_OFFSET_MM);
+        // ガイド線の位置は crop 幾何の正本（inner_left_in_crop_mm）から導出する
+        let inner_left_mm = inner_left_in_crop_mm();
+        let inner_bottom_mm = inner_left_mm + layout::INNER_SIZE;
+        let yb = to_px(inner_bottom_mm - layout::GUIDE_BASELINE_OFFSET_MM);
         let mut img = make_image(crop, crop, Rgba([255, 255, 255, 255]));
         // ベースラインガイド相当: 内枠幅いっぱい・太さ3px の黒線（モノクロ印刷の代理）
         for y in yb..yb + 3 {
-            for x in to_px(1.0)..to_px(11.0) {
+            for x in to_px(inner_left_mm)..to_px(inner_bottom_mm) {
                 img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
             }
         }
