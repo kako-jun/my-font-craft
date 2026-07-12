@@ -88,8 +88,29 @@ export default function ScanResultGrid(props: Props) {
     if (i !== null && i >= items().length) setInspectIdx(null);
   });
 
-  const openAt = (idx: number) => setInspectIdx(Math.max(0, Math.min(idx, items().length - 1)));
-  const close = () => setInspectIdx(null);
+  // 検分を開いた起点の紙片セル。閉じたらここへフォーカスを戻す（キーボード操作の迷子防止）
+  let returnFocusEl: HTMLElement | null = null;
+  // 検分ビュー内の可視フォーカス対象（disabled は除く）。Tab のトラップに使う
+  const inspectorFocusables = (): HTMLElement[] =>
+    inspectorEl
+      ? Array.from(
+          inspectorEl.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          ),
+        )
+      : [];
+
+  const openAt = (idx: number) => {
+    const active = document.activeElement;
+    returnFocusEl =
+      active instanceof HTMLElement && active.classList.contains('scan-grid__cell') ? active : null;
+    setInspectIdx(Math.max(0, Math.min(idx, items().length - 1)));
+  };
+  const close = () => {
+    setInspectIdx(null);
+    returnFocusEl?.focus();
+    returnFocusEl = null;
+  };
   const prev = () => setInspectIdx((i) => (i === null ? null : Math.max(0, i - 1)));
   const next = () =>
     setInspectIdx((i) => (i === null ? null : Math.min(items().length - 1, i + 1)));
@@ -179,6 +200,20 @@ export default function ScanResultGrid(props: Props) {
         e.preventDefault();
         nextOrClose();
         break;
+      case 'Tab': {
+        // フォーカストラップ: dialog 内の可視要素だけを巡回し、端で先頭/末尾へ折り返す
+        const focusables = inspectorFocusables();
+        if (focusables.length === 0) break;
+        e.preventDefault();
+        const cur = document.activeElement as HTMLElement | null;
+        const at = cur ? focusables.indexOf(cur) : -1;
+        const last = focusables.length - 1;
+        let to: number;
+        if (e.shiftKey) to = at <= 0 ? last : at - 1;
+        else to = at === last || at === -1 ? 0 : at + 1;
+        focusables[to].focus();
+        break;
+      }
       case 'Escape':
         e.preventDefault();
         close();
@@ -234,6 +269,10 @@ export default function ScanResultGrid(props: Props) {
             aria-label="紙片の検分"
             tabIndex={-1}
             ref={(el) => (inspectorEl = el)}
+            /* 背景（stage 外）タップで閉じる — キーボード無しの脱出口 */
+            onClick={(e) => {
+              if (e.target === e.currentTarget) close();
+            }}
           >
             <button class="inspector__close" onClick={close} title="閉じる (Esc)">
               ×
