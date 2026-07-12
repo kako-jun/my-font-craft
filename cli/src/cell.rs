@@ -47,6 +47,12 @@ pub fn extract_and_judge(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CharR
     let mut total_adopted = 0usize;
     let mut total_empty = 0usize;
 
+    // 輪郭ベクター化の cmd/glyph 計測（#112）: 非空グリフの (単純化前, 単純化後, ランレングス)
+    let mut cmd_glyphs = 0usize;
+    let mut cmd_raw_sum = 0usize;
+    let mut cmd_simplified_sum = 0usize;
+    let mut cmd_runlength_sum = 0usize;
+
     for row in 0..layout::ROWS {
         for col in 0..layout::COLS {
             if layout::is_skipped_cell(row, col) {
@@ -112,6 +118,33 @@ pub fn extract_and_judge(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CharR
                 std::fs::write(output_dir.join(&svg_filename), svg)
                     .map_err(|e| format!("paths SVG保存エラー {svg_filename}: {e}"))?;
 
+                // ジャギー比較用にランレングス方式（フォールバック）の SVG も並置出力（#112）
+                let rl_paths = crate::vectorizer::vectorize_binary_runlength(
+                    &gated_binary,
+                    vec_cell.width(),
+                    vec_cell.height(),
+                );
+                let rl_svg = crate::vectorizer::paths_to_svg(&rl_paths);
+                let rl_svg_filename = format!("R{row:02}C{col:02}_I{cell_idx}_paths_runlength.svg");
+                std::fs::write(output_dir.join(&rl_svg_filename), rl_svg)
+                    .map_err(|e| format!("runlength SVG保存エラー {rl_svg_filename}: {e}"))?;
+
+                // cmd/glyph 3点計測（#112）: 非空グリフのみ集計
+                if !paths.is_empty() {
+                    let (raw, simplified, runlength) = crate::vectorizer::vectorize_command_counts(
+                        &gated_binary,
+                        vec_cell.width(),
+                        vec_cell.height(),
+                    );
+                    cmd_glyphs += 1;
+                    cmd_raw_sum += raw;
+                    cmd_simplified_sum += simplified;
+                    cmd_runlength_sum += runlength;
+                    log!(
+                        "  R{row:02}C{col:02}_I{cell_idx} cmd: 単純化前={raw} 輪郭={simplified} ランレングス={runlength}"
+                    );
+                }
+
                 let check_filename = format!("R{row:02}C{col:02}_I{cell_idx}_check.png");
                 check_img.save(output_dir.join(&check_filename))
                     .map_err(|e| format!("チェック欄保存エラー {check_filename}: {e}"))?;
@@ -170,6 +203,16 @@ pub fn extract_and_judge(img: &RgbaImage, output_dir: &Path) -> Result<Vec<CharR
     }
 
     log!("\n  文字サマリー: 採用={total_adopted}, 空={total_empty}, 合計={}", results.len());
+    if cmd_glyphs > 0 {
+        let n = cmd_glyphs as f64;
+        log!(
+            "  cmd/glyph 平均（非空{cmd_glyphs}字）: 単純化前={:.1} 輪郭={:.1} ランレングス={:.1}（削減 {:.1}x）",
+            cmd_raw_sum as f64 / n,
+            cmd_simplified_sum as f64 / n,
+            cmd_runlength_sum as f64 / n,
+            cmd_runlength_sum as f64 / cmd_simplified_sum.max(1) as f64,
+        );
+    }
     Ok(results)
 }
 
