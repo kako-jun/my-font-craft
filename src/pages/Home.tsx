@@ -1,62 +1,80 @@
-import { useNavigate } from '@solidjs/router';
-import { IconPrinter, IconPen } from '../components/icons';
+import { A } from '@solidjs/router';
 
 export default function Home() {
-  const navigate = useNavigate();
-
   return (
     <div class="home">
-      <section class="hero card">
-        <h1 class="hero__title">自分だけのフォントを作ろう</h1>
-        <p class="hero__desc">
-          テンプレートを印刷して手書き。スキャンするだけで、あなたの字がフォントになります。
-        </p>
-        <div class="hero__actions">
-          <button class="btn btn--primary" onClick={() => navigate('/template')}>
-            <IconPrinter /> 1. テンプレートを印刷する
-          </button>
-          <button class="btn" onClick={() => navigate('/upload')}>
-            <IconPen /> 2. フォントを作成する
-          </button>
-        </div>
-      </section>
+      <div class="home__lead">
+        <h1>
+          手書きの字が、
+          <br />
+          フォントになる。
+        </h1>
+      </div>
 
-      <section class="steps">
-        <div class="step">
-          <span class="step__number">1</span>
-          <span>印刷</span>
-        </div>
-        <span class="step__arrow">→</span>
-        <div class="step">
-          <span class="step__number">2</span>
-          <span>手書き</span>
-        </div>
-        <span class="step__arrow">→</span>
-        <div class="step">
-          <span class="step__number">3</span>
-          <span>スキャン</span>
-        </div>
-        <span class="step__arrow">→</span>
-        <div class="step">
-          <span class="step__number">4</span>
-          <span>完成!</span>
-        </div>
-      </section>
+      <div class="home__columns">
+        {/* 4ステップ: 読まずに流れが分かる。1と3がそのまま入口 */}
+        <ol class="flow home__flow">
+          <li class="flow__step">
+            <span class="flow__num">一</span>
+            <div>
+              <span class="flow__label">
+                <A href="/template">テンプレートをダウンロード</A>
+              </span>
+              <span class="flow__hint">A4のPDF。印刷して使う</span>
+            </div>
+          </li>
+          <li class="flow__step">
+            <span class="flow__num">二</span>
+            <div>
+              <span class="flow__label">マスに手書き</span>
+              <span class="flow__hint">ペンで一文字ずつ</span>
+            </div>
+          </li>
+          <li class="flow__step">
+            <span class="flow__num">三</span>
+            <div>
+              <span class="flow__label">
+                <A href="/upload">撮影してアップロード</A>
+              </span>
+              <span class="flow__hint">スマホ撮影でも可。傾きは自動補正</span>
+            </div>
+          </li>
+          <li class="flow__step">
+            <span class="flow__num">四</span>
+            <div>
+              <span class="flow__label">フォントをダウンロード</span>
+              <span class="flow__hint">
+                <span class="num">.ttf</span> — そのままPCやスマホで使える
+              </span>
+            </div>
+          </li>
+        </ol>
 
-      <section class="features">
-        <div class="card">
-          <h3>プライバシー安心</h3>
-          <p>すべての処理がブラウザ内で完結。画像がサーバーに送られることはありません。</p>
-        </div>
-        <div class="card">
-          <h3>かんたん</h3>
-          <p>テンプレートを印刷して手書き → スキャンするだけ。事前の画像加工は不要です。</p>
-        </div>
-        <div class="card">
-          <h3>無料</h3>
-          <p>ユーザー登録不要、完全無料。作成したフォントは個人・商用問わず自由に使えます。</p>
-        </div>
-      </section>
+        {/* 操作サンプル: 記入済みテンプレートの紙片 */}
+        <figure class="home__samples">
+          <img
+            class="sample-slip sample-slip--page"
+            src="/sample-template-page.webp"
+            alt="記入済みテンプレートの全体"
+            width="560"
+            height="792"
+          />
+          <img
+            class="sample-slip sample-slip--cells"
+            src="/sample-filled-cells.webp"
+            alt="マスに手書きした文字の拡大"
+            width="720"
+            height="351"
+          />
+          <figcaption>記入例 — マスに書いた字がそのまま字形になる</figcaption>
+        </figure>
+      </div>
+
+      <ul class="facts">
+        <li>全処理がブラウザ内。画像は端末の外に出ない</li>
+        <li>登録不要・無料</li>
+        <li>生成したフォントは個人・商用とも自由</li>
+      </ul>
     </div>
   );
 }

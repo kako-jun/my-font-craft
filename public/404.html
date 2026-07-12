@@ -3,34 +3,44 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
     <title>ページが見つかりません — MyFontCraft</title>
     <style>
       body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-family: georgia, "Times New Roman", "Hiragino Mincho ProN", "Yu Mincho",
+          "Noto Serif JP", serif;
         display: flex;
         justify-content: center;
         align-items: center;
         min-height: 100vh;
         margin: 0;
-        background-color: #f5f0e8;
-        color: #4a3728;
+        background: #0b0805 url("/night-desk-bg.webp") 55% 50% / cover no-repeat;
+        color: #e9dcc4;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
       }
       .container {
         text-align: center;
         padding: 2rem;
+        background: radial-gradient(60% 60% at 50% 50%, rgba(9, 6, 4, 0.7), rgba(9, 6, 4, 0));
       }
       h1 {
         font-size: 3rem;
+        font-weight: 600;
+        letter-spacing: 0.1em;
         margin-bottom: 0.5rem;
       }
       p {
-        font-size: 1.2rem;
+        font-size: 1.1rem;
         margin-bottom: 1.5rem;
+        color: #b3a180;
       }
       a {
-        color: #4a3728;
+        color: #e8b96a;
         text-decoration: underline;
-        font-weight: bold;
+        text-underline-offset: 0.4em;
+      }
+      a:hover {
+        color: #ffd98a;
       }
     </style>
   </head>
@@ -38,7 +48,7 @@
     <div class="container">
       <h1>404</h1>
       <p>ページが見つかりません</p>
-      <a href="/">トップページに戻る</a>
+      <a href="/">トップへ戻る</a>
     </div>
   </body>
 </html>

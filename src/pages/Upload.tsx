@@ -10,15 +10,6 @@ import {
 import { buildFont, importFont } from '../lib/font/builder';
 import { mergeScanIntoExisting, mergeImportIntoExisting } from '../lib/merge';
 import { generateRetryTemplatePDF } from '../lib/template/generator';
-import { CHARS_PER_PAGE } from '../data/characters';
-import {
-  IconFolder,
-  IconZip,
-  IconDownload,
-  IconFont,
-  IconUpload,
-  IconImage,
-} from '../components/icons';
 
 interface Props {
   fontName: string;
@@ -38,32 +29,60 @@ export default function Upload(props: Props) {
     { pageIndex: number; dataUrl: string }[]
   >([]);
   const [scanResult, setScanResult] = createSignal<ProcessResult | null>(null);
+  // 仕分け（#114）: 書き直し = リトライ対象（フォントから除外）/ 採用 = 灯り
   const [excludedChars, setExcludedChars] = createSignal<Set<string>>(new Set());
+  const [adoptedChars, setAdoptedChars] = createSignal<Set<string>>(new Set());
 
-  // 未検出文字のリスト（imported は取得済み扱い、excluded は未検出扱い）
+  // 未検出文字のリスト（imported は取得済み扱い、書き直しは未検出扱い = リトライ対象）
   const missingChars = createMemo(() =>
     glyphStatuses()
       .filter((g) => g.status === 'empty' || excludedChars().has(g.char))
       .map((g) => g.char),
   );
 
-  function toggleExclude(char: string) {
+  /** 採用: 書き直しを取り消して灯す */
+  function adoptChar(char: string) {
     setExcludedChars((prev) => {
+      if (!prev.has(char)) return prev;
       const next = new Set(prev);
-      if (next.has(char)) {
-        next.delete(char);
-      } else {
-        next.add(char);
-      }
+      next.delete(char);
+      return next;
+    });
+    setAdoptedChars((prev) => {
+      if (prev.has(char)) return prev;
+      const next = new Set(prev);
+      next.add(char);
       return next;
     });
   }
 
-  // 取得済み文字（除外を除く）が1件以上あるか
+  /** 書き直し: リトライ対象へ（フォントからは除外） */
+  function rewriteChar(char: string) {
+    setAdoptedChars((prev) => {
+      if (!prev.has(char)) return prev;
+      const next = new Set(prev);
+      next.delete(char);
+      return next;
+    });
+    setExcludedChars((prev) => {
+      if (prev.has(char)) return prev;
+      const next = new Set(prev);
+      next.add(char);
+      return next;
+    });
+  }
+
+  // 取得済み文字（書き直しを除く）が1件以上あるか
   const hasAcquiredChars = createMemo(() =>
     glyphStatuses().some(
       (g) => (g.status === 'found' || g.status === 'imported') && !excludedChars().has(g.char),
     ),
+  );
+
+  // 生成対象の文字数（空・書き直し以外）
+  const buildCount = createMemo(
+    () =>
+      glyphStatuses().filter((g) => g.status !== 'empty' && !excludedChars().has(g.char)).length,
   );
 
   function addMessage(msg: ProcessMessage) {
@@ -136,7 +155,7 @@ export default function Upload(props: Props) {
         const acquired = found + imported;
         addMessage({
           type: 'info',
-          text: `追加スキャン完了（合計 ${acquired}/${total} 文字）`,
+          text: `追加スキャン完了 — 合計 ${acquired}/${total} 字`,
         });
       } else {
         // 新規スキャン
@@ -146,7 +165,7 @@ export default function Upload(props: Props) {
         const total = newGlyphStatuses.length;
         addMessage({
           type: 'info',
-          text: `スキャン完了: ${found}/${total} 文字を取得しました。結果を確認してください。`,
+          text: `スキャン完了 ${found}/${total} 字`,
         });
       }
       setPhase('review');
@@ -165,10 +184,9 @@ export default function Upload(props: Props) {
     if (!result) return;
 
     setPhase('building');
-    addMessage({ type: 'info', text: 'フォントを生成中...' });
 
     try {
-      // 除外文字のグリフを除く
+      // 書き直し文字のグリフを除く
       const excluded = excludedChars();
       const glyphs =
         excluded.size > 0
@@ -186,7 +204,6 @@ export default function Upload(props: Props) {
 
       const blob = new Blob([fontBytes], { type: 'font/ttf' });
       setFontBlob(blob);
-      addMessage({ type: 'success', text: 'フォント生成が完了しました!' });
       setPhase('done');
     } catch (err) {
       addMessage({
@@ -208,7 +225,7 @@ export default function Upload(props: Props) {
     URL.revokeObjectURL(url);
   }
 
-  // 未検出文字のリトライ用テンプレートPDFをダウンロード
+  // 書き直し・未検出文字のリトライ用テンプレートPDFをダウンロード
   async function handleDownloadRetryTemplate() {
     const chars = missingChars();
     if (chars.length === 0) return;
@@ -258,7 +275,7 @@ export default function Upload(props: Props) {
         const imported = merged.statuses.filter((g) => g.status === 'imported').length;
         addMessage({
           type: 'success',
-          text: `フォントをインポートしました: ${imported} 文字をインポートとして追加`,
+          text: `インポート完了 — ${imported} 字を追加`,
         });
       } else {
         // 新規: インポート結果をそのままセット
@@ -267,7 +284,7 @@ export default function Upload(props: Props) {
 
         addMessage({
           type: 'success',
-          text: `フォントをインポートしました: ${result.glyphs.length} 文字を読み込みました。`,
+          text: `インポート完了 ${result.glyphs.length} 字`,
         });
       }
 
@@ -311,7 +328,8 @@ export default function Upload(props: Props) {
     setGlyphStatuses([]);
     setCorrectedPages([]);
     setScanResult(null);
-    setExcludedChars(new Set());
+    setExcludedChars(new Set<string>());
+    setAdoptedChars(new Set<string>());
   }
 
   function handleResetWithConfirm() {
@@ -325,7 +343,7 @@ export default function Upload(props: Props) {
   }
 
   return (
-    <div class="upload-page">
+    <div class="upload-page" classList={{ 'upload-page--review': phase() === 'review' }}>
       <h2>2. フォントを作成する</h2>
 
       {/* ドロップゾーン（idle / review 時に表示） */}
@@ -340,49 +358,48 @@ export default function Upload(props: Props) {
           onDragLeave={() => setDragActive(false)}
           onDrop={handleDrop}
         >
-          <p>
+          <p class="drop-zone__lead">
             {phase() === 'review'
-              ? '追加の画像をアップロード（既存の結果に追加します）'
-              : 'スキャンした画像のフォルダまたはZIPをドラッグ&ドロップ'}
+              ? '追加の画像をここへ（既存に追加）'
+              : 'スキャン画像・フォルダ・ZIPをここへ'}
           </p>
-          <p class="drop-zone__hint">JPEG, PNG, WebP に対応</p>
-          <p>または</p>
-          <div style="display:flex;gap:0.5rem;justify-content:center;flex-wrap:wrap">
+          <p class="drop-zone__hint">JPEG / PNG / WebP</p>
+          <div class="drop-zone__sources">
             <button
-              class="btn"
+              class="act"
               onClick={(e) => {
                 e.stopPropagation();
                 document.getElementById('image-input')?.click();
               }}
             >
-              <IconImage /> 画像を選択（複数可）
+              画像を選択（複数可）
             </button>
             <button
-              class="btn"
+              class="act"
               onClick={(e) => {
                 e.stopPropagation();
                 document.getElementById('folder-input')?.click();
               }}
             >
-              <IconFolder /> フォルダを選択
+              フォルダを選択
             </button>
             <button
-              class="btn"
+              class="act"
               onClick={(e) => {
                 e.stopPropagation();
                 document.getElementById('zip-input')?.click();
               }}
             >
-              <IconZip /> ZIPを選択
+              ZIPを選択
             </button>
             <button
-              class="btn"
+              class="act"
               onClick={(e) => {
                 e.stopPropagation();
                 document.getElementById('font-input')?.click();
               }}
             >
-              <IconUpload /> 既存フォントを読み込む
+              既存フォントを読み込む
             </button>
           </div>
           <input
@@ -416,9 +433,9 @@ export default function Upload(props: Props) {
             onChange={handleFontFileInput}
           />
           <Show when={phase() === 'review'}>
-            <div style="margin-top:1rem">
+            <div class="drop-zone__reset">
               <button
-                class="btn"
+                class="act act--quiet"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleResetWithConfirm();
@@ -432,123 +449,87 @@ export default function Upload(props: Props) {
       </Show>
 
       <Show when={phase() === 'idle'}>
-        <div class="card upload-hint" style="margin-top:1rem">
-          <h4>アップロードについて</h4>
-          <ul class="upload-hint__list">
-            <li>スキャンした画像をフォルダごと、またはZIPにまとめてアップロード</li>
-            <li>ファイル名やフォルダ階層は自由（中に画像が含まれていればOK）</li>
-            <li>ページの識別はテンプレートのQRコードで自動的に行います</li>
-            <li>多少の傾きは自動補正されますが、なるべく正面から撮ると精度が上がります</li>
-            <li>チェック欄は任意です。同じ文字を2マス書いた時、✓ を書いた方が優先採用されます</li>
-            <li>
-              読み込みは常に既存に追加されます。0
-              文字に戻したいときは「リセット」ボタンを押してください
-            </li>
-          </ul>
-        </div>
+        <ul class="upload-hint__list upload-hint">
+          <li>フォルダごと / ZIPでまとめて可。階層・ファイル名は自由</li>
+          <li>ページ識別はQRコードで自動。多少の傾きも自動補正</li>
+          <li>チェック欄は任意 — 同じ文字を2マス書いたとき ✓ を優先</li>
+          <li>読み込みは常に既存へ追加。0 に戻すのは「リセット」</li>
+        </ul>
       </Show>
 
       {/* 撮影ガイド: idle時と、エラー発生時（review/idle問わず）に表示 */}
       <Show when={phase() === 'idle' || messages().some((m) => m.type === 'error')}>
-        <div class="card shooting-guide" style="margin-top:1rem">
+        <div class="shooting-guide">
           <h4 class="shooting-guide__title">撮影のコツ</h4>
-          <div class="shooting-guide__item shooting-guide__item--good">
-            {/* ✓ */}
+          <div class="shooting-guide__item">
             <span class="shooting-guide__icon shooting-guide__icon--good">&#x2713;</span>
-            <span>正面から、紙全体が収まるように撮影</span>
+            <span>正面から、紙全体を収める</span>
           </div>
-          <div class="shooting-guide__item shooting-guide__item--bad">
-            {/* ✗ */}
+          <div class="shooting-guide__item">
             <span class="shooting-guide__icon shooting-guide__icon--bad">&#x2717;</span>
-            <span>斜めすぎる — マーカーを検出できない場合があります</span>
+            <span>斜めすぎ — マーカーを検出できない</span>
           </div>
-          <div class="shooting-guide__item shooting-guide__item--bad">
-            {/* ✗ */}
+          <div class="shooting-guide__item">
             <span class="shooting-guide__icon shooting-guide__icon--bad">&#x2717;</span>
-            <span>近すぎる — 紙の一部が切れると文字を読み取れません</span>
-          </div>
-          <div class="shooting-guide__item shooting-guide__item--bad">
-            {/* ✗ */}
-            <span class="shooting-guide__icon shooting-guide__icon--bad">&#x2717;</span>
-            <span>遠すぎる — 解像度が低いと文字がぼやけます</span>
+            <span>近すぎ・遠すぎ — 見切れ / ぼやけで読み取れない</span>
           </div>
         </div>
       </Show>
 
       {/* スキャン中のプログレスバー */}
       <Show when={phase() === 'scanning'}>
-        <div class="card" style="margin-top:1rem">
-          <ProgressBar current={currentPage()} total={totalPages()} label="スキャン中..." />
-        </div>
+        <ProgressBar current={currentPage()} total={totalPages()} label="スキャン中..." />
       </Show>
 
       {/* メッセージ */}
       <Show when={messages().length > 0}>
-        <div class="messages" style="margin-top:1rem">
+        <div class="messages" style="margin-top:1.25rem">
           <For each={messages()}>
             {(msg) => <div class={`message message--${msg.type}`}>{msg.text}</div>}
           </For>
         </div>
       </Show>
 
-      {/* スキャン結果確認グリッド */}
+      {/* 俯瞰: 抽出した紙片の一覧（検分・仕分けは ScanResultGrid 内） */}
       <Show when={glyphStatuses().length > 0}>
-        <div class="card" style="margin-top:1rem">
-          <ScanResultGrid
-            glyphStatuses={glyphStatuses()}
-            correctedPages={correctedPages()}
-            excludedChars={excludedChars()}
-            onToggleExclude={toggleExclude}
-          />
-        </div>
+        <ScanResultGrid
+          glyphStatuses={glyphStatuses()}
+          correctedPages={correctedPages()}
+          excludedChars={excludedChars()}
+          adoptedChars={adoptedChars()}
+          onAdopt={adoptChar}
+          onRewrite={rewriteChar}
+        />
       </Show>
 
-      {/* レビューフェーズ */}
+      {/* 出口バー: 仕分けの出口が常に見える（review 中固定表示） */}
       <Show when={phase() === 'review'}>
-        <div class="card" style="margin-top:1rem;text-align:center">
-          {/* 未検出文字がある場合のリトライ案内 */}
-          <Show when={missingChars().length > 0}>
-            <div style="margin-bottom:1rem;padding:1rem;background:#FFF3CD;border-radius:4px;text-align:left">
-              <p style="color:#856404;font-weight:bold;margin-bottom:0.5rem">
-                {missingChars().length} 文字が未検出です
-              </p>
-              <p style="color:#856404;font-size:0.9rem;margin-bottom:0.75rem">
-                そのまま生成すると、未検出の文字は端末のフォントで代替表示されます。
-              </p>
-              {/* リトライPDFは v:3 QR の `s` フラグに対応できないため現状無効化（Issue #96）。
-                  scanner 側で `chars` 配列を優先する経路が入ったら再有効化する。 */}
-              <p style="color:#856404;font-size:0.85rem;margin-bottom:0.5rem">
-                リトライ機能は現在調整中です（Issue #96 で対応予定）
-              </p>
-              <button class="btn" onClick={handleDownloadRetryTemplate} disabled>
-                未検出文字のテンプレートをダウンロード (
-                {Math.ceil(missingChars().length / CHARS_PER_PAGE)} ページ)
-              </button>
-            </div>
-          </Show>
-
-          <p style="margin-bottom:1rem;color:var(--accent)">
-            {!hasAcquiredChars()
-              ? '文字を取得できませんでした。画像を確認してやり直してください。'
-              : missingChars().length === 0
-                ? '全文字を取得しました! フォントを生成できます。'
-                : '結果を確認して、このまま生成するか、追加スキャンしてください。'}
-          </p>
-          <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap">
+        <div class="exit-bar">
+          <div class="exit-bar__inner">
+            <Show when={missingChars().length > 0}>
+              <span>
+                {/* リトライPDFは v:3 QR の `s` フラグに未対応のため無効化中（Issue #96） */}
+                <button
+                  class="act act--ember"
+                  onClick={handleDownloadRetryTemplate}
+                  disabled
+                  title="調整中（Issue #96）"
+                >
+                  書き直し {missingChars().length} 字 → リトライPDF
+                </button>{' '}
+                <span class="exit-bar__note">調整中（#96）</span>
+              </span>
+            </Show>
             <button
-              class="btn btn--primary"
+              class="act act--primary"
               onClick={handleBuildFont}
               disabled={!hasAcquiredChars()}
             >
-              <IconFont />{' '}
               {!hasAcquiredChars()
                 ? 'フォントを生成できません'
                 : missingChars().length > 0
-                  ? `このまま生成する（${glyphStatuses().filter((g) => g.status !== 'empty' && !excludedChars().has(g.char)).length} 文字）`
+                  ? `このまま生成する（${buildCount()} 文字）`
                   : 'フォントを生成する'}
-            </button>
-            <button class="btn" onClick={handleResetWithConfirm}>
-              やり直す
             </button>
           </div>
         </div>
@@ -556,20 +537,18 @@ export default function Upload(props: Props) {
 
       {/* ビルド中 */}
       <Show when={phase() === 'building'}>
-        <div class="card" style="margin-top:1rem;text-align:center">
-          <p style="color:var(--accent)">フォントを生成中...</p>
-        </div>
+        <p class="upload-status">フォントを生成中...</p>
       </Show>
 
-      {/* 完了: ダウンロードボタン */}
+      {/* 完了 */}
       <Show when={phase() === 'done'}>
-        <div class="card" style="margin-top:1rem;text-align:center">
-          <h3>フォントが完成しました!</h3>
-          <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;margin-top:1rem">
-            <button class="btn btn--primary" onClick={handleDownloadFont}>
-              <IconDownload /> フォントをダウンロード (.ttf)
+        <div class="upload-done">
+          <h3>フォントが完成しました</h3>
+          <div class="upload-done__actions">
+            <button class="act act--primary" onClick={handleDownloadFont}>
+              フォントをダウンロード (.ttf)
             </button>
-            <button class="btn" onClick={handleResetWithConfirm}>
+            <button class="act act--quiet" onClick={handleResetWithConfirm}>
               最初からやり直す
             </button>
           </div>

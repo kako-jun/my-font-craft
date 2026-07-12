@@ -4,8 +4,8 @@
   "description": "手書きテンプレートからオリジナルフォントを作成",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f5f0e8",
-  "theme_color": "#4a3728",
+  "background_color": "#0b0805",
+  "theme_color": "#0b0805",
   "icons": [
     { "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any" }
   ]

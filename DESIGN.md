@@ -2,7 +2,9 @@
 
 ## 1. Visual Theme
 
-A Solid.js-based font creation tool with warm earth tone skeuomorphism and pixel art influences. The interface feels like a friendly craft workshop — cream paper backgrounds, wooden brown accents, and hand-drawn pixel art iconography. Approachable and cozy rather than clinical or techy.
+**The night desk.** Every page of my-font-craft happens on a single photographic plate: a dark wooden desk at night, a brass desk lamp, sheets of paper, a fountain pen (`public/night-desk-bg.webp`, fixed full-bleed on all routes). The UI is nothing but words placed on the dark wood and paper slips lit by the lamp. Dark-only — there is no light theme.
+
+No rectangular panels, no cards, no borders, no outlined buttons. Grouping is expressed by indentation, whitespace, line spacing, and type size. Interactive elements are text with a gold underline and a warm glow — "pressable" is shown by light, not by a box. Completed / adopted / done states are **lit** (a small gold bead of light, a warm glow), never dimmed or grayed out.
 
 ### Shared Magazine Page Format
 
@@ -10,153 +12,157 @@ my-font-craft belongs to the shared magazine-like page format with break-and-shi
 
 - Book / fashion magazine / women's cooking or interior magazine / PDF-like page composition.
 - Design like an art director for stylish magazines such as Pen, not like a conventional website designer.
-- Dark background with thick white gothic/sans-serif display type.
-- Rectangular section headings: a square number block followed by a contrasting title rectangle.
+- Dark background with display type floating directly on the photograph (my-font-craft sets it in mincho/serif rather than gothic — the subject is handwriting and type itself).
 - Text floating over photos or scanned paper.
 - Print-like page rhythm instead of stacked web cards.
 - Shared components should be reusable across the four projects: magazine section header, full-bleed photo spread, caption strip, numbered feature block.
-- Avoid parallax and fixed photo backgrounds with only text scrolling. They do not feel book-like.
-- Default behavior: photos and text scroll together as one page/spread.
+- Avoid parallax gimmicks. my-font-craft is the one deliberate variation on "photos and text scroll together": its single night-desk photograph is the constant material of every page — the workbench the whole app takes place on, not a decorative backdrop. Content (text, paper slips) scrolls across it the way objects move across a real desk.
 - A page break can simply be one strong photo, illustration, scan, or spread.
 - Use grid compositions that place photos and text side by side with generous whitespace around the text.
-- Treat photos as page material, not just decorative backgrounds.
+- Treat photos as page material, not just decorative backgrounds — here the desk photo _is_ the page.
 
-my-font-craft-specific variation: night wooden desk photos, desk lamp light, paper templates, handwritten glyphs, scanned sheets, ink/paper/wood accent colors.
+my-font-craft-specific variation: night wooden desk photo, desk lamp light, paper templates, handwritten glyphs treated as physical paper slips, ink/paper/wood/brass accent colors.
 
 ## 2. Color Palette
 
-| Token          | Value              | Usage                                            |
-| -------------- | ------------------ | ------------------------------------------------ |
-| `bg`           | `#fff8e7`          | Cream — page background, canvas area             |
-| `text`         | `#333333`          | Primary body text                                |
-| `accent`       | `#5d4e37`          | Brown — primary buttons, active states, headings |
-| `accent-light` | `#8b7355`          | Lighter brown — secondary buttons, hover states  |
-| `success`      | `#27ae60`          | Success messages, save confirmations             |
-| `error`        | `#e74c3c`          | Error messages, validation failures              |
-| `border`       | `#e0d8c8`          | Default borders, dividers, input outlines        |
-| `shadow`       | `rgba(0,0,0,0.08)` | Card/panel drop shadows                          |
-| `bg-hover`     | `#f0e8d6`          | Hovered card/row background                      |
+All colors are sampled from the background plate.
+
+| Token         | Value                   | Usage                                                |
+| ------------- | ----------------------- | ---------------------------------------------------- |
+| `night`       | `#0b0805`               | Base page color (under/around the photo)             |
+| `ink`         | `#e9dcc4`               | Primary text — the color of lamplit paper            |
+| `ink-dim`     | `#b3a180`               | Secondary text                                       |
+| `ink-faint`   | `#9a8967`               | Captions, hints, disabled (WCAG AA on `night`)       |
+| `lamp`        | `#e8b96a`               | Brass gold — links, actions, lit/adopted/done states |
+| `lamp-bright` | `#ffd98a`               | Hover glow                                           |
+| `lamp-glow`   | `rgba(232,185,106,0.5)` | Glow shadows around lit elements                     |
+| `ember`       | `#dfa050`               | Warning, needs-review flicker, rewrite verdict       |
+| `error`       | `#e28877`               | Error text                                           |
+| `paper`       | `#f2e9d4`               | Paper-slip background (glyph crops)                  |
+
+Success is expressed with `lamp` (lighting up), not green. There are no cold hues anywhere in the UI.
 
 ## 3. Typography
 
-| Role             | Font                                | Size    | Weight |
-| ---------------- | ----------------------------------- | ------- | ------ |
-| Logo / branding  | `"Courier New", Courier, monospace` | 28px    | 700    |
-| Headings         | `Georgia, "Times New Roman", serif` | 20–24px | 700    |
-| Body             | `Georgia, "Times New Roman", serif` | 14–16px | 400    |
-| Code / glyph IDs | `"Courier New", Courier, monospace` | 13px    | 400    |
-| Button labels    | `Georgia, serif`                    | 14px    | 600    |
+| Role             | Font                                                                                                                                                             | Size    | Weight |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------ |
+| Logo             | serif stack, italic, letter-spaced                                                                                                                               | 18px    | 400    |
+| Headings         | `Georgia, "Times New Roman", "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "BIZ UDMincho", "Noto Serif JP", "Noto Serif CJK JP", serif` (`--serif`, global.css) | 23–37px | 600    |
+| Body             | same serif/mincho stack                                                                                                                                          | 15–16px | 400    |
+| Technical values | `ui-monospace, "SF Mono", Menlo, Consolas, monospace` (`.num`, codes, build)                                                                                     | 12–13px | 400    |
 
-The serif body font gives a bookish, typographic feel appropriate for a font creation tool. Monospace is reserved for the logo treatment and technical values (Unicode points, glyph metrics).
+Everything readable is mincho/serif — the subject is letterforms, and the app reads like a typeset page. Monospace is allowed **only** for technical values (character counts, `U+XXXX` codes, percentages, build sha). No webfonts are loaded: local mincho stacks only, consistent with "nothing leaves the device".
+
+Body line-height is 1.9 (mincho needs generous leading on dark ground). All text carries a soft dark text-shadow for readability over the photograph.
 
 ## 4. Component Stylings
 
-### Pixel Art SVG Icons
+### Actions (`.act`)
 
-- Constructed from 4px square blocks
-- Colors use `accent` (#5d4e37) or `accent-light` (#8b7355)
-- No anti-aliasing — `shape-rendering: crispEdges`
+- Text, not boxes: gold (`lamp`) with a thin gold underline (`text-underline-offset: 0.4em`).
+- Hover/focus: brightens to `lamp-bright` and gains a warm glow (`text-shadow: 0 0 14px lamp-glow`).
+- Primary actions (`.act--primary`): larger type and a small gold bead of light before the label.
+- Quiet actions (`.act--quiet`): `ink-dim`, for secondary paths (reset, restart).
+- Disabled: `ink-faint`, underline removed. Never grayed boxes.
 
-### Gradient Buttons
+### Headings
 
-- Background: linear gradient from `accent-light` to `accent`
-- Color: white
-- Border: none
-- Border-radius: `4px`
-- Padding: 8px 16px
-- Hover: gradient shifts lighter
-- Active: gradient shifts darker
+`h2` carries a small glowing gold dot before the text — a lamp bead instead of a rule or border.
 
-### Drop Zone (File Upload)
+### Forms
 
-- Border: 2px dashed `border`
-- Border-radius: 8px
-- Background: transparent (hover: `bg-hover`)
-- Text: `accent-light`, centered
-- Transition: border-color 0.2s
+- Text input: underline only (no box), gold underline + soft glow when focused.
+- Checkboxes: native, `accent-color: lamp`.
 
-### Cards / Panels
+### Messages
 
-- Background: `#ffffff`
-- Border: 1px solid `border`
-- Border-radius: `8px`
-- Box-shadow: `0 4px 8px rgba(0,0,0,0.08)`
-- Padding: 16–24px
+No colored banner boxes. Colored text with a leading mark: `✕` error (`error`), `!` warning (`ember`), `·` info (`ink-dim`), `◉` success (`lamp`, glowing).
 
-### Status Messages
+### Drop Zone
 
-- Success: `#27ae60` background tint, dark green text
-- Error: `#e74c3c` background tint, dark red text
-- Warning: `#f39c12` background tint, dark orange text
-- Info: `#3498db` background tint, dark blue text
-- Border-radius: 4px, padding: 12px 16px
+No dashed border. A quiet area of centered text actions; on drag-over, a pool of warm light appears (radial gold gradient + inner glow) — the desk is lit where the paper will land.
 
-### Glyph Editor Canvas
+### Paper slips (scan results)
 
-- White background within a bordered card
-- Grid lines: `border` color at 50% opacity
-- Active glyph cell highlighted with `accent` border
+Glyph crops are displayed as physical paper slips on the desk: white paper (`paper`), 1px radius, soft drop shadow, a deterministic ±2° scatter (nth-child rotation). No cell borders, no grid lines.
+
+- **needs-review** (#110): the slip flickers amber (`ember` box-shadow animation) with a small `!` bead — anomalies catch the eye first.
+- **adopted**: gold rim glow + a gold bead (`.scan-grid__cell-lit`) — sorted slips are lit, not dimmed.
+- **rewrite** (excluded → retry): slip pushed into shadow (dimmed) with an ember `✕` — it is leaving the desk.
+- **empty**: no slip; a faint ghost of the character on the dark wood.
+
+### Inspector (検分ビュー)
+
+A full-screen overlay: one slip large in a pool of lamplight (radial gold gradient on near-black), character + `U+` code + verdict beneath, three text verdicts (採用 / 書き直し / 次へ) with their key labels. `←` `→` navigate, swipe works on touch.
+
+### Exit bar
+
+During review, a fixed bottom strip (gradient scrim, not a panel; `pointer-events: none` except its children) always shows the two exits: "書き直し N 字 → リトライPDF" and "このまま生成 / フォントを生成する".
+
+### Progress
+
+A 2px gold line with a glow, filling across a faint track. Numbers in monospace.
 
 ## 5. Layout Principles
 
-- Max-width: `960px`, centered with auto margins
-- Single-column primary flow with card sections
-- Glyph grid within cards, responsive column count
-- Consistent spacing: 24px between sections, 16px internal padding
-- Toolbar / action bar pinned at top of editor view
+- Content column: max-width `46rem`, **set left** (`padding-left: clamp(1.25rem, 6vw, 5rem)`), leaving the lamp and paper visible on the right of the plate on desktop.
+- The scrim (`.plate-scrim`) darkens the left/text side of the photo and preserves the lamp highlight.
+- Single-column flow; grouping by whitespace and type scale only.
+- Density over decoration: no filler leads, no duplicate explanations; copy is verbs and nouns.
 
-## 6. Depth & Elevation
+## 6. Depth & Light
 
-| Level    | Shadow                         | Usage                            |
-| -------- | ------------------------------ | -------------------------------- |
-| Flat     | None                           | Page background, inline elements |
-| Raised   | `0 4px 8px rgba(0,0,0,0.08)`   | Cards, panels, toolbars          |
-| Floating | `0 8px 16px rgba(0,0,0,0.12)`  | Dropdowns, popovers              |
-| Modal    | `0 12px 32px rgba(0,0,0,0.15)` | Modal dialogs                    |
+Depth comes from light, not elevation tokens:
 
-Shadows are soft and warm — never harsh or dark. The skeuomorphic warmth comes from subtle elevation, not dramatic contrasts.
+| Level       | Treatment                           | Usage                          |
+| ----------- | ----------------------------------- | ------------------------------ |
+| On the desk | text-shadow only                    | All text                       |
+| Paper slip  | small drop shadow + paper white     | Glyph cells, sample images     |
+| Lit         | gold glow (`0 0 10–26px lamp-glow`) | Actions, adopted, done, review |
+| Lamplight   | radial gold pool on near-black      | Inspector, drag-over           |
 
 ## 7. Do's and Don'ts
 
 **Do:**
 
-- Use cream (#fff8e7) as the page background, white for cards
-- Use serif fonts (Georgia) for all readable text
-- Build icons from 4px pixel blocks with crispEdges rendering
-- Keep border-radius small: 4px for buttons, 8px for cards
-- Use gradient buttons for primary actions, flat buttons for secondary
+- Keep the single night-desk photo as the fixed background of every route.
+- Set all readable text in the mincho/serif stack; monospace only for technical values.
+- Express "done / adopted / read" by lighting up (gold bead, glow) — positive light.
+- Use text underlined in gold for anything pressable.
+- Keep needs-review anomalies glowing amber so they are seen first.
+- Respect `prefers-reduced-motion` (all animation off).
 
 **Don't:**
 
-- Use sans-serif fonts for body text
-- Apply dark themes — this is a warm, light-only design
-- Use border-radius larger than 8px
-- Add heavy animations or transitions beyond simple hover effects
-- Use colors outside the earth tone palette for UI elements
+- Draw rectangular panels, cards, borders, or outlined/filled buttons.
+- Add a light theme — the world is dark, always.
+- Dim or gray out completed states.
+- Use cold colors (blue/green) anywhere; success is gold.
+- Load webfonts or any external resource beyond the app's own assets.
+- Pad copy with filler ("〜しましょう", "簡単に", "ようこそ") — verbs and nouns only.
 
 ## 8. Responsive Behavior
 
-| Breakpoint | Behavior                                          |
-| ---------- | ------------------------------------------------- |
-| > 960px    | Max-width container, comfortable spacing          |
-| 768–960px  | Slight padding reduction, same layout             |
-| < 768px    | Single column, stacked sections, full-width cards |
+| Breakpoint | Behavior                                                                                   |
+| ---------- | ------------------------------------------------------------------------------------------ |
+| > 860px    | Text column left, samples/lamp area breathing on the right                                 |
+| 720–860px  | Home samples move above the flow; same column                                              |
+| < 720px    | Full-width column; plate repositioned (`38% 50%`) so text sits on dark wood; heavier scrim |
 
-- Glyph grid columns reduce on narrow screens
-- Drop zone becomes full-width on mobile
-- Toolbar wraps to multiple rows if needed
-- Touch targets minimum 44px on mobile
+- Slip grid: `minmax(52px, 1fr)`, narrowing to `46px` on mobile; touch targets ≥ 44px.
+- Inspector verdicts are tappable (1-tap sort); swipe navigates.
+- The exit bar wraps; no horizontal scrolling at 390px.
 
 ## 9. Agent Prompt Guide
 
 When building new components for my-font-craft:
 
-- **Page background**: Always `#fff8e7` (cream)
-- **Card background**: `#ffffff` with `0 4px 8px rgba(0,0,0,0.08)` shadow and 8px radius
-- **Primary actions**: Gradient button from `#8b7355` to `#5d4e37`, white text, 4px radius
-- **Text**: `#333` in Georgia/serif for body, Courier New for code/metrics
-- **Borders**: `#e0d8c8` everywhere
-- **Icons**: Pixel art style, 4px grid blocks, `accent` color
-- **Status feedback**: Bootstrap-like colored banners (success green, error red, warning orange, info blue)
-- **Max content width**: 960px, never wider
-- **File inputs**: Dashed border drop zone, never native file inputs
+- **Background**: never add page backgrounds — the fixed plate + scrim (`.plate` / `.plate-scrim`) is already there. Content floats directly on it.
+- **Text**: `ink` (#e9dcc4) mincho/serif with `--shadow-text`; secondary `ink-dim`; captions `ink-faint`.
+- **Actions**: `.act` (gold underlined text). Primary = `.act--primary`. Never `<button>` with borders/background.
+- **Done/adopted/lit states**: gold bead + glow (see `.scan-grid__cell-lit`). Never dim.
+- **Warnings/review**: `ember` amber with flicker; errors `error` text (no boxes).
+- **Numbers/technical values**: wrap in `.num` (monospace).
+- **Images of glyphs/pages**: render as paper slips (paper white, small shadow, slight rotation).
+- **Max content width**: 46rem, left-set. Leave the lamp side of the photo clear on desktop.
+- **File inputs**: text-action drop zone with light-pool drag state; never native file inputs.

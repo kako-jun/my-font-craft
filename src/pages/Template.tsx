@@ -11,7 +11,6 @@ import {
 } from '../data/characters';
 import { JOYO_KANJI } from '../data/joyo-kanji';
 import { generateTemplatePDF } from '../lib/template/generator';
-import { IconDownload } from '../components/icons';
 
 interface Props {
   fontName: string;
@@ -74,7 +73,7 @@ export default function Template(props: Props) {
     <div class="template-page">
       <h2>1. テンプレートを印刷する</h2>
 
-      <div class="card">
+      <div class="template-page__form">
         <div class="form-group">
           <label for="font-name">フォント名</label>
           <input
@@ -125,29 +124,25 @@ export default function Template(props: Props) {
           </div>
         </div>
 
-        <p class="template-page__info">約{estimatedPages()}ページのPDFが生成されます。</p>
+        <p class="template-page__info">
+          PDF 約<span class="num">{estimatedPages()}</span>ページ
+        </p>
 
         <p class="template-page__note">
-          記入方法: 文字マスに文字を書くだけでOKです。下のチェック欄に ✓
-          を書くと、同じ文字を2マス書いた時の採用優先を指定できます（任意）
+          マスに一文字ずつ。チェック欄は任意 — 同じ文字を2マス書いたとき、✓ のある方を優先。
         </p>
 
         {error() && <div class="message message--error">{error()}</div>}
 
         <Show when={noneSelected()}>
-          <p class="template-page__hint" style="color:var(--accent);margin-bottom:0.5rem">
-            1つ以上選択してください
-          </p>
+          <p class="template-page__hint">1つ以上選択してください</p>
         </Show>
 
         <button
-          class="btn btn--primary"
+          class="act act--primary"
           onClick={handleDownload}
           disabled={generating() || noneSelected()}
         >
-          <Show when={!generating()}>
-            <IconDownload />
-          </Show>{' '}
           {generating() ? 'PDF生成中...' : 'PDFをダウンロード'}
         </button>
       </div>
