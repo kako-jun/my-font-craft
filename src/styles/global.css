@@ -7,7 +7,7 @@
   --night: #0b0805; /* 机の外の闇 */
   --ink: #e9dcc4; /* 灯りの当たった紙色 = 本文 */
   --ink-dim: #b3a180; /* 二次テキスト */
-  --ink-faint: #857459; /* 補足・無効 */
+  --ink-faint: #9a8967; /* 補足・無効（本文級でも WCAG AA: 対 --night 約5.3:1） */
   --lamp: #e8b96a; /* 真鍮ランプの金 = 操作・灯り */
   --lamp-bright: #ffd98a; /* hover の光 */
   --lamp-glow: rgba(232, 185, 106, 0.5);
@@ -858,7 +858,7 @@ a.flow__label:hover {
   align-items: center;
   justify-content: center;
   font-size: 1.1rem;
-  color: rgba(233, 220, 196, 0.28);
+  color: rgba(233, 220, 196, 0.42);
   background: rgba(233, 220, 196, 0.04);
   border-radius: 1px;
 }
@@ -967,8 +967,14 @@ a.flow__label:hover {
 
 .inspector__close {
   position: absolute;
-  top: 0.8rem;
-  right: 1.2rem;
+  top: 0.3rem;
+  right: 0.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0.5rem;
   background: none;
   border: none;
   font-family: inherit;

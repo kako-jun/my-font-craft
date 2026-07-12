@@ -32,7 +32,7 @@ All colors are sampled from the background plate.
 | `night`       | `#0b0805`               | Base page color (under/around the photo)             |
 | `ink`         | `#e9dcc4`               | Primary text — the color of lamplit paper            |
 | `ink-dim`     | `#b3a180`               | Secondary text                                       |
-| `ink-faint`   | `#857459`               | Captions, hints, disabled                            |
+| `ink-faint`   | `#9a8967`               | Captions, hints, disabled (WCAG AA on `night`)       |
 | `lamp`        | `#e8b96a`               | Brass gold — links, actions, lit/adopted/done states |
 | `lamp-bright` | `#ffd98a`               | Hover glow                                           |
 | `lamp-glow`   | `rgba(232,185,106,0.5)` | Glow shadows around lit elements                     |
@@ -44,12 +44,12 @@ Success is expressed with `lamp` (lighting up), not green. There are no cold hue
 
 ## 3. Typography
 
-| Role             | Font                                                                                      | Size    | Weight |
-| ---------------- | ----------------------------------------------------------------------------------------- | ------- | ------ |
-| Logo             | serif stack, italic, letter-spaced                                                        | 18px    | 400    |
-| Headings         | `Georgia, "Times New Roman", "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif` | 23–37px | 600    |
-| Body             | same serif/mincho stack                                                                   | 15–16px | 400    |
-| Technical values | `ui-monospace, "SF Mono", Menlo, Consolas, monospace` (`.num`, codes, build)              | 12–13px | 400    |
+| Role             | Font                                                                                                                                                             | Size    | Weight |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------ |
+| Logo             | serif stack, italic, letter-spaced                                                                                                                               | 18px    | 400    |
+| Headings         | `Georgia, "Times New Roman", "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "BIZ UDMincho", "Noto Serif JP", "Noto Serif CJK JP", serif` (`--serif`, global.css) | 23–37px | 600    |
+| Body             | same serif/mincho stack                                                                                                                                          | 15–16px | 400    |
+| Technical values | `ui-monospace, "SF Mono", Menlo, Consolas, monospace` (`.num`, codes, build)                                                                                     | 12–13px | 400    |
 
 Everything readable is mincho/serif — the subject is letterforms, and the app reads like a typeset page. Monospace is allowed **only** for technical values (character counts, `U+XXXX` codes, percentages, build sha). No webfonts are loaded: local mincho stacks only, consistent with "nothing leaves the device".
 
