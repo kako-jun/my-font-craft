@@ -1221,6 +1221,33 @@ a.flow__label:hover {
   color: var(--ink-faint);
 }
 
+/* ---- インストール促しバー（#124） ----
+   ヘッダーの直前に通常フローで挿入する（position: fixed にしない）。
+   固定オーバーレイにすると、position 未指定の .header は positioned 要素より
+   常に後に描画されるため z-index 値に関わらずヘッダーの下に沈んでしまう
+   （レビュー指摘 must-1）。通常フロー挿入なら表示中はヘッダーが自然に
+   バナー分だけ下へ押し出されるだけなので、この重なりが構造的に起こらない。
+   パネル化はしない: 背景を持たず、他の本文同様プレートの上に文字が浮かぶ。 */
+
+.install-bar {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  padding: 1.1rem clamp(1.25rem, 6vw, 5rem) 0;
+}
+
+.install-bar__text {
+  margin: 0;
+}
+
+.install-bar__actions {
+  display: flex;
+  gap: 1.3rem;
+  flex-shrink: 0;
+}
+
 /* 出口バーの分だけ本文の下に余白を確保 */
 .upload-page--review {
   padding-bottom: 7rem;
@@ -1356,7 +1383,8 @@ a.flow__label:hover {
 
   .header__inner,
   .footer,
-  .exit-bar {
+  .exit-bar,
+  .install-bar {
     padding-left: 1rem;
   }
 

@@ -99,6 +99,10 @@ A full-screen overlay: one slip large in a pool of lamplight (radial gold gradie
 
 During review, a fixed bottom strip (gradient scrim, not a panel; `pointer-events: none` except its children) always shows the two exits: "書き直し N 字 → リトライPDF" and "このまま生成 / フォントを生成する".
 
+### Install bar (#124)
+
+Unlike the exit bar, this is **not** a fixed overlay: it is inserted in normal flow directly before the header, shown only while `beforeinstallprompt` is pending. `.header` has no explicit `position`, so a fixed overlay would always paint underneath it regardless of z-index — in-flow insertion instead pushes the header down by the bar's own height, so it can never cover the logo/nav. No background, no box: reuses `.message--info` for the copy and `.act` / `.act--quiet` for the two actions ("追加する" / "閉じる"). Dismissal is remembered permanently in `localStorage` (unlike the mypace reference, which re-prompts after 7 days — a deliberate simplification here, not an incomplete port).
+
 ### Progress
 
 A 2px gold line with a glow, filling across a faint track. Numbers in monospace.
