@@ -101,7 +101,7 @@ During review, a fixed bottom strip (gradient scrim, not a panel; `pointer-event
 
 ### Install bar (#124)
 
-A fixed top strip mirroring the exit bar (gradient scrim, not a panel), shown only while `beforeinstallprompt` is pending. Reuses `.message--info` for the copy and `.act` / `.act--quiet` for the two actions ("追加する" / "閉じる") — no boxed toast. Dismissal is remembered in `localStorage` and the bar never returns after that.
+Unlike the exit bar, this is **not** a fixed overlay: it is inserted in normal flow directly before the header, shown only while `beforeinstallprompt` is pending. `.header` has no explicit `position`, so a fixed overlay would always paint underneath it regardless of z-index — in-flow insertion instead pushes the header down by the bar's own height, so it can never cover the logo/nav. No background, no box: reuses `.message--info` for the copy and `.act` / `.act--quiet` for the two actions ("追加する" / "閉じる"). Dismissal is remembered permanently in `localStorage` (unlike the mypace reference, which re-prompts after 7 days — a deliberate simplification here, not an incomplete port).
 
 ### Progress
 

@@ -4,6 +4,10 @@
  * mypace (apps/web/src/hooks/ui/usePWAInstall.ts) の移植。ただしこのリポは Solid.js
  * のため hooks 化はせず、DOM に依存しない判定ロジックだけを純粋関数として切り出す
  * （テスト対象）。DOM イベント配線・レンダリングは components/InstallPrompt.tsx が担う。
+ *
+ * mypace との差分（意図的な設計判断）: mypace は却下から7日経過すると再表示するが
+ * （DISMISS_DURATION_MS）、本実装は Issue #124 の要件「一度却下したら再表示しない」に
+ * 合わせて恒久非表示にしている。7日タイマーは移し忘れではなく採用していない。
  */
 
 /** Chrome/Edge が発火する beforeinstallprompt イベントの型（標準 lib.dom.d.ts に未収録） */
