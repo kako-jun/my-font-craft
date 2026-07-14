@@ -1221,6 +1221,36 @@ a.flow__label:hover {
   color: var(--ink-faint);
 }
 
+/* ---- インストール促しバー（#124）: 出口バーの上端版。パネルではなくスクリム ---- */
+
+.install-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  padding: 1.1rem clamp(1.25rem, 6vw, 5rem) 1.6rem;
+  background: linear-gradient(180deg, #090604 0%, rgba(9, 6, 4, 0.9) 55%, rgba(9, 6, 4, 0) 100%);
+  pointer-events: none;
+}
+
+.install-bar__text {
+  margin: 0;
+  pointer-events: auto;
+}
+
+.install-bar__actions {
+  display: flex;
+  gap: 1.3rem;
+  flex-shrink: 0;
+  pointer-events: auto;
+}
+
 /* 出口バーの分だけ本文の下に余白を確保 */
 .upload-page--review {
   padding-bottom: 7rem;
@@ -1356,7 +1386,8 @@ a.flow__label:hover {
 
   .header__inner,
   .footer,
-  .exit-bar {
+  .exit-bar,
+  .install-bar {
     padding-left: 1rem;
   }
 

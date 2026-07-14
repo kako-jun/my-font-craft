@@ -99,6 +99,10 @@ A full-screen overlay: one slip large in a pool of lamplight (radial gold gradie
 
 During review, a fixed bottom strip (gradient scrim, not a panel; `pointer-events: none` except its children) always shows the two exits: "書き直し N 字 → リトライPDF" and "このまま生成 / フォントを生成する".
 
+### Install bar (#124)
+
+A fixed top strip mirroring the exit bar (gradient scrim, not a panel), shown only while `beforeinstallprompt` is pending. Reuses `.message--info` for the copy and `.act` / `.act--quiet` for the two actions ("追加する" / "閉じる") — no boxed toast. Dismissal is remembered in `localStorage` and the bar never returns after that.
+
 ### Progress
 
 A 2px gold line with a glow, filling across a faint track. Numbers in monospace.
