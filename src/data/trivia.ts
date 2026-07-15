@@ -3,7 +3,7 @@
 
 // ページ番号にまつわる雑学（特定ページに表示）
 const PAGE_TRIVIA: Record<number, string> = {
-  1: '記念すべき1ページ目。楽しんで書こう',
+  1: '記念すべき1ページ目。',
   3: '三は日本で最も縁起のいい数字のひとつ',
   4: '四つ葉のクローバーは幸運の象徴',
   7: 'ラッキーセブン。いい字が書けそう',
@@ -141,12 +141,12 @@ export function getTriviaForPage(
 
   // 最終ページ
   if (pageNum === totalPages) {
-    return '最終ページ。完走おめでとう！';
+    return '最終ページ。';
   }
 
   // ラスト1ページ
   if (pageNum === totalPages - 1) {
-    return 'ラスト1ページ。お疲れ様！';
+    return 'ラスト1ページ。';
   }
 
   // 進捗マイルストーン（totalPages ベースで動的に計算）
@@ -154,14 +154,14 @@ export function getTriviaForPage(
     const quarter = Math.round(totalPages / 4);
     const half = Math.round(totalPages / 2);
     const threeQuarter = Math.round((totalPages * 3) / 4);
-    if (pageNum === quarter) return `${pageNum}ページ。4分の1を通過！`;
-    if (pageNum === half) return `${pageNum}ページ。折り返し地点！`;
-    if (pageNum === threeQuarter) return `${pageNum}ページ。ゴールが見えてきた`;
+    if (pageNum === quarter) return `${pageNum}ページ。全体の4分の1。`;
+    if (pageNum === half) return `${pageNum}ページ。折り返し。`;
+    if (pageNum === threeQuarter) return `${pageNum}ページ。残り4分の1。`;
   }
 
   // 10ページ刻みのキリ番
   if (pageNum >= 10 && pageNum % 10 === 0) {
-    return `${pageNum}ページ到達。いいペース！`;
+    return `${pageNum}ページ。`;
   }
 
   // ページ番号に固有の雑学（数字にまつわるトリビア）
