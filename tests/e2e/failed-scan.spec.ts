@@ -6,12 +6,18 @@
  * - 段階診断ログに `[scan:marker]` のエラー行が出ること（inferFailedStage の実配線）
  * を検証する。マーカー検出はパイプラインの早い段階なので軽量に落ちる。
  *
- * 注意: 「正面フィクスチャのマーカー円だけ白塗り」方式は使わない。
- * マーカー検出（cli/src/marker.rs）が探索領域内に残る印刷内容（タイトル文字・
- * マスの罫線など）のブロブをマーカーと誤検出してパイプラインが先へ進み、
- * QR 段階のエラー「QRコードを読み取れませんでした」に化けてしまうため（製品側の課題 #115）。
- * 真っ白な画像なら探索領域にブロブが1つも無く、
- * 「TopLeft マーカーが検出できませんでした（ブロブ数=0, フィルタ通過=0）」で決定論的に落ちる。
+ * この spec は2つの失敗モードを検証する:
+ *
+ * 1. ゼロブロブ（真っ白な画像）: 探索領域にブロブが1つも無く、
+ *    「TopLeft マーカーが検出できませんでした（ブロブ数=0, フィルタ通過=0）」で決定論的に落ちる。
+ *
+ * 2. マーカー欠落＋印刷内容あり（#115・修正済み）: 四隅マーカーだけを白塗りし、
+ *    タイトル・マス・文字・QR は残した画像。以前は marker.rs が探索領域に残る別ブロブ
+ *    （タイトル文字・罫線角）をマーカーと誤検出してパイプラインが先へ進み、QR 段階の
+ *    「QRコードを読み取れませんでした（不鮮明）」に化けていた（誤診断）。
+ *    検出後クアッド幾何検証（validate_marker_quad, #115）を追加し、組み上がった四角形の
+ *    幾何破綻（対辺比・アスペクト・退化）を marker 段階で棄却するようにした。
+ *    フィクスチャは tests/fixtures/mock-scans-marker-missing/（generateMarkerMissingScans）。
  */
 
 import { test, expect } from '@playwright/test';
@@ -68,6 +74,50 @@ test.describe('失敗系スキャン: マーカー欠落', () => {
       });
     } finally {
       if (fs.existsSync(blankPng)) fs.unlinkSync(blankPng);
+      if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+    }
+  });
+});
+
+test.describe('失敗系スキャン: マーカー欠落＋印刷内容あり（#115）', () => {
+  test('四隅マーカー欠落でQR誤診断に化けず marker 段階で棄却される', async ({ page }, testInfo) => {
+    // test:generate-fixtures が生成する。四隅マーカーだけ欠落・他の印刷内容は全て在る。
+    // page-01 は探索領域に別ブロブが残り、以前は誤検出→QR不鮮明に化けていたケース。
+    const markerMissingPng = path.join(
+      FIXTURES_DIR,
+      'mock-scans-marker-missing',
+      'page-01-marker-missing.png',
+    );
+    expect(
+      fs.existsSync(markerMissingPng),
+      'マーカー欠落フィクスチャが無い（npm run test:generate-fixtures 未実行？）',
+    ).toBe(true);
+
+    const zipPath = path.join(FIXTURES_DIR, 'test-upload-marker-missing.zip');
+    await createZipFromFiles([markerMissingPng], zipPath);
+
+    try {
+      await withStageLogs(page, testInfo, async (logs) => {
+        await page.goto('/');
+        await page.getByRole('link', { name: '2. フォント作成', exact: true }).click();
+        await expect(page.locator('h2')).toContainText('フォントを作成する');
+
+        await page.locator('#zip-input').setInputFiles(zipPath);
+
+        // marker 段階のユーザー向けメッセージが出る（撮影ガイド付き・「マーカー」を含む）
+        const errorBox = page.locator('.message--error');
+        await expect(errorBox).toContainText('マーカー', { timeout: 30_000 });
+        // QR 不鮮明への誤診断に化けていない（#115 の回帰ガード）
+        await expect(errorBox).not.toContainText('不鮮明');
+        await expect(errorBox).not.toContainText('QRコード');
+
+        // 段階診断ログ: marker 段階のエラーとして出ている（perspective/qr ではない）
+        const markerErrors = logs.filter(
+          (l) => l.type === 'error' && l.text.startsWith('[scan:marker]'),
+        );
+        expect(markerErrors.length, '[scan:marker] エラーログがない').toBeGreaterThan(0);
+      });
+    } finally {
       if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
     }
   });

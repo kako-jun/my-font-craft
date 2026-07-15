@@ -215,6 +215,7 @@ async function generatePage(
   qrDataOverride?: string,
   emptyReviewCharIndices?: Set<number>,
   glyphJitterSeed?: number,
+  skipCornerMarkers?: boolean,
 ): Promise<Buffer> {
   const canvas = createCanvas(canvasW, canvasH);
   const ctx = canvas.getContext('2d');
@@ -278,8 +279,12 @@ async function generatePage(
   ctx.fillRect(px(CYAN_SAMPLE_X), px(CYAN_SAMPLE_Y), px(CYAN_SAMPLE_SIZE), px(CYAN_SAMPLE_SIZE));
 
   // --- 四隅マーカー ---
-  for (const marker of Object.values(MARKERS)) {
-    drawCircleMarker(ctx, marker.x, marker.y, MARKER_SIZE, marker.filled);
+  // #115: skipCornerMarkers=true では四隅マーカーを描かない（白塗り欠落を再現）。
+  // タイトル・マス・文字・QR は通常どおり描くので、探索領域には別ブロブが残る。
+  if (!skipCornerMarkers) {
+    for (const marker of Object.values(MARKERS)) {
+      drawCircleMarker(ctx, marker.x, marker.y, MARKER_SIZE, marker.filled);
+    }
   }
 
   // --- 文字マス ---
@@ -731,6 +736,45 @@ export async function generateCaptureScans(outputDir: string): Promise<string[]>
   return files;
 }
 
+/**
+ * マーカー欠落バリアント（#115）。
+ * タイトル・マス・文字・QR など印刷内容はすべて描くが、四隅の登録マーカーだけを
+ * 描かない（実運用の「四隅マーカーを白塗りしてしまった」再現）。中心マーカーは
+ * 元々フィクスチャに描かれていないので触らない。
+ *
+ * 期待挙動: detect_markers は探索領域内の別ブロブ（タイトル文字・罫線角）を拾うが、
+ * validate_marker_quad（#115）が組み上がった四角形の幾何破綻を検出して marker 段階で
+ * Err を返す → UI は「QR不鮮明」ではなくマーカー段階の撮影ガイドを表示する。
+ */
+export async function generateMarkerMissingScans(outputDir: string): Promise<string[]> {
+  prepareOutputDir(outputDir);
+
+  const totalPages = Math.ceil(HIRAGANA.length / CHARS_PER_PAGE);
+  const files: string[] = [];
+
+  for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+    const start = pageIdx * CHARS_PER_PAGE;
+    const pageChars = HIRAGANA.slice(start, start + CHARS_PER_PAGE);
+
+    const buffer = await generatePage(
+      pageIdx,
+      pageChars,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true, // skipCornerMarkers
+    );
+    const filename = `page-${String(pageIdx + 1).padStart(2, '0')}-marker-missing.png`;
+    const filepath = path.join(outputDir, filename);
+    fs.writeFileSync(filepath, buffer);
+    files.push(filepath);
+    console.log(`Generated: ${filename} (corner markers omitted, content present)`);
+  }
+
+  return files;
+}
+
 // CLI から直接実行された場合
 if (
   process.argv[1]?.endsWith('generate-mock-scans.ts') ||
@@ -746,6 +790,7 @@ if (
   const noiseDir = path.join(fixturesDir, 'mock-scans-noise');
   const lightingDir = path.join(fixturesDir, 'mock-scans-lighting');
   const captureDir = path.join(fixturesDir, 'mock-scans-capture');
+  const markerMissingDir = path.join(fixturesDir, 'mock-scans-marker-missing');
   generateMockScans(outDir)
     .then((files) => generateDistortedScans(files, distortedDir).then((d) => [...files, ...d]))
     .then((files) => generateResidueScans(residueDir).then((r) => [...files, ...r]))
@@ -755,6 +800,7 @@ if (
     .then((files) => generateNoiseScans(noiseDir).then((n) => [...files, ...n]))
     .then((files) => generateLightingScans(lightingDir).then((l) => [...files, ...l]))
     .then((files) => generateCaptureScans(captureDir).then((c) => [...files, ...c]))
+    .then((files) => generateMarkerMissingScans(markerMissingDir).then((m) => [...files, ...m]))
     .then((files) => {
       console.log(`\nDone! Generated ${files.length} mock scan images.`);
     })
