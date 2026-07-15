@@ -14,6 +14,7 @@ tests/fixtures/mock-scans-jitter/
 tests/fixtures/mock-scans-noise/
 tests/fixtures/mock-scans-lighting/
 tests/fixtures/mock-scans-capture/
+tests/fixtures/mock-scans-marker-missing/
 tests/fixtures/test-output.ttf
 tests/fixtures/test-blank-page.png
 tests/fixtures/test-upload*.zip

@@ -383,6 +383,10 @@ pub fn detect_markers(binary: &GrayImage, gray: &GrayImage) -> Result<[DetectedM
         let mut total_sum_x = 0.0f64;
         let mut total_sum_y = 0.0f64;
         let mut merged_count = 0usize;
+        let mut m_min_x = u32::MAX;
+        let mut m_max_x = 0u32;
+        let mut m_min_y = u32::MAX;
+        let mut m_max_y = 0u32;
 
         for b in &filtered {
             let bcx = b.center_x();
@@ -393,8 +397,26 @@ pub fn detect_markers(binary: &GrayImage, gray: &GrayImage) -> Result<[DetectedM
                 total_sum_x += b.sum_x;
                 total_sum_y += b.sum_y;
                 merged_count += 1;
+                m_min_x = m_min_x.min(b.min_x);
+                m_max_x = m_max_x.max(b.max_x);
+                m_min_y = m_min_y.min(b.min_y);
+                m_max_y = m_max_y.max(b.max_y);
             }
         }
+
+        // マーカーらしい形状スコア（透視不変）: 実在マーカーは円（塗り or リング）。
+        // 欠落時に拾う別ブロブ（タイトル文字列・罫線角）は横長/縦長で形が違う。
+        // - bbox_aspect ≈ 1（円）: 誤検出テキスト列は横長に、縦線残渣は縦長になる
+        // - fill_ratio: 円の外接矩形内の充填率。マージした複数ブロブの集合が
+        //   矩形をまばらに埋めるほど低くなる（テキスト列は特に低い）
+        let bbox_w = (m_max_x - m_min_x + 1) as f64;
+        let bbox_h = (m_max_y - m_min_y + 1) as f64;
+        let bbox_aspect = bbox_w / bbox_h;
+        let fill_ratio = total_area as f64 / (bbox_w * bbox_h);
+
+        // 透視不変のブロブ形状検証（#115）。ここで弾くのが本命の防御。
+        // マーカーが欠落し別ブロブを掴んだ場合、その外接矩形は円と大きく異なる。
+        validate_marker_shape(name, bbox_w, bbox_h, marker_px)?;
 
         // 重心（ピクセル加重平均）
         let centroid_x = total_sum_x / total_area as f64;
@@ -406,7 +428,7 @@ pub fn detect_markers(binary: &GrayImage, gray: &GrayImage) -> Result<[DetectedM
         let delta_y = (refined_y - centroid_y).abs();
 
         log!(
-            "  {name} マーカー: centroid=({centroid_x:.1}, {centroid_y:.1}) → refined=({refined_x:.2}, {refined_y:.2}) Δ=({delta_x:.2}, {delta_y:.2}) area={total_area} merged={merged_count}ブロブ",
+            "  {name} マーカー: centroid=({centroid_x:.1}, {centroid_y:.1}) → refined=({refined_x:.2}, {refined_y:.2}) Δ=({delta_x:.2}, {delta_y:.2}) area={total_area} merged={merged_count}ブロブ bbox={bbox_w:.0}x{bbox_h:.0} bbox_aspect={bbox_aspect:.3} fill={fill_ratio:.3}",
         );
         markers.push(DetectedMarker {
             cx: refined_x,
@@ -415,12 +437,149 @@ pub fn detect_markers(binary: &GrayImage, gray: &GrayImage) -> Result<[DetectedM
         });
     }
 
-    Ok([
+    let quad = [
         markers[0].clone(),
         markers[1].clone(),
         markers[2].clone(),
         markers[3].clone(),
-    ])
+    ];
+
+    // 検出後クアッド幾何検証（#115）: 白塗り欠落マーカーの代わりに別ブロブ
+    // （タイトル文字・罫線角）を誤検出した場合、組み上がる四角形は歪みの範囲を
+    // 超えて崩れる。ここで棄却しないと、デタラメな centroid のまま透視補正が進み、
+    // QR が読めず「不鮮明」に誤診断される。
+    validate_marker_quad(&quad)?;
+
+    Ok(quad)
+}
+
+/// 選択した四隅マーカーブロブの外接矩形が「円らしい」形状かを検証する（#115・本命の防御）。
+///
+/// 幾何クアッド不変量（アスペクト・対辺比・面積）は平行移動・スケール不変なので、
+/// 「1点だけ別ブロブを誤検出」を「急な透視の正規スキャン」から原理的に分離できない。
+/// 一方ブロブ形状は透視不変（円は中程度の透視でも概ね円のまま）なので、角度のついた
+/// 実写を誤棄却せずに誤検出だけを弾ける。
+///
+/// 較正（300dpi フィクスチャ実測・第1パス）:
+/// - 実在マーカー（塗り円 TL / リング TR・BL・BR）: bbox_aspect 0.94〜1.02、
+///   bbox 各辺 ≈ 85〜104px（marker_px≈94.5 の 0.9〜1.1 倍）
+/// - 欠落時の誤検出ブロブ: タイトル文字列 = bbox 110x27（aspect=4.07）等、円から大きく逸脱
+///   （fill_ratio は塗り円 0.785 / リング 0.07 と幅広く、リングと誤検出を分離できないので不使用）
+pub fn validate_marker_shape(name: &str, bbox_w: f64, bbox_h: f64, marker_px: f64) -> Result<(), String> {
+    let aspect = bbox_w / bbox_h;
+    // 円の外接矩形は正方形（≈1.0）。中程度の透視（〜30°）でも短縮率 cos30≈0.87 に留まり
+    // 0.87〜1.15 程度。0.6〜1.67 に締めて横長テキスト列・縦長罫線を弾く（実写は誤棄却しない）。
+    if !(0.6..=1.667).contains(&aspect) {
+        return Err(format!(
+            "{name} 四隅マーカーらしい形状が見つかりません（マーカー誤検出の可能性・外接矩形が円形でない: 縦横比={aspect:.2}）。四隅のマーカーが隠れたり塗りつぶされたりせず紙全体が写るように撮影してください。"
+        ));
+    }
+    // 大きさサニティ: マーカー実寸に対し極端に大小のブロブ（巨大セル領域・微小ノイズ）を弾く。
+    // 実測は 0.9〜1.1 倍。透視で多少大きくなる余地を見て 0.45〜2.5 倍と広く取る。
+    let wr = bbox_w / marker_px;
+    let hr = bbox_h / marker_px;
+    if !(0.45..=2.5).contains(&wr) || !(0.45..=2.5).contains(&hr) {
+        return Err(format!(
+            "{name} 四隅マーカーらしい形状が見つかりません（マーカー誤検出の可能性・大きさが不正: {bbox_w:.0}x{bbox_h:.0}px, 期待≈{marker_px:.0}px）。四隅のマーカーが隠れたり塗りつぶされたりせず紙全体が写るように撮影してください。"
+        ));
+    }
+    Ok(())
+}
+
+/// テンプレート既知の四隅マーカー矩形アスペクト（mean_width / mean_height）。
+/// layout の MARKER_TL/TR/BL/BR + marker_center から算出し、レイアウト変更に自動追従する
+/// （ハードコードしない）。TL≈(7,7) TR≈(205,7) BL≈(7,290.915) BR≈(205,290.915) mm → ≈0.697。
+fn expected_quad_aspect() -> f64 {
+    let tl = layout::marker_center(&layout::MARKER_TL);
+    let tr = layout::marker_center(&layout::MARKER_TR);
+    let bl = layout::marker_center(&layout::MARKER_BL);
+    let br = layout::marker_center(&layout::MARKER_BR);
+    let dist = |a: (f64, f64), b: (f64, f64)| ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
+    let mean_width = (dist(tl, tr) + dist(bl, br)) / 2.0;
+    let mean_height = (dist(tl, bl) + dist(tr, br)) / 2.0;
+    mean_width / mean_height
+}
+
+/// 検出した四隅マーカー中心 [TL, TR, BL, BR] が妥当なマーカー矩形かを検証する（#115）。
+///
+/// これは「潰れ・点の入れ替わり・約90°の取り違え」といった gross failure だけを捕らえる
+/// 粗いサニティであり、誤検出そのものの分離は validate_marker_shape（透視不変）が担う。
+/// バンドは正規フィクスチャに加え中程度に角度のついた実写（〜25〜30°傾き）も必ず通す広さに取る。
+/// 逸脱時は 'マーカー' を含む Err を返し、inferFailedStage が marker 段階へ振る。
+pub fn validate_marker_quad(markers: &[DetectedMarker; 4]) -> Result<(), String> {
+    let tl = (markers[0].cx, markers[0].cy);
+    let tr = (markers[1].cx, markers[1].cy);
+    let bl = (markers[2].cx, markers[2].cy);
+    let br = (markers[3].cx, markers[3].cy);
+
+    let dist = |a: (f64, f64), b: (f64, f64)| ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
+
+    let top_w = dist(tl, tr);
+    let bottom_w = dist(bl, br);
+    let left_h = dist(tl, bl);
+    let right_h = dist(tr, br);
+
+    // 非退化: 各辺が十分な長さを持つこと（マーカーが同一点に潰れていない）
+    let min_side = 50.0_f64;
+    if top_w < min_side || bottom_w < min_side || left_h < min_side || right_h < min_side {
+        return Err(format!(
+            "四隅マーカーの配置が不正です（マーカー誤検出の可能性・辺が短すぎる: top={top_w:.0} bottom={bottom_w:.0} left={left_h:.0} right={right_h:.0}）。四隅のマーカーが隠れず紙全体が写るように撮影してください。"
+        ));
+    }
+
+    // 非退化・符号（点の入れ替わり検出）: TL→TR→BR→BL の符号付き面積のみを見る
+    // （各頂点の凸性までは検査しない）。画像座標系（y 下向き）でこの巡回は時計回り = 正。
+    // 符号が反転／小さすぎれば点が入れ替わっている or 潰れている。
+    let poly = [tl, tr, br, bl];
+    let mut area2 = 0.0;
+    for i in 0..4 {
+        let (x1, y1) = poly[i];
+        let (x2, y2) = poly[(i + 1) % 4];
+        area2 += x1 * y2 - x2 * y1;
+    }
+    let signed_area = area2 / 2.0;
+    // 画像座標系（y 下向き）では TL→TR→BR→BL は時計回り = 正の符号。
+    // 期待面積（mean_width * mean_height）の下限割合。誤検出でクアッドが潰れる/符号反転すると弾く。
+    let mean_w = (top_w + bottom_w) / 2.0;
+    let mean_h = (left_h + right_h) / 2.0;
+    let area_floor = 0.25 * mean_w * mean_h;
+    if signed_area <= area_floor {
+        // 正で十分大きくなければ退化 or 自己交差 or 点の入れ替わり。
+        return Err(format!(
+            "四隅マーカーの配置が不正です（マーカー誤検出の可能性・退化した四角形: 面積={signed_area:.0}）。四隅のマーカーが隠れず紙全体が写るように撮影してください。"
+        ));
+    }
+
+    // 対辺比: 透視歪みは対辺比を偏らせるが、限度がある。正規フィクスチャは 1.0 付近。
+    // 対辺比は透視で大きく偏りうる（ピンホール: 比 1.2 ≈ 15°傾き, 1.4 ≈ 20°傾き）。
+    // ここを締めると角度のついた正規スキャンを誤棄却するので、gross failure だけを捕らえる
+    // 広い帯（0.6〜1.667 ≈ 〜30°傾き）に留める。誤検出の分離は validate_marker_shape が担う。
+    let w_ratio = top_w / bottom_w;
+    let h_ratio = left_h / right_h;
+    let ratio_lo = 0.6;
+    let ratio_hi = 1.0 / ratio_lo;
+    if !(ratio_lo..=ratio_hi).contains(&w_ratio) || !(ratio_lo..=ratio_hi).contains(&h_ratio) {
+        return Err(format!(
+            "四隅マーカーの配置が不正です（マーカー誤検出の可能性・対辺比が異常: 上下={w_ratio:.2} 左右={h_ratio:.2}）。四隅のマーカーが隠れず紙全体が写るように撮影してください。"
+        ));
+    }
+
+    // テンプレートアスペクトとの照合。誤検出で1点がページ内側に寄ると大きくずれる。
+    let expected = expected_quad_aspect();
+    let aspect = mean_w / mean_h;
+    let aspect_tol = 0.22; // 相対許容（±22%）
+    let lo = expected * (1.0 - aspect_tol);
+    let hi = expected * (1.0 + aspect_tol);
+    log!(
+        "  クアッド検証: aspect={aspect:.3} (期待={expected:.3}, 許容={lo:.3}..{hi:.3}) 対辺比 上下={w_ratio:.3} 左右={h_ratio:.3} 面積={signed_area:.0}"
+    );
+    if !(lo..=hi).contains(&aspect) {
+        return Err(format!(
+            "四隅マーカーの配置が不正です（マーカー誤検出の可能性・アスペクト比が異常: 実測={aspect:.3} 期待={expected:.3}）。四隅のマーカーが隠れず紙全体が写るように撮影してください。"
+        ));
+    }
+
+    Ok(())
 }
 
 /// 中心マーカーを検出する（ページ中央 ±10% の領域を探索）
@@ -644,4 +803,114 @@ pub fn reorder_markers(markers: &[DetectedMarker; 4], tl_index: usize, rotation:
         transform(&markers[order[2]]),
         transform(&markers[order[3]]),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mk(cx: f64, cy: f64) -> DetectedMarker {
+        DetectedMarker { cx, cy, area: 100 }
+    }
+
+    /// レイアウトのテンプレートマーカー中心（mm→px）から妥当な四隅クアッドを組む
+    fn template_quad() -> [DetectedMarker; 4] {
+        let c = |m: &layout::MarkerDef| {
+            let (x, y) = layout::marker_center(m);
+            mk(layout::mm_to_px(x), layout::mm_to_px(y))
+        };
+        [
+            c(&layout::MARKER_TL),
+            c(&layout::MARKER_TR),
+            c(&layout::MARKER_BL),
+            c(&layout::MARKER_BR),
+        ]
+    }
+
+    // --- クアッド幾何（gross failure サニティ。誤検出そのものの分離は shape が担う） ---
+
+    #[test]
+    fn valid_template_quad_passes() {
+        assert!(validate_marker_quad(&template_quad()).is_ok());
+    }
+
+    #[test]
+    fn moderate_perspective_quad_passes() {
+        // ~28°傾き相当: 上辺 1600 / 下辺 2400（対辺比 0.667 = 下辺が上辺の1.5倍）の台形。
+        // 締めすぎた帯だと誤棄却するケース。緩い幾何サニティは必ず通さねばならない。
+        let q = [
+            mk(450.0, 100.0),   // TL
+            mk(2050.0, 100.0),  // TR（上辺 1600）
+            mk(50.0, 3300.0),   // BL
+            mk(2450.0, 3300.0), // BR（下辺 2400）
+        ];
+        assert!(
+            validate_marker_quad(&q).is_ok(),
+            "中程度の透視（~28°）が誤棄却された: {:?}",
+            validate_marker_quad(&q)
+        );
+    }
+
+    #[test]
+    fn degenerate_short_side_quad_fails() {
+        // 4点が同一位置に潰れている（辺長ゼロ）→ 辺が短すぎる分岐
+        let q = [mk(500.0, 500.0), mk(500.0, 500.0), mk(500.0, 500.0), mk(500.0, 500.0)];
+        let err = validate_marker_quad(&q).unwrap_err();
+        assert!(err.contains("マーカー") && err.contains("辺が短すぎる"), "err={err}");
+    }
+
+    #[test]
+    fn point_swapped_quad_fails() {
+        // TL と TR を入れ替えると自己交差（bowtie）→ 符号付き面積が退化
+        let t = template_quad();
+        let q = [t[1].clone(), t[0].clone(), t[2].clone(), t[3].clone()];
+        let err = validate_marker_quad(&q).unwrap_err();
+        assert!(err.contains("マーカー") && err.contains("退化"), "err={err}");
+    }
+
+    #[test]
+    fn wrong_aspect_quad_fails() {
+        // ほぼ正方形（aspect≈1.0）はテンプレート 0.697 から大きく外れる（~90°取り違え相当）
+        let q = [
+            mk(100.0, 100.0),
+            mk(2100.0, 100.0),
+            mk(100.0, 2100.0),
+            mk(2100.0, 2100.0),
+        ];
+        let err = validate_marker_quad(&q).unwrap_err();
+        assert!(err.contains("マーカー") && err.contains("アスペクト"), "err={err}");
+    }
+
+    // --- ブロブ形状スコア（透視不変・本命の誤検出分離） ---
+
+    const MARKER_PX: f64 = 94.5; // mm_to_px(MARKER_SIZE=8) @300dpi
+
+    #[test]
+    fn circle_like_blob_shape_passes() {
+        // 実在マーカー（塗り円・リングとも外接矩形は正方形 ≈ marker_px）
+        assert!(validate_marker_shape("T", 94.0, 94.0, MARKER_PX).is_ok());
+        // 中程度透視で少しつぶれても通る
+        assert!(validate_marker_shape("T", 104.0, 89.0, MARKER_PX).is_ok());
+    }
+
+    #[test]
+    fn text_row_blob_shape_fails() {
+        // 欠落時に掴むタイトル文字列の外接矩形（実測 110x27, aspect=4.07）
+        let err = validate_marker_shape("TopLeft", 110.0, 27.0, MARKER_PX).unwrap_err();
+        assert!(err.contains("マーカー") && err.contains("形状") && err.contains("縦横比"), "err={err}");
+    }
+
+    #[test]
+    fn vertical_line_blob_shape_fails() {
+        // 縦長の罫線残渣（aspect ≈ 0.1）も円形でないとして棄却
+        let err = validate_marker_shape("T", 20.0, 200.0, MARKER_PX).unwrap_err();
+        assert!(err.contains("マーカー") && err.contains("縦横比"), "err={err}");
+    }
+
+    #[test]
+    fn oversized_blob_shape_fails() {
+        // 正方形でもマーカー実寸の 3 倍超なら別物（巨大セル領域など）
+        let err = validate_marker_shape("T", 300.0, 300.0, MARKER_PX).unwrap_err();
+        assert!(err.contains("マーカー") && err.contains("大きさ"), "err={err}");
+    }
 }
