@@ -70,7 +70,8 @@ import {
 // ひらがな83文字はテンプレート生成と同じ正本（characters.ts）から取得する（二重管理禁止）
 import { HIRAGANA, CHARS_PER_PAGE } from '../../src/data/characters';
 import { getCellPosition } from '../../src/lib/template/layout';
-import { distortPng, DISTORT_VARIANTS } from './distort';
+import { distortPng, DISTORT_VARIANTS, type DistortOptions } from './distort';
+import { mulberry32, addSaltPepperNoise, applyLighting } from './postprocess';
 
 // 解像度: 300dpi 相当（mm→pixel 変換）
 const DPI = 300;
@@ -150,12 +151,70 @@ function drawCellEmptyReviewStroke(ctx: CanvasRenderingContext2D, posX: number, 
   ctx.fillRect(cx, px(posY - 0.5), strokeW, px(CELL_SIZE + 1));
 }
 
+/**
+ * 手書き風の揺らぎをかけてグリフを描く（#113 軸1）。
+ * セル中心を軸に、線太さムラ・微小回転・はみ出し・かすれ・薄描きを乗せる。
+ * seed でセルごとに決定的に振る（フィクスチャ再現性のため）。
+ * 「実写に近いが回復可能」に収めるため強度は中程度に留める:
+ * - 回転 ±2°、拡縮 0.94〜1.02（>1 でセルからわずかにはみ出す）
+ * - 太さムラ 最大 0.03em（同色の重ね描き1回で太らせ、細らせは基準サイズで表現）
+ * - 濃度 0.8〜1.0（薄描き＝かすれ気味）
+ * - かすれスペック 0〜2 個（グリフ bbox 内に紙色の小点を置いて筆画を欠けさせる）
+ */
+function drawGlyphWithJitter(
+  ctx: CanvasRenderingContext2D,
+  char: string,
+  cx: number,
+  cy: number,
+  baseFontPx: number,
+  rand: () => number,
+): void {
+  const rot = ((rand() - 0.5) * 4 * Math.PI) / 180; // ±2°
+  const scale = 0.94 + rand() * 0.08; // 0.94〜1.02（軽いはみ出し）
+  const alpha = 0.8 + rand() * 0.2; // 0.8〜1.0（薄描き＝かすれ気味）
+  const boldPx = rand() * 0.03 * baseFontPx; // 太さムラ（重ね描きオフセット）
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rot);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#000000';
+  ctx.globalAlpha = alpha;
+  const fontPx = Math.round(baseFontPx * scale);
+  ctx.font = `${fontPx}px "${FIXTURE_FONT_FAMILY}"`;
+  // 太さムラ: 微小オフセットで1回だけ重ね描き（線幅の不均一を近似）。
+  // 過度な重ね描きは隣接する中心マーカーへインクを橋渡しして登録を壊すため控えめに。
+  ctx.fillText(char, 0, 0);
+  if (boldPx >= 1) {
+    ctx.fillText(char, boldPx, 0);
+  }
+  ctx.restore();
+
+  // かすれ: グリフ bbox 内に紙色の微小スペックを置いて筆画を欠けさせる
+  const speckN = Math.floor(rand() * 3); // 0〜2
+  const half = (baseFontPx * scale) / 2;
+  ctx.save();
+  ctx.fillStyle = '#FFFFFF';
+  for (let i = 0; i < speckN; i++) {
+    const sx = cx + (rand() - 0.5) * half * 1.2;
+    const sy = cy + (rand() - 0.5) * half * 1.2;
+    ctx.fillRect(Math.round(sx), Math.round(sy), 2, 2);
+  }
+  ctx.restore();
+
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'start';
+  ctx.textBaseline = 'alphabetic';
+}
+
 async function generatePage(
   pageIdx: number,
   chars: string[],
   residueCharIndices?: Set<number>,
   qrDataOverride?: string,
   emptyReviewCharIndices?: Set<number>,
+  glyphJitterSeed?: number,
 ): Promise<Buffer> {
   const canvas = createCanvas(canvasW, canvasH);
   const ctx = canvas.getContext('2d');
@@ -302,16 +361,22 @@ async function generatePage(
             // 1.0em で描いて閾値境界から離す（#111 metrics ページで使用）
             const scale = '、。'.includes(char) ? 1.0 : 0.75;
             const fontSize = px(INNER_SIZE * scale);
-            ctx.fillStyle = '#000000';
-            // 同梱サブセットフォントのみ指定（フォールバック列挙しない = 環境差を排除）
-            ctx.font = `${fontSize}px "${FIXTURE_FONT_FAMILY}"`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
             const cx = px(pos.x + innerOffset) + px(INNER_SIZE) / 2;
             const cy = px(pos.y + innerOffset) + px(INNER_SIZE) / 2;
-            ctx.fillText(char, cx, cy);
-            ctx.textAlign = 'start';
-            ctx.textBaseline = 'alphabetic';
+            if (glyphJitterSeed !== undefined) {
+              // 手書き風揺らぎ（#113 軸1）。セルごとに決定的な seed で振る
+              const cellRand = mulberry32(glyphJitterSeed * 100003 + charIdx * 131 + pageIdx * 17);
+              drawGlyphWithJitter(ctx, char, cx, cy, fontSize, cellRand);
+            } else {
+              ctx.fillStyle = '#000000';
+              // 同梱サブセットフォントのみ指定（フォールバック列挙しない = 環境差を排除）
+              ctx.font = `${fontSize}px "${FIXTURE_FONT_FAMILY}"`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(char, cx, cy);
+              ctx.textAlign = 'start';
+              ctx.textBaseline = 'alphabetic';
+            }
           }
 
           // チェック欄に✓を描画（黒で。シアン除去後も残る）
@@ -519,6 +584,153 @@ export async function generateDistortedScans(
   return files;
 }
 
+// ============================================================================
+// #113 実写ループ拡張: 4軸バリエーション
+// 方針: 実写に近いが「回復可能」な範囲（完走 or 要確認付き完走が基準）。
+// 極端な破壊はしない。複数の中程度フィクスチャで面を張る。
+// ============================================================================
+
+/**
+ * 軸1: 手書き風揺らぎ（#113）。
+ * 全マスのグリフに線太さムラ・微小回転・はみ出し・かすれ・薄描きを乗せた
+ * 正面画像を出力する。強度は drawGlyphWithJitter を参照（回復可能な中程度）。
+ */
+export async function generateJitterScans(outputDir: string): Promise<string[]> {
+  prepareOutputDir(outputDir);
+
+  const totalPages = Math.ceil(HIRAGANA.length / CHARS_PER_PAGE);
+  const files: string[] = [];
+
+  for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+    const start = pageIdx * CHARS_PER_PAGE;
+    const pageChars = HIRAGANA.slice(start, start + CHARS_PER_PAGE);
+
+    const buffer = await generatePage(
+      pageIdx,
+      pageChars,
+      undefined,
+      undefined,
+      undefined,
+      0x113 + pageIdx,
+    );
+    const filename = `page-${String(pageIdx + 1).padStart(2, '0')}-jitter.png`;
+    const filepath = path.join(outputDir, filename);
+    fs.writeFileSync(filepath, buffer);
+    files.push(filepath);
+    console.log(`Generated: ${filename} (handwriting jitter)`);
+  }
+
+  return files;
+}
+
+/**
+ * 軸2: ノイズ（#113）。
+ * 正面画像にごま塩ノイズ + 微小スペックを後処理で乗せる。
+ * 罫線/枠残渣は既存 generateResidueScans が担うので重複させない
+ * （こちらは面的な塩胡椒・ちり/ほこりクラス）。
+ */
+export async function generateNoiseScans(outputDir: string): Promise<string[]> {
+  prepareOutputDir(outputDir);
+
+  const totalPages = Math.ceil(HIRAGANA.length / CHARS_PER_PAGE);
+  const files: string[] = [];
+
+  for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+    const start = pageIdx * CHARS_PER_PAGE;
+    const pageChars = HIRAGANA.slice(start, start + CHARS_PER_PAGE);
+
+    const frontal = await generatePage(pageIdx, pageChars);
+    const buffer = await addSaltPepperNoise(frontal, {
+      saltProb: 0.0015,
+      pepperProb: 0.0015,
+      speckCount: 400,
+      seed: 0x0135 + pageIdx,
+    });
+    const filename = `page-${String(pageIdx + 1).padStart(2, '0')}-noise.png`;
+    const filepath = path.join(outputDir, filename);
+    fs.writeFileSync(filepath, buffer);
+    files.push(filepath);
+    console.log(`Generated: ${filename} (salt-and-pepper noise)`);
+  }
+
+  return files;
+}
+
+/**
+ * 軸3: 照明（#113）。
+ * 正面画像に明度グラデーション + 影の帯 + コントラスト低下を後処理で乗せる。
+ * 二値化がインクと紙を分離できる中程度の強度に留める。ページごとに帯位置を変える。
+ */
+export async function generateLightingScans(outputDir: string): Promise<string[]> {
+  prepareOutputDir(outputDir);
+
+  const totalPages = Math.ceil(HIRAGANA.length / CHARS_PER_PAGE);
+  const files: string[] = [];
+
+  for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+    const start = pageIdx * CHARS_PER_PAGE;
+    const pageChars = HIRAGANA.slice(start, start + CHARS_PER_PAGE);
+
+    const frontal = await generatePage(pageIdx, pageChars);
+    const buffer = await applyLighting(frontal, {
+      gradient: 0.25,
+      contrast: 0.8,
+      shadowBandCenter: 0.35 + pageIdx * 0.2,
+      shadowBandHeight: 0.14,
+      shadowBandStrength: 0.78,
+    });
+    const filename = `page-${String(pageIdx + 1).padStart(2, '0')}-lighting.png`;
+    const filepath = path.join(outputDir, filename);
+    fs.writeFileSync(filepath, buffer);
+    files.push(filepath);
+    console.log(`Generated: ${filename} (lighting gradient + shadow band)`);
+  }
+
+  return files;
+}
+
+/**
+ * 軸4: 撮影複合（#113）。
+ * 台形 + 回転 + 縮小 + 軽ぼかし + 明度ムラを既存の distortPng で複合適用する
+ * （distort.ts の複合アプローチに乗せ、再発明しない）。強度は個々の歪みより
+ * 控えめにして「複合しても回復可能」に収める。
+ */
+const CAPTURE_COMPOSITE_OPTS: DistortOptions = {
+  rotateDeg: 2,
+  trapezoid: 0.03,
+  // 縮小 + 軽ぼかしの複合。0.9 まで縮めると QR モジュール解像度が落ちて
+  // ぼかしと重なった時に読めなくなる。既存 combined(scale 0.92)+blur が通ることを
+  // 踏まえ、QR モジュール解像度に余裕を持たせて 0.93 に設定する。
+  scale: 0.93,
+  padding: 200,
+  brightnessGradient: 0.12,
+  blur: true,
+};
+
+export async function generateCaptureScans(outputDir: string): Promise<string[]> {
+  prepareOutputDir(outputDir);
+
+  const totalPages = Math.ceil(HIRAGANA.length / CHARS_PER_PAGE);
+  const files: string[] = [];
+
+  for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+    const start = pageIdx * CHARS_PER_PAGE;
+    const pageChars = HIRAGANA.slice(start, start + CHARS_PER_PAGE);
+
+    const frontal = await generatePage(pageIdx, pageChars);
+    // ページごとに回転方向を反転させて片寄りを避ける
+    const opts = { ...CAPTURE_COMPOSITE_OPTS, rotateDeg: pageIdx % 2 === 0 ? 2 : -2 };
+    const buffer = await distortPng(frontal, opts);
+    const filename = `page-${String(pageIdx + 1).padStart(2, '0')}-capture.png`;
+    const filepath = path.join(outputDir, filename);
+    fs.writeFileSync(filepath, buffer);
+    files.push(filepath);
+    console.log(`Generated: ${filename} (capture composite)`);
+  }
+
+  return files;
+}
+
 // CLI から直接実行された場合
 if (
   process.argv[1]?.endsWith('generate-mock-scans.ts') ||
@@ -530,11 +742,19 @@ if (
   const residueDir = path.join(fixturesDir, 'mock-scans-residue');
   const emptyReviewDir = path.join(fixturesDir, 'mock-scans-emptyreview');
   const metricsDir = path.join(fixturesDir, 'mock-scans-metrics');
+  const jitterDir = path.join(fixturesDir, 'mock-scans-jitter');
+  const noiseDir = path.join(fixturesDir, 'mock-scans-noise');
+  const lightingDir = path.join(fixturesDir, 'mock-scans-lighting');
+  const captureDir = path.join(fixturesDir, 'mock-scans-capture');
   generateMockScans(outDir)
     .then((files) => generateDistortedScans(files, distortedDir).then((d) => [...files, ...d]))
     .then((files) => generateResidueScans(residueDir).then((r) => [...files, ...r]))
     .then((files) => generateEmptyReviewScans(emptyReviewDir).then((r) => [...files, ...r]))
     .then((files) => generateMetricsScans(metricsDir).then((m) => [...files, ...m]))
+    .then((files) => generateJitterScans(jitterDir).then((j) => [...files, ...j]))
+    .then((files) => generateNoiseScans(noiseDir).then((n) => [...files, ...n]))
+    .then((files) => generateLightingScans(lightingDir).then((l) => [...files, ...l]))
+    .then((files) => generateCaptureScans(captureDir).then((c) => [...files, ...c]))
     .then((files) => {
       console.log(`\nDone! Generated ${files.length} mock scan images.`);
     })
