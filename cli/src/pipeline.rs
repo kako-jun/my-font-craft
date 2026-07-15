@@ -460,14 +460,19 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
             let raw_cell = cell::extract_cell_image_raw(&normalized, cr.row, cr.col, slot.cell_index);
             let cell_w = raw_cell.width();
             let cell_h = raw_cell.height();
-            let (gated_binary, quality) = vectorizer::binarize_with_quality(&raw_cell);
+            let (gated_binary, mut quality) = vectorizer::binarize_with_quality(&raw_cell);
             let adopted = cr.adopted.contains(&slot.cell_index);
+            // 採用セルは vectorize_adopted_with_review を通す。採用されたのにベクター化が
+            // 空（MAX ガード発火 or pre-gate 消失）なら needs_review を立てて #108 の
+            // 「黙って欠字」を防ぐ（#112）。
             let paths = if adopted {
-                vectorizer::vectorize_binary(&gated_binary, cell_w, cell_h)
+                vectorizer::vectorize_adopted_with_review(&gated_binary, cell_w, cell_h, &mut quality)
             } else {
                 Vec::new()
             };
 
+            // needs_review はゲート（#110）とベクター化空検知（#112）の双方が立てうる。
+            // フラグ済みセルはここで一度だけログする（重複ログを出さない）。
             if quality.needs_review {
                 log!(
                     "  ⚠ R{:02}C{:02}_I{}: 品質ゲート要確認 (removed={}, removed_area={:.2}%, kept={}, ink={:.1}%)",

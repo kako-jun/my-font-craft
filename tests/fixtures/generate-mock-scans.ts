@@ -134,11 +134,28 @@ function drawCellResidue(ctx: CanvasRenderingContext2D, posX: number, posY: numb
   ctx.fillRect(px(posX + 3.0), px(posY + 3.0), 3, 3);
 }
 
+/**
+ * 「採用されるが有効なグリフを生成できない」セルを描く（#112 / #108）。
+ * セル中央を縦断する細い黒線（幅約4px）だけを描く。中央 60% 領域に十分なインクが
+ * あるため採用（非空）されるが、線はセル crop 境界に接触する細線なので品質ゲート(#110)で
+ * 全除去され、残成分ゼロ = ベクター化結果が空になる。#108 の「黙って欠字」を防ぐため、
+ * このセルは review UI に「要確認」として現れなければならない（黙って空グリフにしない）。
+ * グリフ本体は描かない（線以外に中央インクを置かない）。
+ */
+function drawCellEmptyReviewStroke(ctx: CanvasRenderingContext2D, posX: number, posY: number) {
+  ctx.fillStyle = '#000000';
+  // セル中央 x を、セル上端より上〜下端より下まで縦断（crop 上下端に接触 = 境界接触）
+  const strokeW = 4; // px（細線 = ゲートで線残渣として除去される）
+  const cx = px(posX + CELL_SIZE / 2) - strokeW / 2;
+  ctx.fillRect(cx, px(posY - 0.5), strokeW, px(CELL_SIZE + 1));
+}
+
 async function generatePage(
   pageIdx: number,
   chars: string[],
   residueCharIndices?: Set<number>,
   qrDataOverride?: string,
+  emptyReviewCharIndices?: Set<number>,
 ): Promise<Buffer> {
   const canvas = createCanvas(canvasW, canvasH);
   const ctx = canvas.getContext('2d');
@@ -274,18 +291,28 @@ async function generatePage(
           // 空マス判定（内側60%で黒2%未満）と 2.1% vs 2.0% の際どい勝負になる。
           // 手書きの句読点はフォントより相対的に大きく書かれるのが実態なので、
           // 1.0em で描いて閾値境界から離す（#111 metrics ページで使用）
-          const scale = '、。'.includes(char) ? 1.0 : 0.75;
-          const fontSize = px(INNER_SIZE * scale);
-          ctx.fillStyle = '#000000';
-          // 同梱サブセットフォントのみ指定（フォールバック列挙しない = 環境差を排除）
-          ctx.font = `${fontSize}px "${FIXTURE_FONT_FAMILY}"`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          const cx = px(pos.x + innerOffset) + px(INNER_SIZE) / 2;
-          const cy = px(pos.y + innerOffset) + px(INNER_SIZE) / 2;
-          ctx.fillText(char, cx, cy);
-          ctx.textAlign = 'start';
-          ctx.textBaseline = 'alphabetic';
+          const drawEmptyReview = emptyReviewCharIndices?.has(charIdx) ?? false;
+          if (drawEmptyReview) {
+            // グリフの代わりに、採用されるがゲートで全除去される細線だけを描く（#112/#108）
+            drawCellEmptyReviewStroke(ctx, pos.x, pos.y);
+          } else {
+            // 句読点はフォントグリフのインクが極端に小さく、0.75em 描画だと
+            // 空マス判定（内側60%で黒2%未満）と 2.1% vs 2.0% の際どい勝負になる。
+            // 手書きの句読点はフォントより相対的に大きく書かれるのが実態なので、
+            // 1.0em で描いて閾値境界から離す（#111 metrics ページで使用）
+            const scale = '、。'.includes(char) ? 1.0 : 0.75;
+            const fontSize = px(INNER_SIZE * scale);
+            ctx.fillStyle = '#000000';
+            // 同梱サブセットフォントのみ指定（フォールバック列挙しない = 環境差を排除）
+            ctx.font = `${fontSize}px "${FIXTURE_FONT_FAMILY}"`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            const cx = px(pos.x + innerOffset) + px(INNER_SIZE) / 2;
+            const cy = px(pos.y + innerOffset) + px(INNER_SIZE) / 2;
+            ctx.fillText(char, cx, cy);
+            ctx.textAlign = 'start';
+            ctx.textBaseline = 'alphabetic';
+          }
 
           // チェック欄に✓を描画（黒で。シアン除去後も残る）
           const checkCx = px(pos.x + 3);
@@ -384,6 +411,42 @@ export async function generateResidueScans(outputDir: string): Promise<string[]>
 }
 
 /**
+ * 「採用されるがグリフを生成できない」セルを注入したバリアントを生成する（#112 / #108）。
+ * ページ先頭 1 文字の記入マスに、ゲートで全除去される細線だけを描く。
+ * 結果としてそのセルは採用されるがベクター化結果が空 = 要確認として review UI に出る。
+ */
+export const EMPTY_REVIEW_INJECT_CHARS_PER_PAGE = 1;
+
+export async function generateEmptyReviewScans(outputDir: string): Promise<string[]> {
+  prepareOutputDir(outputDir);
+
+  const totalPages = Math.ceil(HIRAGANA.length / CHARS_PER_PAGE);
+  const injectIndices = new Set(
+    Array.from({ length: EMPTY_REVIEW_INJECT_CHARS_PER_PAGE }, (_, i) => i),
+  );
+  const files: string[] = [];
+
+  for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+    const start = pageIdx * CHARS_PER_PAGE;
+    const pageChars = HIRAGANA.slice(start, start + CHARS_PER_PAGE);
+
+    const buffer = await generatePage(pageIdx, pageChars, undefined, undefined, injectIndices);
+    const filename = `page-${String(pageIdx + 1).padStart(2, '0')}-emptyreview.png`;
+    const filepath = path.join(outputDir, filename);
+    fs.writeFileSync(filepath, buffer);
+    files.push(filepath);
+    console.log(
+      `Generated: ${filename} (empty-review on ${Math.min(
+        EMPTY_REVIEW_INJECT_CHARS_PER_PAGE,
+        pageChars.length,
+      )} cells)`,
+    );
+  }
+
+  return files;
+}
+
+/**
  * 配置検証（metrics）ページの文字リスト（#111）。
  * セル→em 固定変換の e2e 検証用: 句読点（、。）・小書きかな（っ vs つ、ぁ vs あ）・
  * descender（g/j/p/q/y）・長音（ー）をフォント描画でセルに載せる。
@@ -465,10 +528,12 @@ if (
   const outDir = path.join(fixturesDir, 'mock-scans');
   const distortedDir = path.join(fixturesDir, 'mock-scans-distorted');
   const residueDir = path.join(fixturesDir, 'mock-scans-residue');
+  const emptyReviewDir = path.join(fixturesDir, 'mock-scans-emptyreview');
   const metricsDir = path.join(fixturesDir, 'mock-scans-metrics');
   generateMockScans(outDir)
     .then((files) => generateDistortedScans(files, distortedDir).then((d) => [...files, ...d]))
     .then((files) => generateResidueScans(residueDir).then((r) => [...files, ...r]))
+    .then((files) => generateEmptyReviewScans(emptyReviewDir).then((r) => [...files, ...r]))
     .then((files) => generateMetricsScans(metricsDir).then((m) => [...files, ...m]))
     .then((files) => {
       console.log(`\nDone! Generated ${files.length} mock scan images.`);

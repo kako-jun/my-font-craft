@@ -94,9 +94,12 @@ my-font-craft/
 
 ### 3. ベクター化 (`cli/src/vectorizer.rs`)
 
-- ランレングス方式: 二値化画像の黒ピクセル連続区間を矩形パスに変換
-- 2x アップスケール → ランレングス抽出 → 縦方向マージ（±2px 許容）
-- 二値化画像と100%同じ見た目を保証
+- **既定は輪郭方式（#112）**: クラック追跡で前景境界を追い、外輪郭 CW / 穴 CCW を
+  規約で保証（nonzero winding）→ Douglas-Peucker 単純化 → 角保存3次ベジェ丸め。
+  滑らかな線・穴あき文字（あ/お/ぬ/ふ/ぼ）非崩壊・約58 cmd/glyph（ランレングス比 ≈4x 減）
+- 座標変換は #111 のセル→em 固定アフィン（`EmTransform`）を両方式で共有
+- フォールバック: ランレングス方式（`vectorize_binary_runlength`）。二値化画像の黒連続区間を
+  矩形化（M→L→L→L→Z）。ジャギー・矩形爆発があり `MAX_RECTS` ハングガード付き
 
 詳細: [docs/font-generation.md](./docs/font-generation.md)
 
@@ -104,7 +107,7 @@ my-font-craft/
 
 - グリフ登録
 - calt（Contextual Alternates）設定
-- TTF/OTF出力（opentype.js）
+- フォント出力（opentype.js）— 中身は CFF（cubic ネイティブ）アウトライン。拡張子は `.ttf` だが glyf/quadratic ではない
 
 詳細: [docs/font-generation.md](./docs/font-generation.md)
 
