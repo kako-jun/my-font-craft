@@ -179,6 +179,45 @@ describe('Font Builder', () => {
     }
   });
 
+  it('should skip empty-paths glyphs to preserve OS/browser fallback (#117)', async () => {
+    const glyphs: VectorGlyph[] = [
+      {
+        name: 'uni3042', // あ（正常な輪郭あり）
+        unicode: 0x3042,
+        advanceWidth: 1000,
+        paths: [
+          [
+            { type: 'M', x: 200, y: 200 },
+            { type: 'L', x: 800, y: 200 },
+            { type: 'L', x: 800, y: 700 },
+            { type: 'L', x: 200, y: 700 },
+            { type: 'Z', x: 0, y: 0 },
+          ],
+        ],
+      },
+      {
+        name: 'uni3044', // い（残渣がゼロ化され paths が空 = 描画コマンド無し）
+        unicode: 0x3044,
+        advanceWidth: 1000,
+        paths: [],
+      },
+    ];
+
+    const buffer = await buildFont({ familyName: 'FallbackFont', glyphs });
+    const font = opentype.parse(buffer);
+
+    // 正常グリフのコードポイントは存在する
+    const glyphA = font.charToGlyph('あ');
+    expect(glyphA.name).toBe('uni3042');
+    expect(font.charToGlyph('あ').index).not.toBe(0);
+
+    // 空グリフのコードポイントは未割当（.notdef=index 0 に落ちる）→ フォールバック温存
+    expect(font.charToGlyph('い').index).toBe(0);
+
+    // グリフ数: .notdef + space + あ のみ（い はスキップ）
+    expect(font.glyphs.length).toBe(3);
+  });
+
   it('should skip .notdef and space when importing', async () => {
     // 空のフォント（.notdef + space のみ）
     const buffer = await buildFont({
