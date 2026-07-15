@@ -52,6 +52,21 @@ export async function buildFont(opts: FontOptions): Promise<ArrayBuffer> {
   const glyphs: opentype.Glyph[] = [notdefGlyph, spaceGlyph];
 
   for (const vg of opts.glyphs) {
+    // 残渣のみで採用され品質ゲートでゼロ化されたセルは paths が空になる（#117）。
+    // 空アウトラインを uniXXXX として登録するとコードポイントを占有し、
+    // OS/ブラウザのフォントフォールバックを潰す（「その文字だけ表示されない」に見える）。
+    // そのため描画コマンドを持たないグリフは登録をスキップし、コードポイントを未割当のままにする。
+    if (isEffectivelyEmpty(vg.paths)) {
+      const uniLabel =
+        vg.unicode !== undefined
+          ? `U+${vg.unicode.toString(16).toUpperCase().padStart(4, '0')} "${String.fromCodePoint(vg.unicode)}"`
+          : vg.name;
+      console.warn(
+        `[buildFont] 空パスのグリフ ${uniLabel} (name=${vg.name}) をスキップ（フォールバック温存, #117）`,
+      );
+      continue;
+    }
+
     const path = convertToOpentypePath(vg.paths);
     const glyph = new opentype.Glyph({
       name: vg.name,
@@ -231,6 +246,22 @@ function convertFromOpentypePath(otPath: opentype.Path): PathCommand[][] {
   }
 
   return pathGroups;
+}
+
+/**
+ * paths が「実質的に空」かどうかを判定する（#117）。
+ * paths が空、または全サブパスが描画コマンド（moveTo/lineTo/curveTo = M/L/C）を
+ * 一切持たない（closePath = Z のみ、または空）場合に true。
+ * 実際に描かれる輪郭が無いグリフを検出する。
+ */
+export function isEffectivelyEmpty(pathGroups: PathCommand[][]): boolean {
+  if (pathGroups.length === 0) return true;
+  for (const commands of pathGroups) {
+    for (const cmd of commands) {
+      if (cmd.type === 'M' || cmd.type === 'L' || cmd.type === 'C') return false;
+    }
+  }
+  return true;
 }
 
 function convertToOpentypePath(pathGroups: PathCommand[][]): opentype.Path {
