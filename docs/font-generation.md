@@ -271,7 +271,10 @@ const arrayBuffer = font.toArrayBuffer();
 Rust 側（`cli/src/vectorizer.rs`）が**輪郭方式**（#112、上記「ベクター化方式」参照）で
 生成した `PathCommand[][]` を opentype.js の Path オブジェクトに変換する。各サブパスは
 1つの閉輪郭（外輪郭 CW / 穴 CCW）で、直線区間は `L`・曲線区間は `C`（3次ベジェ）で表す。
-opentype.js は cubic を TTF 書き出し時に quadratic へ変換する。
+opentype.js@1.3.4 の `Font.toArrayBuffer()` は **CFF（Type2 チャージストリング）** アウトラインを
+持つ OpenType フォントを書き出す。CFF は 3次ベジェ（cubic）がネイティブなので、`C` コマンドは
+そのまま格納される（quadratic への変換は起きない）。出力ファイルの拡張子を `.ttf` にしていても
+中身は CFF アウトラインである（TrueType の `glyf`／quadratic ではない）。
 
 ```typescript
 // builder.ts での実際の変換

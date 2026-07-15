@@ -36,3 +36,48 @@ describe('pathsToSvgDataUrl: セル→em 固定変換の viewBox (#111)', () => 
     expect(svg).toContain('L100,1200');
   });
 });
+
+describe('pathsToSvgDataUrl: nonzero winding 統一 (#112)', () => {
+  it('プレビューは nonzero で塗る（evenodd は使わない）', () => {
+    // 本番 CFF フォント（opentype.js）と Rust paths_to_svg は nonzero。
+    // プレビューが evenodd に退行すると自己交差ストロークで実フォントと食い違う。
+    const paths: WasmPathCommand[][] = [
+      [
+        { type: 'M', x: 0, y: 0 },
+        { type: 'L', x: 100, y: 0 },
+        { type: 'L', x: 100, y: 100 },
+        { type: 'Z', x: 0, y: 0 },
+      ],
+    ];
+    const url = pathsToSvgDataUrl(paths);
+    const svg = decodeURIComponent(url.slice('data:image/svg+xml;utf8,'.length));
+    expect(svg).toContain('fill-rule="nonzero"');
+    expect(svg).not.toContain('fill-rule="evenodd"');
+  });
+
+  it('自己交差パス（図形8）でもプレビューは font と同じ nonzero を使う', () => {
+    // 図形8（自己交差）: 2つのループの巻き方向が同じ = nonzero では両方塗られるが
+    // evenodd では交差で穴が開く。プレビューは font（nonzero）に一致させる。
+    const figureEight: WasmPathCommand[][] = [
+      [
+        // 下ループ（CW）
+        { type: 'M', x: 0, y: 0 },
+        { type: 'L', x: 100, y: 0 },
+        { type: 'L', x: 100, y: 100 },
+        { type: 'L', x: 0, y: 100 },
+        { type: 'Z', x: 0, y: 0 },
+        // 上ループ（同じ CW・下ループと一点で交差）
+        { type: 'M', x: 50, y: 100 },
+        { type: 'L', x: 150, y: 100 },
+        { type: 'L', x: 150, y: 200 },
+        { type: 'L', x: 50, y: 200 },
+        { type: 'Z', x: 50, y: 100 },
+      ],
+    ];
+    const url = pathsToSvgDataUrl(figureEight);
+    const svg = decodeURIComponent(url.slice('data:image/svg+xml;utf8,'.length));
+    // 単一 <path> に nonzero が付き、evenodd は現れない = font と同じ塗り規則
+    expect(svg).toMatch(/<path [^>]*fill-rule="nonzero"/);
+    expect(svg).not.toContain('evenodd');
+  });
+});

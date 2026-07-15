@@ -217,6 +217,9 @@ export function pathsToSvgDataUrl(paths: WasmPathCommand[][]): string {
   }
   const vbW = CROP_X_MAX - CROP_X_MIN;
   const vbH = CROP_Y_MAX - CROP_Y_MIN;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${CROP_X_MIN} 0 ${vbW} ${vbH}" preserveAspectRatio="xMidYMid meet"><path d="${d.join(' ')}" fill="black" fill-rule="evenodd"/></svg>`;
+  // 本番 CFF フォント（opentype.js）と Rust 側 paths_to_svg は nonzero winding で
+  // 塗る。プレビューも nonzero に揃えることで、自己交差ストロークで evenodd と食い違って
+  // 「プレビューでは穴が開くが実フォントでは塗り潰される」等の乖離を防ぐ（#112）。
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${CROP_X_MIN} 0 ${vbW} ${vbH}" preserveAspectRatio="xMidYMid meet"><path d="${d.join(' ')}" fill="black" fill-rule="nonzero"/></svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }

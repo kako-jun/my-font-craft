@@ -107,7 +107,7 @@ my-font-craft/
 
 - グリフ登録
 - calt（Contextual Alternates）設定
-- TTF/OTF出力（opentype.js）
+- フォント出力（opentype.js）— 中身は CFF（cubic ネイティブ）アウトライン。拡張子は `.ttf` だが glyf/quadratic ではない
 
 詳細: [docs/font-generation.md](./docs/font-generation.md)
 

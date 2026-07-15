@@ -214,6 +214,43 @@ pub fn vectorize_binary(binary_sauvola: &[u8], w: u32, h: u32) -> Vec<Vec<PathCo
     paths
 }
 
+/// 二値化バッファ（Sauvola 形式: 0=黒/255=白）の w×h 範囲に前景（黒）画素が
+/// 1つでもあるかを返す。バッファ長が w×h に満たない不正入力は「インクなし」とみなす。
+pub fn binary_has_ink(binary_sauvola: &[u8], w: u32, h: u32) -> bool {
+    let n = (w as usize) * (h as usize);
+    binary_sauvola.len() >= n && binary_sauvola[..n].iter().any(|&v| v == 0)
+}
+
+/// **採用セル**（judge_adoption が採用＝生セルにインクがあった）のベクター化を行い、
+/// **パスが空**なら `quality.needs_review` を立てる（#112 / #108）。
+///
+/// この関数は採用セルに対してのみ呼ばれる。採用されたのにベクター化結果が空＝
+/// グリフを生成できない以上、原因を問わず**必ず**要確認にする。これは次の両方を包含する:
+///   - **MAX ガード発火** — MAX_CONTOURS / MAX_CONTOUR_POINTS / MAX_RECTS で空へ倒す
+///     （このとき gated_binary にはインクが残っている）。
+///   - **pre-gate 消失** — 生セルにインクはあったが、Sauvola 閾値処理や
+///     morphological_open_close で品質ゲート到達**前**にストロークが消え、gated_binary が
+///     既に空になっている（ゲートは 0 成分除去なので単独では needs_review を立てない）。
+///
+/// 判定は `paths.is_empty()` だけに基づき、`binary_has_ink(gated_binary)`（＝ゲート後に
+/// インクが残ったか）には依存しない。ゲート後インクの有無で分岐すると pre-gate 消失
+/// サブクラスが漏れて #108 の「黙って欠字」が再来するため（セルフレビュー指摘）。
+///
+/// pipeline（本番経路）と回帰テストで同一のこの関数を通すことで、サイレント欠字の
+/// 検知ロジックが両者で必ず一致する。
+pub fn vectorize_adopted_with_review(
+    binary_sauvola: &[u8],
+    w: u32,
+    h: u32,
+    quality: &mut CellQuality,
+) -> Vec<Vec<PathCommand>> {
+    let paths = vectorize_binary(binary_sauvola, w, h);
+    if paths.is_empty() {
+        quality.needs_review = true;
+    }
+    paths
+}
+
 /// 二値化済みセル → パス配列（**ランレングス方式**・フォールバック/デバッグ用）。
 ///
 /// 2x アップスケール → 各行の黒連続区間を検出 → 縦マージ → 各矩形を M→L→L→L→Z の
@@ -1473,6 +1510,14 @@ mod tests {
         let binary = make_binary(250, 250, &rects);
         let paths = vectorize_binary(&binary, 250, 250);
         assert!(paths.is_empty(), "輪郭爆発時はハングガードで空: 実際={}", paths.len());
+
+        // #112: 二値化は非空（黒あり）なのに空へ倒れる = 黙って欠字。
+        // vectorize_adopted_with_review 経由（本番と同一経路）で needs_review が立つこと。
+        assert!(binary_has_ink(&binary, 250, 250), "テスト前提: 二値化は非空");
+        let mut quality = CellQuality::empty();
+        let paths2 = vectorize_adopted_with_review(&binary, 250, 250, &mut quality);
+        assert!(paths2.is_empty(), "採用経路でも空に倒れる");
+        assert!(quality.needs_review, "MAX_CONTOURS 発火時は needs_review が立つ（黙って欠字にしない）");
     }
 
     #[test]
@@ -1584,5 +1629,206 @@ mod tests {
         let cut = ((ex - 100.0).powi(2) + (ey - 10.0).powi(2)).sqrt();
         assert!(cut <= 0.42 * 100.5 + 2.0, "射出カットは辺長×0.42以内: {cut}");
         assert!(cut > 10.0, "丸めが潰れず有効なカット長を持つ: {cut}");
+    }
+
+    // ── 追加テスト（#112 QA 不足分の補完） ──
+
+    #[test]
+    fn choose_next_pinch_selects_most_clockwise() {
+        // ピンチ頂点（出口複数）: 入射方向 din=(1,0)（左→右）に対し、画像 Y 下向きで
+        // 最も時計回り = 下向き(0,1) を選ぶ。上向き(0,-1) は最も反時計回りなので選ばない。
+        let cur = (5, 5);
+        let outs = vec![(5, 4), (5, 6)]; // (上=Y-1, 下=Y+1)
+        let idx = choose_next(&outs, Some((1, 0)), cur);
+        assert_eq!(outs[idx], (5, 6), "右進入では下向き出口（最も時計回り）を選ぶ");
+
+        // 逆に din=(-1,0)（右→左）なら時計回りは上向き(0,-1)
+        let idx2 = choose_next(&outs, Some((-1, 0)), cur);
+        assert_eq!(outs[idx2], (5, 4), "左進入では上向き出口を選ぶ");
+
+        // 単一出口 / din 無しは常に 0（一意）
+        assert_eq!(choose_next(&[(1, 0)], None, cur), 0);
+        assert_eq!(choose_next(&outs, None, cur), 0);
+    }
+
+    #[test]
+    fn contour_two_px_line_winding_cw() {
+        // 2px 幅の細線（DP 許容誤差 1.5px 超）: 縦横とも外輪郭 CW（面積<0）・空にならない・
+        // 巻き方向が反転しない。3px 版（contour_winding_thin_line_no_flip）の下側境界。
+        for &(rect, w, h) in &[
+            (&(50u32, 10u32, 52u32, 90u32), 100u32, 100u32), // 縦2px線
+            (&(10, 50, 90, 52), 100, 100),                   // 横2px線
+        ] {
+            let binary = make_binary(w, h, &[*rect]);
+            let paths = vectorize_binary(&binary, w, h);
+            assert!(!paths.is_empty(), "2px 細線でも空にならない: {rect:?}");
+            for p in &paths {
+                assert!(
+                    subpath_signed_area(p) < 0.0,
+                    "2px 細線の外輪郭も CW（面積<0）: rect={rect:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn dp_epsilon_strict_boundary() {
+        // DP の判定は `far_d2 > eps2`（厳密 >）。垂線距離 d がちょうど eps と等しいとき、
+        // 点は「残らない」（境界は除去側）。3点 (0,0)-(10,d)-(20,0)、中点の距離=d。
+        let line = |d: i32| vec![(0i32, 0i32), (10, d), (20, 0)];
+        // d=3、eps=3.0 ちょうど: d2=9, eps2=9 → 9>9 は偽 → 中点除去（2点）
+        assert_eq!(dp_open(&line(3), 3.0).len(), 2, "距離=eps ちょうどは除去（厳密 >）");
+        // eps を僅かに下げる（2.999）と 9 > 8.994 で保持（3点）
+        assert_eq!(dp_open(&line(3), 2.999).len(), 3, "eps を僅かに下回ると保持");
+    }
+
+    /// 孤立した cell_px 角ブロックを `count` 個、格子状に並べた二値化を作る（連結しない間隔）。
+    /// 各ブロックが1本の独立輪郭になり、輪郭本数の境界テストに使う。
+    fn grid_blocks(count: usize, cell_px: u32) -> (Vec<u8>, u32, u32) {
+        const COLS: u32 = 40;
+        const SP: u32 = 8; // ブロック間隔（cell_px より十分大きく、必ず非連結）
+        let rows = (count as u32).div_ceil(COLS);
+        let w = COLS * SP + SP;
+        let h = rows * SP + SP;
+        let mut rects = Vec::with_capacity(count);
+        for k in 0..count as u32 {
+            let (gx, gy) = (k % COLS, k / COLS);
+            let (bx, by) = (gx * SP + 2, gy * SP + 2);
+            rects.push((bx, by, bx + cell_px, by + cell_px));
+        }
+        (make_binary(w, h, &rects), w, h)
+    }
+
+    #[test]
+    fn max_contours_lower_boundary() {
+        // 輪郭本数の境界: ちょうど MAX_CONTOURS 本は通す（非空）、1本超で空へ倒す。
+        // ガードは `loops.len() > MAX_CONTOURS`（厳密 >）。
+        // cell_px=4: DP 許容誤差(1.5px)を角の逸脱(4/√2≈2.83px)が上回り、各ブロックが
+        // 4角の輪郭として残る（2px だと角が畳まれて退化するため 4px を使う）。
+        let (at_limit, w1, h1) = grid_blocks(MAX_CONTOURS, 4);
+        let paths_at = vectorize_binary(&at_limit, w1, h1);
+        assert_eq!(paths_at.len(), MAX_CONTOURS, "ちょうど上限本は全て残る");
+
+        let (over, w2, h2) = grid_blocks(MAX_CONTOURS + 1, 4);
+        let paths_over = vectorize_binary(&over, w2, h2);
+        assert!(paths_over.is_empty(), "上限+1本で空へ倒す: 実際={}", paths_over.len());
+    }
+
+    #[test]
+    fn max_contour_points_fires_and_flags_review() {
+        // 総頂点数ガード: 輪郭本数は MAX_CONTOURS 以下でも、単純化後の総頂点が
+        // MAX_CONTOUR_POINTS を超えたら空へ倒す。多数の「櫛」形状（1本で頂点多数）を
+        // 縦に積み、頂点総数だけを膨らませる。
+        const BANDS: u32 = 70;
+        const BAND_H: u32 = 12; // bar(3) + tooth(6) + gap(3)
+        let x_end = 902u32;
+        let w = x_end + 2;
+        let h = BANDS * BAND_H + 4;
+        let mut rects: Vec<(u32, u32, u32, u32)> = Vec::new();
+        for b in 0..BANDS {
+            let y0 = 2 + b * BAND_H;
+            // 上辺のバー（全櫛を1連結成分にする）
+            rects.push((2, y0, x_end, y0 + 3));
+            // 3px 幅・6px 長の歯を 6px ピッチで下げる（振幅6px > DP 許容誤差 → 全頂点が残る）
+            let mut x = 2;
+            while x + 3 < x_end {
+                rects.push((x, y0 + 3, x + 3, y0 + 9));
+                x += 6;
+            }
+        }
+        let binary = make_binary(w, h, &rects);
+        // 輪郭本数は BANDS 本（<= MAX_CONTOURS）だが総頂点は上限超で空へ倒れる
+        assert!((BANDS as usize) <= MAX_CONTOURS, "テスト前提: 輪郭本数は上限以下");
+
+        let mut quality = CellQuality::empty();
+        let paths = vectorize_adopted_with_review(&binary, w, h, &mut quality);
+        assert!(
+            paths.is_empty(),
+            "MAX_CONTOUR_POINTS 発火で空へ倒れるべき: 実際={}",
+            paths.len()
+        );
+        assert!(binary_has_ink(&binary, w, h), "テスト前提: 二値化は非空");
+        assert!(
+            quality.needs_review,
+            "MAX_CONTOUR_POINTS 発火時も needs_review が立つ（黙って欠字にしない）"
+        );
+    }
+
+    #[test]
+    fn adopted_cell_empty_after_pre_gate_erasure_flags_review() {
+        // pre-gate 消失サブクラス（#112/#108 セルフレビュー指摘）:
+        // 生セルにインクがあり judge_adoption が採用したセルでも、Sauvola 閾値処理や
+        // morphological_open_close で品質ゲート到達**前**にストロークが消えると、
+        // gated_binary は全白（インクなし）になる。ゲートは 0 成分除去なので単独では
+        // needs_review を立てない。それでも採用セルがベクター化できない以上、
+        // needs_review を立てなければ「黙って欠字」する。
+        //
+        // vectorize_adopted_with_review は採用セルにのみ呼ばれる前提なので、全白 gated を
+        // 渡した時点で「採用されたが gated が空」= pre-gate 消失を表す。
+        let gated_empty = vec![255u8; 100 * 100]; // 全白 = ゲート後インクなし
+        assert!(
+            !binary_has_ink(&gated_empty, 100, 100),
+            "テスト前提: gated_binary はインクなし（pre-gate で消失した状態）"
+        );
+        let mut quality = CellQuality::empty();
+        let paths = vectorize_adopted_with_review(&gated_empty, 100, 100, &mut quality);
+        assert!(paths.is_empty(), "空 gated はパスなし");
+        assert!(
+            quality.needs_review,
+            "採用セルがベクター化できないなら、pre-gate 消失（gated 空）でも needs_review が立つ"
+        );
+    }
+
+    #[test]
+    fn contour_multi_level_nesting_depth_ge_3() {
+        // 多層内包（depth>=3）: 塗り→穴→島→島内の穴 の4重同心。
+        // 巻き方向は CW→CCW→CW→CCW と交互になり、nonzero で塗り/空が交互になる。
+        let (w, h) = (200u32, 200u32);
+        let mut binary = make_binary(w, h, &[(10, 10, 190, 190)]); // L0 外枠 黒
+        let fill = |buf: &mut [u8], x0, y0, x1, y1, v: u8| {
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    buf[(y * w + x) as usize] = v;
+                }
+            }
+        };
+        fill(&mut binary, 35, 35, 165, 165, 255); // L1 穴 白
+        fill(&mut binary, 60, 60, 140, 140, 0); // L2 島 黒
+        fill(&mut binary, 85, 85, 115, 115, 255); // L3 島内の穴 白
+
+        let paths = vectorize_binary(&binary, w, h);
+        assert_eq!(paths.len(), 4, "4重同心 → 輪郭4本");
+
+        let t = EmTransform::new(w, h);
+        // 各層の帯中央での nonzero winding: L0塗り, L1空, L2塗り, L3空
+        assert_ne!(winding_number(&paths, t.fx(22.0), t.fy(22.0)), 0, "L0 外枠帯は塗り");
+        assert_eq!(winding_number(&paths, t.fx(47.0), t.fy(47.0)), 0, "L1 穴帯は空");
+        assert_ne!(winding_number(&paths, t.fx(72.0), t.fy(72.0)), 0, "L2 島帯は塗り");
+        assert_eq!(winding_number(&paths, t.fx(100.0), t.fy(100.0)), 0, "L3 島内の穴は空");
+    }
+
+    #[test]
+    fn corner_threshold_neighborhood_rounds_below_keeps_above() {
+        // 角閾値（CONTOUR_CORNER_THRESHOLD_DEG=62°）近傍: ターン角が閾値未満なら3次ベジェで
+        // 丸め（C を含む）、閾値超なら角として直線接続のみ（C を含まない）。
+        // din=(+x)。頂点で角度 deg だけ曲げた3点多角形を作ると、その頂点のターン角=deg。
+        let mk = |deg: f64| {
+            let a = deg.to_radians();
+            vec![
+                (0.0, 0.0),
+                (100.0, 0.0),
+                (100.0 + 100.0 * a.cos(), 100.0 * a.sin()),
+            ]
+        };
+        let below = smooth_contour_to_path(&mk(61.0));
+        assert!(
+            below.iter().any(|c| matches!(c, PathCommand::CurveTo { .. })),
+            "閾値(62°)未満のターン角は丸める（C あり）: {below:?}"
+        );
+        let above = smooth_contour_to_path(&mk(63.0));
+        assert!(
+            above.iter().all(|c| !matches!(c, PathCommand::CurveTo { .. })),
+            "閾値超のターン角は角として残す（C なし）: {above:?}"
+        );
     }
 }

@@ -133,6 +133,52 @@ describe('Font Builder', () => {
     }
   });
 
+  it('should round-trip a holed glyph with a C curve (外輪郭+穴, #112)', async () => {
+    // 穴あきグリフ（アニュラス）: 外輪郭 CW（大きい正方・C 曲線を含む）+ 穴 CCW（内側正方）。
+    // CFF 書き出し → import で 2輪郭・曲線が保持され、穴が別サブパスとして残ることを確認。
+    const holed: VectorGlyph[] = [
+      {
+        name: 'uni25A1', // □（穴あき代理）
+        unicode: 0x25a1,
+        advanceWidth: 1000,
+        paths: [
+          // 外輪郭（CW, 反時計回りでない）: 上辺を C 曲線にする
+          [
+            { type: 'M', x: 100, y: 100 },
+            { type: 'C', x: 900, y: 100, cp1x: 400, cp1y: 50, cp2x: 600, cp2y: 50 },
+            { type: 'L', x: 900, y: 900 },
+            { type: 'L', x: 100, y: 900 },
+            { type: 'Z', x: 100, y: 100 },
+          ],
+          // 穴（CCW）
+          [
+            { type: 'M', x: 300, y: 300 },
+            { type: 'L', x: 300, y: 700 },
+            { type: 'L', x: 700, y: 700 },
+            { type: 'L', x: 700, y: 300 },
+            { type: 'Z', x: 300, y: 300 },
+          ],
+        ],
+      },
+    ];
+
+    const buffer = await buildFont({ familyName: 'HoledFont', glyphs: holed });
+    const result = importFont(buffer);
+
+    expect(result.glyphs.length).toBe(1);
+    const g = result.glyphs[0];
+    expect(g.unicode).toBe(0x25a1);
+    // 2輪郭（外輪郭 + 穴）が保持される
+    expect(g.paths.length).toBe(2);
+    // 曲線コマンド（C）が往復後も残る（CFF は cubic ネイティブ）
+    const allCmds = g.paths.flat();
+    expect(allCmds.some((c) => c.type === 'C')).toBe(true);
+    // 各サブパスが閉じている（Z を含む）
+    for (const sub of g.paths) {
+      expect(sub.some((c) => c.type === 'Z')).toBe(true);
+    }
+  });
+
   it('should skip .notdef and space when importing', async () => {
     // 空のフォント（.notdef + space のみ）
     const buffer = await buildFont({
