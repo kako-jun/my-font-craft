@@ -10,6 +10,10 @@ tests/fixtures/mock-scans-distorted/
 tests/fixtures/mock-scans-residue/
 tests/fixtures/mock-scans-metrics/
 tests/fixtures/mock-scans-emptyreview/
+tests/fixtures/mock-scans-jitter/
+tests/fixtures/mock-scans-noise/
+tests/fixtures/mock-scans-lighting/
+tests/fixtures/mock-scans-capture/
 tests/fixtures/test-output.ttf
 tests/fixtures/test-blank-page.png
 tests/fixtures/test-upload*.zip
