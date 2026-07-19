@@ -18,7 +18,6 @@ interface Props {
 type Phase = 'idle' | 'scanning' | 'review' | 'building' | 'done';
 
 export default function Upload(props: Props) {
-  const [dragActive, setDragActive] = createSignal(false);
   const [phase, setPhase] = createSignal<Phase>('idle');
   const [currentPage, setCurrentPage] = createSignal(0);
   const [totalPages, setTotalPages] = createSignal(0);
@@ -307,7 +306,6 @@ export default function Upload(props: Props) {
 
   function handleDrop(e: DragEvent) {
     e.preventDefault();
-    setDragActive(false);
     if (e.dataTransfer?.files) {
       handleFiles(e.dataTransfer.files);
     }
@@ -343,65 +341,80 @@ export default function Upload(props: Props) {
   }
 
   return (
-    <div class="upload-page" classList={{ 'upload-page--review': phase() === 'review' }}>
-      <h2>2. フォントを作成する</h2>
+    <div classList={{ 'page--review': phase() === 'review' }}>
+      <h1>撮影画像からフォントを作成する</h1>
 
       {/* ドロップゾーン（idle / review 時に表示） */}
       <Show when={phase() === 'idle' || phase() === 'review'}>
         <div
-          class="drop-zone"
-          classList={{ 'drop-zone--active': dragActive() }}
           onDragOver={(e) => {
             e.preventDefault();
-            setDragActive(true);
           }}
-          onDragLeave={() => setDragActive(false)}
           onDrop={handleDrop}
         >
-          <p class="drop-zone__lead">
-            {phase() === 'review'
-              ? '追加の画像をここへ（既存に追加）'
-              : 'スキャン画像・フォルダ・ZIPをここへ'}
-          </p>
-          <p class="drop-zone__hint">JPEG / PNG / WebP</p>
-          <div class="drop-zone__sources">
-            <button
-              class="act"
-              onClick={(e) => {
-                e.stopPropagation();
-                document.getElementById('image-input')?.click();
-              }}
-            >
-              画像を選択（複数可）
-            </button>
-            <button
-              class="act"
-              onClick={(e) => {
-                e.stopPropagation();
-                document.getElementById('folder-input')?.click();
-              }}
-            >
-              フォルダを選択
-            </button>
-            <button
-              class="act"
-              onClick={(e) => {
-                e.stopPropagation();
-                document.getElementById('zip-input')?.click();
-              }}
-            >
-              ZIPを選択
-            </button>
-            <button
-              class="act"
-              onClick={(e) => {
-                e.stopPropagation();
-                document.getElementById('font-input')?.click();
-              }}
-            >
-              既存フォントを読み込む
-            </button>
-          </div>
+          <section class="page-section">
+            <h2>
+              {phase() === 'review'
+                ? '追加する撮影画像を選択してください'
+                : '撮影したテンプレート画像を選択してください'}
+            </h2>
+            <div class="section__body">
+              <p>用紙全体が写った JPEG / PNG / WebP を読み込みます。</p>
+              <button
+                class="act"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  document.getElementById('image-input')?.click();
+                }}
+              >
+                撮影画像を選択
+              </button>
+            </div>
+          </section>
+
+          <section class="page-section">
+            <h2>既存フォントに文字を足す</h2>
+            <div class="section__body">
+              <p>以前作成した TTF を読み込みます。</p>
+              <p>今回の撮影画像から文字を追加できます。</p>
+              <button
+                class="act"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  document.getElementById('font-input')?.click();
+                }}
+              >
+                既存フォントを選択
+              </button>
+            </div>
+          </section>
+
+          <section class="page-section">
+            <h2>複数ページをまとめて読み込む</h2>
+            <div class="section__body">
+              <p>ページ数が多いときは、撮影画像のフォルダまたはZIPを選びます。</p>
+              <div class="action-row">
+                <button
+                  class="act"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    document.getElementById('folder-input')?.click();
+                  }}
+                >
+                  フォルダを選択
+                </button>
+                <button
+                  class="act"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    document.getElementById('zip-input')?.click();
+                  }}
+                >
+                  ZIPを選択
+                </button>
+              </div>
+            </div>
+          </section>
           <input
             id="image-input"
             type="file"
@@ -433,57 +446,69 @@ export default function Upload(props: Props) {
             onChange={handleFontFileInput}
           />
           <Show when={phase() === 'review'}>
-            <div class="drop-zone__reset">
-              <button
-                class="act act--quiet"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleResetWithConfirm();
-                }}
-              >
-                リセット（0 文字に戻す）
-              </button>
-            </div>
+            <section class="page-section">
+              <h2>読み込みをリセットする</h2>
+              <div class="section__body">
+                <button
+                  class="act"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleResetWithConfirm();
+                  }}
+                >
+                  リセット（0 文字に戻す）
+                </button>
+              </div>
+            </section>
           </Show>
         </div>
       </Show>
 
       <Show when={phase() === 'idle'}>
-        <ul class="upload-hint__list upload-hint">
-          <li>フォルダごと / ZIPでまとめて可。階層・ファイル名は自由</li>
-          <li>ページ識別はQRコードで自動。多少の傾きも自動補正</li>
-          <li>チェック欄は任意 — 同じ文字を2マス書いたとき ✓ を優先</li>
-          <li>読み込みは常に既存へ追加。0 に戻すのは「リセット」</li>
-        </ul>
+        <section class="page-section">
+          <h2>読み込み後の扱い</h2>
+          <div class="section__body">
+            <ul>
+              <li>ページ番号はQRコードから自動で読み取ります。</li>
+              <li>同じ文字を2マス書いたときは、チェックした方を優先します。</li>
+              <li>読み込んだ文字を消すときは「リセット」を使います。</li>
+            </ul>
+          </div>
+        </section>
       </Show>
 
       {/* 撮影ガイド: idle時と、エラー発生時（review/idle問わず）に表示 */}
       <Show when={phase() === 'idle' || messages().some((m) => m.type === 'error')}>
-        <div class="shooting-guide">
-          <h4 class="shooting-guide__title">撮影のコツ</h4>
-          <div class="shooting-guide__item">
-            <span class="shooting-guide__icon shooting-guide__icon--good">&#x2713;</span>
-            <span>正面から、紙全体を収める</span>
+        <section class="page-section">
+          <h2>撮影時に確認すること</h2>
+          <div class="section__body">
+            <section>
+              <h3>よい撮り方</h3>
+              <div class="section__body section__body--nested">
+                <p>正面から、紙全体を収めます。</p>
+              </div>
+            </section>
+            <section>
+              <h3>避ける撮り方</h3>
+              <div class="section__body section__body--nested">
+                <ul>
+                  <li>斜めすぎる写真は読み取れません。</li>
+                  <li>近すぎる写真、遠すぎる写真、ぼやけた写真も避けてください。</li>
+                </ul>
+              </div>
+            </section>
           </div>
-          <div class="shooting-guide__item">
-            <span class="shooting-guide__icon shooting-guide__icon--bad">&#x2717;</span>
-            <span>斜めすぎ — マーカーを検出できない</span>
-          </div>
-          <div class="shooting-guide__item">
-            <span class="shooting-guide__icon shooting-guide__icon--bad">&#x2717;</span>
-            <span>近すぎ・遠すぎ — 見切れ / ぼやけで読み取れない</span>
-          </div>
-        </div>
+        </section>
       </Show>
 
       {/* スキャン中のプログレスバー */}
       <Show when={phase() === 'scanning'}>
-        <ProgressBar current={currentPage()} total={totalPages()} label="スキャン中..." />
+        <ProgressBar current={currentPage()} total={totalPages()} label="スキャン中" />
       </Show>
 
       {/* メッセージ */}
       <Show when={messages().length > 0}>
-        <div class="messages" style="margin-top:1.25rem">
+        <div class="message-list">
           <For each={messages()}>
             {(msg) => <div class={`message message--${msg.type}`}>{msg.text}</div>}
           </For>
@@ -520,11 +545,7 @@ export default function Upload(props: Props) {
                 <span class="exit-bar__note">調整中（#96）</span>
               </span>
             </Show>
-            <button
-              class="act act--primary"
-              onClick={handleBuildFont}
-              disabled={!hasAcquiredChars()}
-            >
+            <button class="act" onClick={handleBuildFont} disabled={!hasAcquiredChars()}>
               {!hasAcquiredChars()
                 ? 'フォントを生成できません'
                 : missingChars().length > 0
@@ -537,22 +558,22 @@ export default function Upload(props: Props) {
 
       {/* ビルド中 */}
       <Show when={phase() === 'building'}>
-        <p class="upload-status">フォントを生成中...</p>
+        <p class="upload-status">フォントを生成中</p>
       </Show>
 
       {/* 完了 */}
       <Show when={phase() === 'done'}>
-        <div class="upload-done">
-          <h3>フォントが完成しました</h3>
-          <div class="upload-done__actions">
-            <button class="act act--primary" onClick={handleDownloadFont}>
+        <section class="page-section">
+          <h2>フォントが完成しました</h2>
+          <div class="section__body action-row">
+            <button class="act" onClick={handleDownloadFont}>
               フォントをダウンロード (.ttf)
             </button>
-            <button class="act act--quiet" onClick={handleResetWithConfirm}>
+            <button class="act" onClick={handleResetWithConfirm}>
               最初からやり直す
             </button>
           </div>
-        </div>
+        </section>
       </Show>
     </div>
   );

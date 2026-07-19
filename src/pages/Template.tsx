@@ -1,4 +1,5 @@
 import { createSignal, createMemo, Show } from 'solid-js';
+import { A } from '@solidjs/router';
 import {
   HIRAGANA,
   KATAKANA,
@@ -70,24 +71,28 @@ export default function Template(props: Props) {
   }
 
   return (
-    <div class="template-page">
-      <h2>1. テンプレートを印刷する</h2>
+    <div>
+      <h1>テンプレートを印刷する</h1>
 
-      <div class="template-page__form">
-        <div class="form-group">
-          <label for="font-name">フォント名（任意・あとで変更可）</label>
+      <section class="page-section">
+        <h2>フォント名を入力してください</h2>
+        <div class="section__body">
+          <p>任意です。空欄でも作成でき、あとで変更できます。</p>
           <input
             id="font-name"
+            aria-label="フォント名"
             class="input"
             type="text"
             value={props.fontName}
             onInput={(e) => props.onFontNameChange(e.currentTarget.value)}
-            placeholder="例: KakoHand"
+            placeholder="フォント名"
           />
         </div>
+      </section>
 
-        <div class="form-group">
-          <label>対象文字</label>
+      <section class="page-section">
+        <h2>対象文字を選んでください</h2>
+        <div class="section__body">
           <div class="checkbox-group">
             <label>
               <input
@@ -123,30 +128,48 @@ export default function Template(props: Props) {
             </label>
           </div>
         </div>
+      </section>
 
-        <p class="template-page__info">
-          PDF 約<span class="num">{estimatedPages()}</span>ページ
-        </p>
+      <section class="page-section">
+        <h2>印刷内容を確認してください</h2>
+        <div class="section__body">
+          <p>
+            PDF 約<span class="num">{estimatedPages()}</span>ページです。
+          </p>
+          <p>青い内枠とガイド線を目安に一文字ずつ書いてください。</p>
+          <p>チェック欄は任意です。</p>
+          <p>同じ文字を2マス書いたときはチェックした方を優先します。</p>
+        </div>
+      </section>
 
-        <p class="template-page__note">
-          青い内枠とガイド線を目安に一文字ずつ。チェック欄は任意 — 同じ文字を2マス書いたとき、✓
-          のある方を優先。
-        </p>
+      <section class="page-section">
+        <h2>テンプレートを印刷する</h2>
+        <div class="section__body">
+          <p>PDFをダウンロードして印刷します。</p>
+          {error() && <div class="message message--error">{error()}</div>}
 
-        {error() && <div class="message message--error">{error()}</div>}
+          <Show when={noneSelected()}>
+            <p class="message message--warning">1つ以上選択してください</p>
+          </Show>
 
-        <Show when={noneSelected()}>
-          <p class="template-page__hint">1つ以上選択してください</p>
-        </Show>
+          <button class="act" onClick={handleDownload} disabled={generating() || noneSelected()}>
+            {generating() ? 'PDF生成中' : 'PDFをダウンロード'}
+          </button>
+        </div>
+      </section>
 
-        <button
-          class="act act--primary"
-          onClick={handleDownload}
-          disabled={generating() || noneSelected()}
-        >
-          {generating() ? 'PDF生成中...' : 'PDFをダウンロード'}
-        </button>
-      </div>
+      <section class="page-section">
+        <h2>記入後に撮影へ進んでください</h2>
+        <div class="section__body">
+          <p>
+            印刷と記入が終わったら、
+            <A class="act" href="/upload">
+              撮影画像からフォントを作成する
+            </A>
+            へ進みます。
+          </p>
+        </div>
+      </section>
     </div>
   );
 }

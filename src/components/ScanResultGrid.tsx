@@ -443,7 +443,7 @@ export default function ScanResultGrid(props: Props) {
                         </Show>
                         <div class="scan-grid__cell-char">{gs.char}</div>
                         <Show when={rewrite()}>
-                          <div class="scan-grid__cell-excluded-mark">✕</div>
+                          <div class="scan-grid__cell-excluded-mark">X</div>
                         </Show>
                         {/* 品質ゲート（#110）: ノイズ自動除去セル。黙って空に倒さず目視確認を促す */}
                         <Show when={review()}>

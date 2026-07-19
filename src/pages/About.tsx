@@ -1,97 +1,63 @@
 export default function About() {
   return (
-    <div class="about-page">
-      <section>
-        <h2>MyFontCraft</h2>
-        <p>手書きの字が、フォントになる。テンプレートに書いて、撮影して、TTFを受け取る。</p>
+    <div>
+      <h1>このサイトについて</h1>
+
+      <section class="page-section">
+        <h2>MyFontCraftとは</h2>
+        <div class="section__body section__body--wide">
+          <p>MyFontCraftは、手書き文字からフォントファイルを作るためのブラウザツールです。</p>
+          <p>紙に書く作業の手触りを残しつつ、生成処理は端末内で完結します。</p>
+        </div>
       </section>
 
-      <section>
-        <h3>流れ</h3>
-        <ol class="flow">
-          <li class="flow__step">
-            <span class="flow__num">1</span>
-            <div>
-              <span class="flow__label">テンプレートをダウンロード・印刷</span>
-            </div>
-          </li>
-          <li class="flow__step">
-            <span class="flow__num">2</span>
-            <div>
-              <span class="flow__label">マスに手書き</span>
-            </div>
-          </li>
-          <li class="flow__step">
-            <span class="flow__num">3</span>
-            <div>
-              <span class="flow__label">撮影してアップロード</span>
-              <span class="flow__hint">ページ識別はQRコード。傾きは自動補正</span>
-            </div>
-          </li>
-          <li class="flow__step">
-            <span class="flow__num">4</span>
-            <div>
-              <span class="flow__label">
-                フォントをダウンロード（<span class="num">.ttf</span>）
-              </span>
-            </div>
-          </li>
-        </ol>
+      <section class="page-section">
+        <h2>対応文字</h2>
+        <div class="section__body">
+          <ul>
+            <li>
+              ひらがな <span class="num">83</span>字、カタカナ <span class="num">87</span>
+              字に対応しています。
+            </li>
+            <li>
+              英字、数字、よく使う記号の合計 <span class="num">102</span>字に対応しています。
+            </li>
+            <li>
+              常用漢字 <span class="num">2,136</span>字に対応しています。
+            </li>
+          </ul>
+        </div>
       </section>
 
-      <section>
-        <h3>対応文字</h3>
-        <ul class="about-list">
-          <li>
-            ひらがな <span class="num">83</span>字 —{' '}
-            <span class="about-chars__sample">あいうえお…</span>
-          </li>
-          <li>
-            カタカナ <span class="num">87</span>字 —{' '}
-            <span class="about-chars__sample">アイウエオ…</span>
-          </li>
-          <li>
-            英数字・記号 <span class="num">102</span>字 —{' '}
-            <span class="about-chars__sample">ABC abc 123 !?@#…</span>
-          </li>
-          <li>
-            常用漢字 <span class="num">2,136</span>字 —{' '}
-            <span class="about-chars__sample">亜哀挨愛曖…</span>
-          </li>
-        </ul>
+      <section class="page-section">
+        <h2>利用条件</h2>
+        <div class="section__body">
+          <ul>
+            <li>インストール不要・登録不要・無料です。</li>
+            <li>全処理がブラウザ内で完結し、端末の外に出ません。</li>
+            <li>生成したフォントの権利は書いた人のものです。個人・商用とも自由です。</li>
+          </ul>
+        </div>
       </section>
 
-      <section>
-        <h3>事実</h3>
-        <ul class="about-list">
-          <li>インストール不要・登録不要・無料</li>
-          <li>生成したフォントの権利は書いた人のもの。個人・商用とも自由</li>
-        </ul>
-      </section>
-
-      <section>
-        <h3>作者</h3>
-        <div class="about-author">
+      <section class="page-section">
+        <h2>作者</h2>
+        <div class="section__body media-block">
           <img
             src="https://github.com/kako-jun.png"
             alt="kako-jun"
             width="56"
             height="56"
-            class="about-author__avatar"
+            class="media-block__image"
           />
           <div>
             <p>kako-jun</p>
-            <div class="about-links">
-              <a
-                class="act act--quiet"
-                href="https://llll-ll.com"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                llll-ll.com
+            <div class="action-row">
+              <a class="act" href="https://llll-ll.com" target="_blank" rel="noopener noreferrer">
+                作者サイト
               </a>
               <a
-                class="act act--quiet"
+                class="act"
                 href="https://github.com/kako-jun/my-font-craft"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -103,9 +69,9 @@ export default function About() {
         </div>
       </section>
 
-      <section>
-        <h3>応援</h3>
-        <div class="about-links">
+      <section class="page-section">
+        <h2>応援</h2>
+        <div class="section__body action-row">
           <a
             class="act"
             href="https://github.com/sponsors/kako-jun"

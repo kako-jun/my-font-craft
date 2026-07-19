@@ -8,8 +8,8 @@ describe('template PDF header and guide text', () => {
   });
 
   it('shows a font name only when the user explicitly entered one', () => {
-    expect(buildTemplateTitle('KakoHand')).toBe('MyFontCraft — "KakoHand"');
-    expect(buildTemplateTitle('  KakoHand  ')).toBe('MyFontCraft — "KakoHand"');
+    expect(buildTemplateTitle('My Handwriting')).toBe('MyFontCraft — "My Handwriting"');
+    expect(buildTemplateTitle('  My Handwriting  ')).toBe('MyFontCraft — "My Handwriting"');
   });
 
   it('names the blue inner frame and guide lines in the printed footer', () => {

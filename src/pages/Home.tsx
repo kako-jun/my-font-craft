@@ -2,78 +2,52 @@ import { A } from '@solidjs/router';
 
 export default function Home() {
   return (
-    <div class="home">
-      <div class="home__lead">
-        <h1>
-          手書きの字が、
-          <br />
-          フォントになる。
-        </h1>
-      </div>
+    <div>
+      <h1>手書きの字が、フォントになります。</h1>
 
-      <div class="home__columns">
-        {/* 4ステップ: 読まずに流れが分かる。1と3がそのまま入口 */}
-        <ol class="flow home__flow">
-          <li class="flow__step">
-            <span class="flow__num">1</span>
-            <div>
-              <span class="flow__label">
-                <A href="/template">テンプレートをダウンロード</A>
-              </span>
-              <span class="flow__hint">A4のPDF。印刷して使う</span>
-            </div>
-          </li>
-          <li class="flow__step">
-            <span class="flow__num">2</span>
-            <div>
-              <span class="flow__label">マスに手書き</span>
-              <span class="flow__hint">ペンで一文字ずつ</span>
-            </div>
-          </li>
-          <li class="flow__step">
-            <span class="flow__num">3</span>
-            <div>
-              <span class="flow__label">
-                <A href="/upload">撮影してアップロード</A>
-              </span>
-              <span class="flow__hint">スマホ撮影でも可。傾きは自動補正</span>
-            </div>
-          </li>
-          <li class="flow__step">
-            <span class="flow__num">4</span>
-            <div>
-              <span class="flow__label">フォントをダウンロード</span>
-              <span class="flow__hint">
-                <span class="num">.ttf</span> — そのままPCやスマホで使える
-              </span>
-            </div>
-          </li>
-        </ol>
+      <section class="page-section">
+        <h2>このサイトでできること</h2>
+        <div class="section__body section__body--wide">
+          <p>
+            テンプレートに手書きして撮影すると、ブラウザ上で
+            <span class="nowrap">TTFを作成できます。</span>
+          </p>
+        </div>
+      </section>
 
-        {/* 操作サンプル: 記入済みテンプレートの紙片 */}
-        <figure class="home__samples">
-          <img
-            class="sample-slip sample-slip--page"
-            src="/sample-template-page.webp"
-            alt="記入済みテンプレートの全体"
-            width="560"
-            height="792"
-          />
-          <img
-            class="sample-slip sample-slip--cells"
-            src="/sample-filled-cells.webp"
-            alt="マスに手書きした文字の拡大"
-            width="720"
-            height="351"
-          />
-          <figcaption>記入例 — マスに書いた字がそのまま字形になる</figcaption>
-        </figure>
-      </div>
+      <section class="page-section">
+        <h2>テンプレートを印刷する</h2>
+        <div class="section__body">
+          <p>まずテンプレートを印刷します。</p>
+          <p>
+            記入した用紙を撮影して読み込むと、<span class="nowrap">TTFを作成できます。</span>
+          </p>
+          <A class="act" href="/template">
+            テンプレートを印刷する
+          </A>
+        </div>
+      </section>
 
-      <ul class="facts">
-        <li>登録不要・無料</li>
-        <li>生成したフォントは個人・商用とも自由</li>
-      </ul>
+      <section class="page-section">
+        <h2>撮影画像からフォントを作成する</h2>
+        <div class="section__body">
+          <p>すでに作ったフォントを読み込み、追加で撮影した文字を足せます。</p>
+          <A class="act" href="/upload">
+            撮影画像からフォントを作成する
+          </A>
+        </div>
+      </section>
+
+      <section class="page-section">
+        <h2>利用条件</h2>
+        <div class="section__body">
+          <ul>
+            <li>登録不要・無料です。</li>
+            <li>画像は端末の外に出ません。</li>
+            <li>生成したフォントは個人・商用とも自由に使えます。</li>
+          </ul>
+        </div>
+      </section>
     </div>
   );
 }

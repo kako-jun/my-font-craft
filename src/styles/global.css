@@ -3,11 +3,11 @@
    完了・採用は「灯す」（金の光）。 */
 
 :root {
-  /* 背景写真（night-desk-bg.webp）から採った色 */
+  /* 背景写真（night-desk-alphabet-bg.webp）から採った色 */
   --night: #0b0805; /* 机の外の闇 */
   --ink: #e9dcc4; /* 灯りの当たった紙色 = 本文 */
-  --ink-dim: #b3a180; /* 二次テキスト */
-  --ink-faint: #9a8967; /* 補足・無効（本文級でも WCAG AA: 対 --night 約5.3:1） */
+  --ink-dim: #b8b8b8; /* 二次テキスト。黄色味のない中立グレー */
+  --ink-faint: #8f8f8f; /* 補足・無効。黄色味のない中立グレー */
   --lamp: #e8b96a; /* 真鍮ランプの金 = 操作・灯り */
   --lamp-bright: #ffd98a; /* hover の光 */
   --lamp-glow: rgba(232, 185, 106, 0.5);
@@ -15,6 +15,14 @@
   --error: #e28877; /* エラー（行灯の赤） */
   --success: var(--lamp); /* 成功は灯りで表す */
   --paper: #f2e9d4; /* 紙片の地 */
+  --page-max: none;
+  --page-pad-x: clamp(1.25rem, 6vw, 5rem);
+  --measure: min(72rem, calc(100vw - var(--page-pad-x) - 2rem));
+  --measure-wide: min(82rem, calc(100vw - var(--page-pad-x) - 2rem));
+  --section-gap: 3rem;
+  --item-gap: 0.7rem;
+  --indent: clamp(3.25rem, 7vw, 5.5rem);
+  --subindent: clamp(1.75rem, 4vw, 3rem);
   --serif:
     georgia, 'Times New Roman', 'Hiragino Mincho ProN', 'Yu Mincho', yumincho, 'BIZ UDMincho',
     'Noto Serif JP', 'Noto Serif CJK JP', serif;
@@ -50,7 +58,7 @@ body {
   position: fixed;
   inset: 0;
   z-index: -2;
-  background: var(--night) url('/night-desk-bg.webp') 65% 50% / cover no-repeat;
+  background: var(--night) url('/night-desk-alphabet-bg.webp') 65% 50% / cover no-repeat;
 }
 
 /* スクリム: 本文の乗る左側を暗く沈め、右のランプと紙は生かす */
@@ -63,8 +71,8 @@ body {
       100deg,
       rgba(9, 6, 4, 0.86) 0%,
       rgba(9, 6, 4, 0.68) 44%,
-      rgba(9, 6, 4, 0.22) 74%,
-      rgba(9, 6, 4, 0.34) 100%
+      rgba(9, 6, 4, 0.44) 74%,
+      rgba(9, 6, 4, 0.56) 100%
     ),
     radial-gradient(140% 100% at 76% 28%, rgba(9, 6, 4, 0) 40%, rgba(9, 6, 4, 0.42) 100%);
 }
@@ -78,9 +86,9 @@ body {
 .main {
   flex: 1;
   width: 100%;
-  max-width: 46rem;
+  max-width: var(--page-max);
   margin: 0;
-  padding: 2.5rem 1.25rem 3rem clamp(1.25rem, 6vw, 5rem);
+  padding: 2.5rem 1.25rem 3rem var(--page-pad-x);
 }
 
 ::selection {
@@ -99,46 +107,40 @@ h2,
 h3,
 h4 {
   font-weight: 600;
-  letter-spacing: 0.05em;
   line-height: 1.5;
 }
 
 h1 {
-  font-size: clamp(1.7rem, 4.5vw, 2.3rem);
+  font-size: 2.3rem;
   color: var(--ink);
+  max-width: var(--measure-wide);
+  margin: 0;
 }
 
 h2 {
   font-size: 1.45rem;
-  margin-bottom: 1.5rem;
-}
-
-/* 見出しの頭に小さな灯りを置く（区切り線の代わり） */
-h2::before {
-  content: '';
-  display: inline-block;
-  width: 0.45em;
-  height: 0.45em;
-  margin-right: 0.6em;
-  border-radius: 50%;
-  background: var(--lamp);
-  box-shadow: 0 0 10px var(--lamp-glow);
-  vertical-align: 0.12em;
+  margin: 0 0 0.45rem;
 }
 
 h3 {
   font-size: 1.1rem;
   color: var(--ink);
+  margin: 0 0 0.25rem;
 }
 
 h4 {
-  font-size: 0.95rem;
+  font-size: 1rem;
   color: var(--ink-dim);
+  margin: 0 0 0.2rem;
 }
 
 .num {
   font-family: var(--mono);
   font-size: 0.92em;
+}
+
+.nowrap {
+  white-space: nowrap;
 }
 
 /* ---- 操作: 枠付きボタンではなく「押せる文字」 ---- */
@@ -150,7 +152,6 @@ h4 {
   padding: 0.1em 0;
   font-family: inherit;
   font-size: 1rem;
-  letter-spacing: 0.04em;
   color: var(--lamp);
   text-shadow: var(--shadow-text);
   text-decoration: underline;
@@ -179,36 +180,6 @@ h4 {
   cursor: not-allowed;
 }
 
-.act--primary {
-  font-size: 1.15rem;
-}
-
-/* 主操作の頭の灯り */
-.act--primary:not(:disabled)::before {
-  content: '';
-  display: inline-block;
-  width: 0.4em;
-  height: 0.4em;
-  margin-right: 0.55em;
-  border-radius: 50%;
-  background: var(--lamp);
-  box-shadow: 0 0 10px var(--lamp-glow);
-  vertical-align: 0.12em;
-}
-
-.act--quiet {
-  color: var(--ink-dim);
-  font-size: 0.9rem;
-  text-decoration-color: rgba(179, 161, 128, 0.4);
-}
-
-.act--quiet:hover:not(:disabled),
-.act--quiet:focus-visible {
-  color: var(--ink);
-  text-shadow: var(--shadow-text);
-  text-decoration-color: var(--ink);
-}
-
 .act--ember {
   color: var(--ember);
   text-decoration-color: rgba(223, 160, 80, 0.45);
@@ -223,8 +194,7 @@ h4 {
 .form-group > label {
   display: block;
   margin-bottom: 0.35rem;
-  font-size: 0.85rem;
-  letter-spacing: 0.12em;
+  font-size: 0.95rem;
   color: var(--ink-dim);
 }
 
@@ -275,56 +245,35 @@ h4 {
   accent-color: var(--lamp);
 }
 
-/* ---- メッセージ: 枠なし。色文字と頭の記号で語る ---- */
+/* ---- メッセージ: 枠なし。色と文面だけで状態を示す ---- */
 
 .message {
   margin-bottom: 0.4rem;
-  font-size: 0.92rem;
+  font-size: 1rem;
   line-height: 1.7;
-}
-
-.message::before {
-  margin-right: 0.5em;
 }
 
 .message--error {
   color: var(--error);
 }
 
-.message--error::before {
-  content: '✕';
-}
-
 .message--warning {
   color: var(--ember);
-}
-
-.message--warning::before {
-  content: '!';
 }
 
 .message--info {
   color: var(--ink-dim);
 }
 
-.message--info::before {
-  content: '·';
-}
-
 .message--success {
   color: var(--lamp);
-}
-
-.message--success::before {
-  content: '◉';
-  text-shadow: 0 0 10px var(--lamp-glow);
 }
 
 /* ---- ヘッダー / フッター ---- */
 
 .header__inner {
-  max-width: 72rem;
-  padding: 1.1rem 1.25rem 0 clamp(1.25rem, 6vw, 5rem);
+  max-width: var(--page-max);
+  padding: 1.1rem 1.25rem 0 var(--page-pad-x);
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -346,34 +295,10 @@ h4 {
   color: var(--lamp-bright);
 }
 
-.header__nav {
-  display: flex;
-  gap: 1.5rem;
-}
-
-.header__link {
-  font-size: 0.9rem;
-  letter-spacing: 0.06em;
-  color: var(--ink-dim);
-  text-decoration: none;
-  text-underline-offset: 0.4em;
-  text-shadow: var(--shadow-text);
-}
-
-.header__link:hover {
-  color: var(--lamp-bright);
-}
-
-.header__link--active {
-  color: var(--lamp);
-  text-decoration: underline;
-  text-decoration-color: rgba(232, 185, 106, 0.45);
-}
-
 .footer {
-  padding: 2rem 1.25rem 1.5rem clamp(1.25rem, 6vw, 5rem);
+  padding: 2rem 1.25rem 1.5rem var(--page-pad-x);
   color: var(--ink-faint);
-  font-size: 0.82rem;
+  font-size: 0.95rem;
 }
 
 .footer__inner {
@@ -384,8 +309,10 @@ h4 {
 }
 
 .footer__link {
-  color: var(--ink-dim);
-  text-decoration: none;
+  color: var(--lamp);
+  text-decoration: underline;
+  text-decoration-color: rgba(232, 185, 106, 0.45);
+  text-underline-offset: 0.35em;
 }
 
 .footer__link:hover {
@@ -403,255 +330,79 @@ h4 {
   opacity: 0.8;
 }
 
-.footer__sub {
-  margin-top: 0.2rem;
-  opacity: 0.9;
-}
+/* ---- Shared Layout ---- */
 
-/* ---- Home ---- */
-
-.home__lead {
-  margin: 2.5rem 0 2rem;
-}
-
-.home__columns {
-  display: flex;
-  gap: 2.5rem;
-  align-items: flex-start;
-}
-
-.home__flow {
-  flex: 1 1 22rem;
-  min-width: 0;
-}
-
-/* 4ステップ: 数字と説明ブロックを中央で揃える */
-.flow {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 1.4rem;
-}
-
-.flow__step {
+.text-list {
   display: grid;
-  grid-template-columns: 1.7rem minmax(0, 1fr);
-  column-gap: 1rem;
-  align-items: center;
+  gap: var(--item-gap);
+  max-width: var(--measure-wide);
+  padding-left: 1.4rem;
 }
 
-.flow__num {
-  font-family: var(--mono);
-  font-size: 1.05rem;
-  line-height: 1;
+.page-section {
+  margin-top: var(--section-gap);
+}
+
+.section__body {
+  display: grid;
+  gap: 0.55rem;
+  max-width: var(--measure);
+  margin-left: var(--indent);
   color: var(--ink-dim);
-  width: 1.7rem;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
 }
 
-.flow__label {
-  font-size: 1.12rem;
-  letter-spacing: 0.05em;
+.section__body--wide {
+  max-width: var(--measure-wide);
 }
 
-.flow__label a,
-a.flow__label {
+.section__body--nested {
+  margin-left: var(--subindent);
+}
+
+.section__body > .act,
+.section__body--nested > .act {
+  justify-self: start;
+}
+
+.section__body a {
   color: var(--lamp);
-  text-decoration: underline;
   text-decoration-color: rgba(232, 185, 106, 0.45);
-  text-underline-offset: 0.4em;
-  text-decoration-thickness: 1px;
 }
 
-.flow__label a:hover,
-a.flow__label:hover {
-  color: var(--lamp-bright);
-  text-shadow:
-    0 0 14px var(--lamp-glow),
-    var(--shadow-text);
+.section__body ul,
+.section__body ol {
+  padding-left: 1.4rem;
 }
 
-.flow__hint {
-  display: block;
-  font-size: 0.82rem;
-  color: var(--ink-faint);
-  margin-top: 0.1rem;
+.section__body li + li {
+  margin-top: 0.25rem;
 }
 
-/* 記入例: 机に置かれた紙片として見せる */
-.home__samples {
-  flex: 0 0 15rem;
+.action-row {
   display: flex;
-  flex-direction: column;
-  gap: 1.1rem;
-  padding-top: 0.4rem;
-}
-
-.sample-slip {
-  display: block;
-  max-width: 100%;
-  height: auto;
-  border-radius: 1px;
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.7),
-    0 10px 28px rgba(0, 0, 0, 0.65);
-  filter: sepia(0.16) brightness(0.96);
-}
-
-.sample-slip--page {
-  width: 11.5rem;
-  transform: rotate(-2.2deg);
-}
-
-.sample-slip--cells {
-  width: 15rem;
-  transform: rotate(1.4deg);
-}
-
-.home__samples figcaption {
-  font-size: 0.78rem;
-  color: var(--ink-faint);
-  letter-spacing: 0.08em;
-  margin-top: 0.4rem;
-}
-
-.facts {
-  list-style: none;
-  margin-top: 3rem;
-  font-size: 0.9rem;
-  color: var(--ink-dim);
-}
-
-.facts li {
-  padding: 0.15rem 0;
-}
-
-.facts li::before {
-  content: '—';
-  margin-right: 0.7em;
-  color: var(--ink-faint);
-}
-
-/* ---- Template ---- */
-
-.template-page__info {
-  margin: 1.25rem 0 0.4rem;
-  font-size: 0.92rem;
-  color: var(--ink-dim);
-}
-
-.template-page__note {
-  margin: 0 0 1.75rem;
-  max-width: 30rem;
-  font-size: 0.85rem;
-  color: var(--ink-dim);
-  line-height: 1.8;
-}
-
-.template-page__hint {
-  color: var(--ember);
-  font-size: 0.9rem;
-  margin-bottom: 0.5rem;
-}
-
-/* ---- ドロップゾーン: 枠線でなく、置き場所の光で示す ---- */
-
-.drop-zone {
-  position: relative;
-  padding: 2.25rem 1rem;
-  text-align: center;
-  cursor: pointer;
-  border-radius: 8px;
-  transition: background 0.2s;
-}
-
-.drop-zone--active {
-  background: radial-gradient(60% 80% at 50% 50%, rgba(232, 185, 106, 0.16), transparent 75%);
-}
-
-.drop-zone--active::after {
-  content: '';
-  position: absolute;
-  inset: 0.4rem;
-  border-radius: 8px;
-  box-shadow: 0 0 26px var(--lamp-glow) inset;
-  pointer-events: none;
-}
-
-.drop-zone__lead {
-  font-size: 1.05rem;
-  letter-spacing: 0.05em;
-}
-
-.drop-zone__hint {
-  font-size: 0.8rem;
-  color: var(--ink-faint);
-  margin: 0.2rem 0 1.1rem;
-}
-
-.drop-zone__sources {
-  display: flex;
-  gap: 1.4rem;
-  justify-content: center;
+  gap: 1.6rem;
   flex-wrap: wrap;
+  align-items: baseline;
 }
 
-.drop-zone__reset {
+.media-block {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.media-block__image {
+  border-radius: 50%;
+  filter: sepia(0.25) brightness(0.9);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+}
+
+.section__body > section + section {
   margin-top: 1.4rem;
 }
 
-.upload-hint {
-  margin-top: 1.75rem;
-}
-
-.upload-hint__list {
-  list-style: none;
-  font-size: 0.85rem;
-  color: var(--ink-dim);
-}
-
-.upload-hint__list li {
-  padding: 0.1rem 0;
-}
-
-.upload-hint__list li::before {
-  content: '·';
-  margin-right: 0.6em;
-  color: var(--ink-faint);
-}
-
-.shooting-guide {
-  margin-top: 1.5rem;
-}
-
-.shooting-guide__title {
-  font-size: 0.85rem;
-  letter-spacing: 0.12em;
-  color: var(--ink-dim);
-  margin-bottom: 0.4rem;
-}
-
-.shooting-guide__item {
-  display: flex;
-  align-items: baseline;
-  gap: 0.6rem;
-  font-size: 0.85rem;
-  padding: 0.12rem 0;
-  color: var(--ink-dim);
-}
-
-.shooting-guide__icon {
-  flex-shrink: 0;
-  font-size: 0.8rem;
-}
-
-.shooting-guide__icon--good {
-  color: var(--lamp);
-}
-
-.shooting-guide__icon--bad {
-  color: var(--error);
+.message-list {
+  margin-top: 1.25rem;
 }
 
 /* ---- 進捗: 机の縁に走る細い灯りの線 ---- */
@@ -664,9 +415,8 @@ a.flow__label:hover {
 }
 
 .progress-label {
-  font-size: 0.9rem;
+  font-size: 1rem;
   color: var(--ink-dim);
-  letter-spacing: 0.08em;
 }
 
 .progress {
@@ -1223,35 +973,8 @@ a.flow__label:hover {
   color: var(--ink-faint);
 }
 
-/* ---- インストール促しバー（#124） ----
-   ヘッダーの直前に通常フローで挿入する（position: fixed にしない）。
-   固定オーバーレイにすると、position 未指定の .header は positioned 要素より
-   常に後に描画されるため z-index 値に関わらずヘッダーの下に沈んでしまう
-   （レビュー指摘 must-1）。通常フロー挿入なら表示中はヘッダーが自然に
-   バナー分だけ下へ押し出されるだけなので、この重なりが構造的に起こらない。
-   パネル化はしない: 背景を持たず、他の本文同様プレートの上に文字が浮かぶ。 */
-
-.install-bar {
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-start;
-  gap: 1.5rem;
-  flex-wrap: wrap;
-  padding: 1.1rem clamp(1.25rem, 6vw, 5rem) 0;
-}
-
-.install-bar__text {
-  margin: 0;
-}
-
-.install-bar__actions {
-  display: flex;
-  gap: 1.3rem;
-  flex-shrink: 0;
-}
-
 /* 出口バーの分だけ本文の下に余白を確保 */
-.upload-page--review {
+.page--review {
   padding-bottom: 7rem;
 }
 
@@ -1263,105 +986,7 @@ a.flow__label:hover {
   letter-spacing: 0.08em;
 }
 
-.upload-done {
-  margin-top: 2.25rem;
-}
-
-.upload-done h3 {
-  color: var(--lamp);
-  text-shadow:
-    0 0 16px var(--lamp-glow),
-    var(--shadow-text);
-  margin-bottom: 0.9rem;
-}
-
-.upload-done__actions {
-  display: flex;
-  gap: 2rem;
-  align-items: baseline;
-  flex-wrap: wrap;
-}
-
-/* ---- About ---- */
-
-.about-page section {
-  margin-bottom: 3rem;
-}
-
-.about-page h3 {
-  font-size: 0.9rem;
-  letter-spacing: 0.18em;
-  color: var(--ink-dim);
-  margin-bottom: 0.8rem;
-}
-
-.about-list {
-  list-style: none;
-}
-
-.about-list li {
-  padding: 0.2rem 0;
-}
-
-.about-list .num {
-  color: var(--ink-dim);
-}
-
-.about-chars__sample {
-  color: var(--ink-dim);
-  letter-spacing: 0.12em;
-}
-
-.about-author {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.about-author__avatar {
-  border-radius: 50%;
-  filter: sepia(0.25) brightness(0.9);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
-}
-
-.about-links {
-  display: flex;
-  gap: 1.6rem;
-  flex-wrap: wrap;
-}
-
-/* ---- NotFound ---- */
-
-.not-found {
-  margin-top: 3rem;
-}
-
-.not-found__actions {
-  margin-top: 1.5rem;
-}
-
 /* ---- レスポンシブ ---- */
-
-@media (max-width: 860px) {
-  .home__columns {
-    flex-direction: column-reverse;
-  }
-
-  .home__samples {
-    flex-direction: row;
-    align-items: flex-start;
-    flex-wrap: wrap;
-    flex-basis: auto;
-  }
-
-  .sample-slip--page {
-    width: 8.5rem;
-  }
-
-  .sample-slip--cells {
-    width: 12rem;
-  }
-}
 
 @media (max-width: 720px) {
   .plate {
@@ -1383,10 +1008,24 @@ a.flow__label:hover {
     padding: 1.75rem 1rem 2.5rem;
   }
 
+  :root {
+    --indent: 1rem;
+    --subindent: 0.85rem;
+  }
+
+  h1 {
+    font-size: 1.8rem;
+  }
+
+  h1 {
+    font-size: 1.35rem;
+    line-height: 1.45;
+    white-space: nowrap;
+  }
+
   .header__inner,
   .footer,
-  .exit-bar,
-  .install-bar {
+  .exit-bar {
     padding-left: 1rem;
   }
 

@@ -14,28 +14,16 @@ export default function Footer() {
   return (
     <footer class="footer">
       <div class="footer__inner">
-        <a
-          href="https://llll-ll.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="footer__link"
-        >
-          llll-ll.com
-        </a>
-        <span class="footer__sep">|</span>
         <A href="/about" class="footer__link">
-          About
+          このサイトについて
         </A>
-        <span class="footer__sep">|</span>
         <span class="footer__copy">&copy; kako-jun</span>
         <Show when={buildLabel()}>
-          <span class="footer__sep">|</span>
           <span class="footer__build" title="WASM ビルド識別">
             {buildLabel()}
           </span>
         </Show>
       </div>
-      <p class="footer__sub">全処理がブラウザ内。画像は端末の外に出ない。</p>
     </footer>
   );
 }

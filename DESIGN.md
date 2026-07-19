@@ -1,172 +1,166 @@
-# DESIGN.md — my-font-craft (Font Creation Tool)
+---
+name: MyFontCraft
+version: 1
+description: Visual design system for the handwritten font creation app.
+tokens:
+  colors:
+    night: '#0b0805'
+    ink: '#e9dcc4'
+    ink_dim: '#b8b8b8'
+    ink_faint: '#8f8f8f'
+    lamp: '#e8b96a'
+    lamp_bright: '#ffd98a'
+    lamp_glow: 'rgba(232, 185, 106, 0.5)'
+    ember: '#dfa050'
+    error: '#e28877'
+    paper: '#f2e9d4'
+  typography:
+    serif: 'Georgia, Times New Roman, Hiragino Mincho ProN, Yu Mincho, YuMincho, BIZ UDMincho, Noto Serif JP, Noto Serif CJK JP, serif'
+    mono: 'ui-monospace, SF Mono, Menlo, Cascadia Code, Consolas, Liberation Mono, monospace'
+    logo_size: '1.15rem'
+    page_title_size: '2.3rem'
+    section_title_size: '1.45rem'
+    subsection_title_size: '1.1rem'
+    body_size: '1rem'
+    line_height: '1.9'
+  layout:
+    page_max: '72rem'
+    measure: '38rem'
+    measure_wide: '54rem'
+    page_pad_x: 'clamp(1.25rem, 6vw, 5rem)'
+    indent: 'clamp(3.25rem, 7vw, 5.5rem)'
+    subindent: 'clamp(1.75rem, 4vw, 3rem)'
+    section_gap: '3rem'
+    item_gap: '0.7rem'
+  shapes:
+    panel: 'forbidden'
+    card: 'forbidden except glyph paper slips and modal/inspector surfaces'
+    button_box: 'forbidden'
+    border: 'forbidden for page grouping'
+  components:
+    action: 'gold underlined text'
+    page_structure: 'h1 > h2 > indented body'
+    list: 'real ol or ul only'
+---
 
-## 1. Visual Theme
+# Overview
 
-**The night desk.** Every page of my-font-craft happens on a single photographic plate: a dark wooden desk at night, a brass desk lamp, sheets of paper, a fountain pen (`public/night-desk-bg.webp`, fixed full-bleed on all routes). The UI is nothing but words placed on the dark wood and paper slips lit by the lamp. Dark-only — there is no light theme.
+MyFontCraft is a dark, single-photo workbench. Every route sits on the same fixed night-desk photograph with a readable scrim. The interface is made from words, indentation, whitespace, and paper-slip glyph images. It must not look like a generic card-based web app.
 
-No rectangular panels, no cards, no borders, no outlined buttons. Grouping is expressed by indentation, whitespace, line spacing, and type size. Interactive elements are text with a gold underline and a warm glow — "pressable" is shown by light, not by a box. Completed / adopted / done states are **lit** (a small gold bead of light, a warm glow), never dimmed or grayed out.
+The design system is intentionally narrow. If a visual decision is not in this file, do not invent it in implementation.
 
-### Shared Magazine Page Format
+# Colors
 
-my-font-craft belongs to the shared magazine-like page format with break-and-shift, know-it-break-it, and gilga. Treat these projects as a series of web-based fashion/editorial magazine spreads rather than four separately designed websites. They should reuse nearly the same page system; only photography, accent color, and subject matter should change.
+Use only the color tokens in the YAML front matter.
 
-- Book / fashion magazine / women's cooking or interior magazine / PDF-like page composition.
-- Design like an art director for stylish magazines such as Pen, not like a conventional website designer.
-- Dark background with display type floating directly on the photograph (my-font-craft sets it in mincho/serif rather than gothic — the subject is handwriting and type itself).
-- Text floating over photos or scanned paper.
-- Print-like page rhythm instead of stacked web cards.
-- Shared components should be reusable across the four projects: magazine section header, full-bleed photo spread, caption strip, numbered feature block.
-- Avoid parallax gimmicks. my-font-craft is the one deliberate variation on "photos and text scroll together": its single night-desk photograph is the constant material of every page — the workbench the whole app takes place on, not a decorative backdrop. Content (text, paper slips) scrolls across it the way objects move across a real desk.
-- A page break can simply be one strong photo, illustration, scan, or spread.
-- Use grid compositions that place photos and text side by side with generous whitespace around the text.
-- Treat photos as page material, not just decorative backgrounds — here the desk photo _is_ the page.
+Gold is reserved for interactive text, focus, progress, completed/adopted light, and explicit state highlights. Non-clickable explanatory text must not be gold or yellowish gray.
 
-my-font-craft-specific variation: night wooden desk photo, desk lamp light, paper templates, handwritten glyphs treated as physical paper slips, ink/paper/wood/brass accent colors.
+Neutral gray text uses `ink_dim` or `ink_faint`. These are true grays, not warm beige. If text is not clickable and not a warning/error/success state, it must use `ink` or neutral gray.
 
-## 2. Color Palette
+Warnings use `ember`. Errors use `error`. Success uses `lamp`, not green. No blue, green, purple, beige palette expansion, or extra accent colors.
 
-All colors are sampled from the background plate.
+# Typography
 
-| Token         | Value                   | Usage                                                |
-| ------------- | ----------------------- | ---------------------------------------------------- |
-| `night`       | `#0b0805`               | Base page color (under/around the photo)             |
-| `ink`         | `#e9dcc4`               | Primary text — the color of lamplit paper            |
-| `ink-dim`     | `#b3a180`               | Secondary text                                       |
-| `ink-faint`   | `#9a8967`               | Captions, hints, disabled (WCAG AA on `night`)       |
-| `lamp`        | `#e8b96a`               | Brass gold — links, actions, lit/adopted/done states |
-| `lamp-bright` | `#ffd98a`               | Hover glow                                           |
-| `lamp-glow`   | `rgba(232,185,106,0.5)` | Glow shadows around lit elements                     |
-| `ember`       | `#dfa050`               | Warning, needs-review flicker, rewrite verdict       |
-| `error`       | `#e28877`               | Error text                                           |
-| `paper`       | `#f2e9d4`               | Paper-slip background (glyph crops)                  |
+All readable UI text uses the serif stack. Monospace is allowed only for technical values such as counts, percentages, Unicode codes, and build hashes.
 
-Success is expressed with `lamp` (lighting up), not green. There are no cold hues anywhere in the UI.
+Each page has exactly one visible page title. The page title is `h1` and must match the link label that opened the page.
 
-## 3. Typography
+Use `h2` for page sections. Use `h3` only for real subsections inside a section. Do not use custom heading-like labels, caption labels, badges, decorative dots, or fake list row labels in informational pages.
 
-| Role             | Font                                                                                                                                                             | Size    | Weight |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------ |
-| Logo             | serif stack, italic, letter-spaced                                                                                                                               | 18px    | 400    |
-| Headings         | `Georgia, "Times New Roman", "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "BIZ UDMincho", "Noto Serif JP", "Noto Serif CJK JP", serif` (`--serif`, global.css) | 23–37px | 600    |
-| Body             | same serif/mincho stack                                                                                                                                          | 15–16px | 400    |
-| Technical values | `ui-monospace, "SF Mono", Menlo, Consolas, monospace` (`.num`, codes, build)                                                                                     | 12–13px | 400    |
+For workflow screens, section headings must be action instructions, not bare nouns. Use labels such as `フォント名を入力してください` and `対象文字を選んでください`, not `フォント名` or `対象文字`.
 
-Everything readable is mincho/serif — the subject is letterforms, and the app reads like a typeset page. Monospace is allowed **only** for technical values (character counts, `U+XXXX` codes, percentages, build sha). No webfonts are loaded: local mincho stacks only, consistent with "nothing leaves the device".
+The home headline `手書きの字が、フォントになります。` must stay on one line at common smartphone widths when there is enough physical width. Do not use `text-wrap: balance` or arbitrary forced line breaks for Japanese headings.
 
-Body line-height is 1.9 (mincho needs generous leading on dark ground). All text carries a soft dark text-shadow for readability over the photograph.
+# Layout
 
-## 4. Component Stylings
+The page column is left-set so the lamp and paper remain visible on desktop. Page structure is always:
 
-### Actions (`.act`)
+1. `h1` page title.
+2. `section.page-section`.
+3. `h2` section heading.
+4. `.section__body` for all content belonging to that heading.
 
-- Text, not boxes: gold (`lamp`) with a thin gold underline (`text-underline-offset: 0.4em`).
-- Hover/focus: brightens to `lamp-bright` and gains a warm glow (`text-shadow: 0 0 14px lamp-glow`).
-- Primary actions (`.act--primary`): larger type and a small gold bead of light before the label.
-- Quiet actions (`.act--quiet`): `ink-dim`, for secondary paths (reset, restart).
-- Disabled: `ink-faint`, underline removed. Never grayed boxes.
+Content under a heading is always indented. A heading and its body must never share the same left edge. Nested subsection content uses `.section__body--nested`.
 
-### Headings
+Actions belong inside the indented body of the section they advance. They must not float as top-level text.
 
-`h2` carries a small glowing gold dot before the text — a lamp bead instead of a rule or border.
+Lists must be real `ol` or `ul`. Ordered operations use `ol`. Unordered facts use `ul`. Never simulate a list with repeated paragraphs. Never make a list without numbers or bullets.
 
-### Forms
+Use the available horizontal space. Do not force a narrow measure that creates ugly Japanese line breaks while the viewport still has room. Split copy at sentence boundaries only when a paragraph contains multiple substantial sentences. Do not split short related notes into many one-line paragraphs.
 
-- Text input: underline only (no box), gold underline + soft glow when focused.
-- Checkboxes: native, `accent-color: lamp`.
+# Elevation & Depth
 
-### Messages
+Depth comes from the photograph and light, not panels.
 
-No colored banner boxes. Colored text with a leading mark: `✕` error (`error`), `!` warning (`ember`), `·` info (`ink-dim`), `◉` success (`lamp`, glowing).
+Text sits directly on the desk with a dark text shadow. Glyph crops may look like paper slips with `paper` background and a small shadow. Drag-over and inspector states may use a warm light pool. Do not introduce rectangular cards, bordered groups, section backgrounds, or raised panels for ordinary page content.
 
-### Drop Zone
+# Shapes
 
-No dashed border. A quiet area of centered text actions; on drag-over, a pool of warm light appears (radial gold gradient + inner glow) — the desk is lit where the paper will land.
+Page grouping uses indentation and whitespace only. Cards, rounded panels, borders, filled buttons, and outlined buttons are forbidden for normal page content.
 
-### Paper slips (scan results)
+Native form controls are allowed where they communicate actual input state, such as checkboxes and text inputs. Text inputs use underline only. File inputs are hidden behind text actions.
 
-Glyph crops are displayed as physical paper slips on the desk: white paper (`paper`), 1px radius, soft drop shadow, a deterministic ±2° scatter (nth-child rotation). No cell borders, no grid lines.
+# Components
 
-- **needs-review** (#110): the slip flickers amber (`ember` box-shadow animation) with a small `!` bead — anomalies catch the eye first.
-- **adopted**: gold rim glow + a gold bead (`.scan-grid__cell-lit`) — sorted slips are lit, not dimmed.
-- **rewrite** (excluded → retry): slip pushed into shadow (dimmed) with an ember `✕` — it is leaving the desk.
-- **empty**: no slip; a faint ghost of the character on the dark wood.
+## Links and Actions
 
-### Inspector (検分ビュー)
+Actions use `.act`: gold, underlined text. Hover/focus may brighten and glow. Underline is required so clickability is not communicated by color alone.
 
-A full-screen overlay: one slip large in a pool of lamplight (radial gold gradient on near-black), character + `U+` code + verdict beneath, three text verdicts (採用 / 書き直し / 次へ) with their key labels. `←` `→` navigate, swipe works on touch.
+Quiet actions use neutral gray text with underline. They are still clickable and must not be mistaken for plain explanatory text.
 
-### Exit bar
+## Footer
 
-During review, a fixed bottom strip (gradient scrim, not a panel; `pointer-events: none` except its children) always shows the two exits: "書き直し N 字 → リトライPDF" and "このまま生成 / フォントを生成する".
+Footer order is:
 
-### Install bar (#124)
+1. Internal explanation link: `このサイトについて`.
+2. External author link: `作者サイト`.
+3. Copyright.
+4. Build information only when available.
 
-Unlike the exit bar, this is **not** a fixed overlay: it is inserted in normal flow directly before the header, shown only while `beforeinstallprompt` is pending. `.header` has no explicit `position`, so a fixed overlay would always paint underneath it regardless of z-index — in-flow insertion instead pushes the header down by the bar's own height, so it can never cover the logo/nav. No background, no box: reuses `.message--info` for the copy and `.act` / `.act--quiet` for the two actions ("追加する" / "閉じる"). Dismissal is remembered permanently in `localStorage` (unlike the mypace reference, which re-prompts after 7 days — a deliberate simplification here, not an incomplete port).
+Do not use decorative separators such as `|`. Do not use the English label `About`.
 
-### Progress
+## PWA Install Prompt
 
-A 2px gold line with a glow, filling across a faint track. Numbers in monospace.
+Do not show an in-app PWA install prompt. It creates an unrelated workflow and competes with the font creation flow.
 
-## 5. Layout Principles
+## Template Page
 
-- Content column: max-width `46rem`, **set left** (`padding-left: clamp(1.25rem, 6vw, 5rem)`), leaving the lamp and paper visible on the right of the plate on desktop.
-- The scrim (`.plate-scrim`) darkens the left/text side of the photo and preserves the lamp highlight.
-- Single-column flow; grouping by whitespace and type scale only.
-- Density over decoration: no filler leads, no duplicate explanations; copy is verbs and nouns.
+The operation order is chronological:
 
-## 6. Depth & Light
+1. Choose optional font name and target characters.
+2. Download the PDF.
+3. Print and write.
+4. Go to `フォントを作成する`.
 
-Depth comes from light, not elevation tokens:
+`PDFをダウンロード` appears before the next-page link.
 
-| Level       | Treatment                           | Usage                          |
-| ----------- | ----------------------------------- | ------------------------------ |
-| On the desk | text-shadow only                    | All text                       |
-| Paper slip  | small drop shadow + paper white     | Glyph cells, sample images     |
-| Lit         | gold glow (`0 0 10–26px lamp-glow`) | Actions, adopted, done, review |
-| Lamplight   | radial gold pool on near-black      | Inspector, drag-over           |
+## Upload Page
 
-## 7. Do's and Don'ts
+The upload choices must explain intent, not just list file buttons. Separate these sections:
 
-**Do:**
+1. Select photographed template images.
+2. Add characters to an existing font.
+3. Load many pages by folder or ZIP.
 
-- Keep the single night-desk photo as the fixed background of every route.
-- Set all readable text in the mincho/serif stack; monospace only for technical values.
-- Express "done / adopted / read" by lighting up (gold bead, glow) — positive light.
-- Use text underlined in gold for anything pressable.
-- Keep needs-review anomalies glowing amber so they are seen first.
-- Respect `prefers-reduced-motion` (all animation off).
+Each section has a heading, an indented explanatory sentence, and its action inside the same indented body.
 
-**Don't:**
+# Do's and Don'ts
 
-- Draw rectangular panels, cards, borders, or outlined/filled buttons.
-- Add a light theme — the world is dark, always.
-- Dim or gray out completed states.
-- Use cold colors (blue/green) anywhere; success is gold.
-- Load webfonts or any external resource beyond the app's own assets.
-- Pad copy with filler ("〜しましょう", "簡単に", "ようこそ") — verbs and nouns only.
+Do:
 
-## 8. Responsive Behavior
+- Use this file as the only visual source of truth for UI implementation.
+- Keep text hierarchy to page title, section heading, subsection heading, body text, marked lists, inputs, and text actions.
+- Indent every body from its heading.
+- Use real marked lists whenever content is a list.
+- Keep Japanese explanatory sentences punctuated with `。`.
+- Avoid duplicated copy between a paragraph and a placeholder.
 
-| Breakpoint | Behavior                                                                                   |
-| ---------- | ------------------------------------------------------------------------------------------ |
-| > 860px    | Text column left, samples/lamp area breathing on the right                                 |
-| 720–860px  | Home samples move above the flow; same column                                              |
-| < 720px    | Full-width column; plate repositioned (`38% 50%`) so text sits on dark wood; heavier scrim |
+Don't:
 
-- Slip grid: `minmax(52px, 1fr)`, narrowing to `46px` on mobile; touch targets ≥ 44px.
-- Inspector verdicts are tappable (1-tap sort); swipe navigates.
-- The exit bar wraps; no horizontal scrolling at 390px.
-
-## 9. Agent Prompt Guide
-
-When building new components for my-font-craft:
-
-- **Background**: never add page backgrounds — the fixed plate + scrim (`.plate` / `.plate-scrim`) is already there. Content floats directly on it.
-- **Text**: `ink` (#e9dcc4) mincho/serif with `--shadow-text`; secondary `ink-dim`; captions `ink-faint`.
-- **Actions**: `.act` (gold underlined text). Primary = `.act--primary`. Never `<button>` with borders/background.
-- **Done/adopted/lit states**: gold bead + glow (see `.scan-grid__cell-lit`). Never dim.
-- **Warnings/review**: `ember` amber with flicker; errors `error` text (no boxes).
-- **Numbers/technical values**: wrap in `.num` (monospace).
-- **Images of glyphs/pages**: render as paper slips (paper white, small shadow, slight rotation).
-- **Max content width**: 46rem, left-set. Leave the lamp side of the photo clear on desktop.
-- **File inputs**: text-action drop zone with light-pool drag state; never native file inputs.
+- Use colors not listed in the tokens.
+- Use yellowish gray for non-clickable text.
+- Add emoji, decorative symbols, heading dots, fake bullets, or arbitrary separators.
+- Use unmarked lists.
+- Center text unless the component has a specific interaction reason.
+- Put a link on a page whose destination page title does not match the link label.
+- Add page-specific one-off text styles for informational pages.

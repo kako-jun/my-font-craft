@@ -2,7 +2,6 @@ import { createSignal, type JSX } from 'solid-js';
 import { Router, Route } from '@solidjs/router';
 import Header from './components/Header';
 import Footer from './components/Footer';
-import InstallPrompt from './components/InstallPrompt';
 import Home from './pages/Home';
 import Template from './pages/Template';
 import Upload from './pages/Upload';
@@ -15,7 +14,6 @@ function Layout(props: { children?: JSX.Element }) {
       {/* 夜の机の背景プレート + 可読性スクリム（全ページ共通・1枚固定） */}
       <div class="plate" aria-hidden="true" />
       <div class="plate-scrim" aria-hidden="true" />
-      <InstallPrompt />
       <Header />
       <main class="main">{props.children}</main>
       <Footer />
