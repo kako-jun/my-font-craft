@@ -75,14 +75,14 @@ export default function Template(props: Props) {
 
       <div class="template-page__form">
         <div class="form-group">
-          <label for="font-name">フォント名</label>
+          <label for="font-name">フォント名（任意・あとで変更可）</label>
           <input
             id="font-name"
             class="input"
             type="text"
             value={props.fontName}
             onInput={(e) => props.onFontNameChange(e.currentTarget.value)}
-            placeholder="MyHandwriting"
+            placeholder="例: KakoHand"
           />
         </div>
 
@@ -129,7 +129,8 @@ export default function Template(props: Props) {
         </p>
 
         <p class="template-page__note">
-          マスに一文字ずつ。チェック欄は任意 — 同じ文字を2マス書いたとき、✓ のある方を優先。
+          青い内枠とガイド線を目安に一文字ずつ。チェック欄は任意 — 同じ文字を2マス書いたとき、✓
+          のある方を優先。
         </p>
 
         {error() && <div class="message message--error">{error()}</div>}

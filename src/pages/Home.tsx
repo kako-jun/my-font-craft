@@ -15,7 +15,7 @@ export default function Home() {
         {/* 4ステップ: 読まずに流れが分かる。1と3がそのまま入口 */}
         <ol class="flow home__flow">
           <li class="flow__step">
-            <span class="flow__num">一</span>
+            <span class="flow__num">1</span>
             <div>
               <span class="flow__label">
                 <A href="/template">テンプレートをダウンロード</A>
@@ -24,14 +24,14 @@ export default function Home() {
             </div>
           </li>
           <li class="flow__step">
-            <span class="flow__num">二</span>
+            <span class="flow__num">2</span>
             <div>
               <span class="flow__label">マスに手書き</span>
               <span class="flow__hint">ペンで一文字ずつ</span>
             </div>
           </li>
           <li class="flow__step">
-            <span class="flow__num">三</span>
+            <span class="flow__num">3</span>
             <div>
               <span class="flow__label">
                 <A href="/upload">撮影してアップロード</A>
@@ -40,7 +40,7 @@ export default function Home() {
             </div>
           </li>
           <li class="flow__step">
-            <span class="flow__num">四</span>
+            <span class="flow__num">4</span>
             <div>
               <span class="flow__label">フォントをダウンロード</span>
               <span class="flow__hint">
@@ -71,7 +71,6 @@ export default function Home() {
       </div>
 
       <ul class="facts">
-        <li>全処理がブラウザ内。画像は端末の外に出ない</li>
         <li>登録不要・無料</li>
         <li>生成したフォントは個人・商用とも自由</li>
       </ul>

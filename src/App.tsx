@@ -24,7 +24,7 @@ function Layout(props: { children?: JSX.Element }) {
 }
 
 export default function App() {
-  const [fontName, setFontName] = createSignal('MyHandwriting');
+  const [fontName, setFontName] = createSignal('');
 
   return (
     <Router root={Layout}>

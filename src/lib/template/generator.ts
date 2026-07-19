@@ -51,6 +51,14 @@ export interface TemplateOptions {
   includeAlphaNum: boolean;
 }
 
+export const TEMPLATE_WRITE_GUIDE =
+  '記入方法: 青い内枠とガイド線を目安に文字 ／ 下のチェック欄に ✓ で優先指定（任意）';
+
+export function buildTemplateTitle(fontName: string): string {
+  const normalized = fontName.trim();
+  return normalized ? `MyFontCraft — "${normalized}"` : 'MyFontCraft';
+}
+
 function optionsToSelection(opts: TemplateOptions): CharSelection {
   return {
     hiragana: opts.includeHiragana,
@@ -99,7 +107,8 @@ async function generateTemplatePDFFromChars(
 
     // --- ヘッダー ---
     // タイトル + フォント名（1行にまとめて同じフォント・サイズで描画）
-    const titleText = fontName ? `MyFontCraft — "${fontName}"` : 'MyFontCraft';
+    const normalizedFontName = fontName.trim();
+    const titleText = buildTemplateTitle(normalizedFontName);
     // ASCII文字はHelveticaで直接描画
     const titleIsAscii = /^[\x20-\x7E]*$/.test(titleText);
     if (titleIsAscii) {
@@ -119,7 +128,7 @@ async function generateTemplatePDFFromChars(
         font: helvetica,
         color: rgb(0, 0, 0),
       });
-      const fnLabel = `— "${fontName}"`;
+      const fnLabel = `— "${normalizedFontName}"`;
       const fnImage = await renderTextToImage(fnLabel, 10);
       if (fnImage) {
         const fnEmbed = await pdfDoc.embedPng(fnImage.data);
@@ -212,8 +221,7 @@ async function generateTemplatePDFFromChars(
 
     // 記入ガイド（QR右隣のページ下部余白、#76: 記入方法を肯定形で凡例として表示）
     // 配置領域: x=40..(max 195), y=275..279（高さ4mm固定。QR右端35 + 余白、下マーカー y=286.915 より上）
-    const guideText = '記入方法: 文字マスに文字 ／ 下のチェック欄に ✓ で優先指定（任意）';
-    const guideImage = await renderTextToImage(guideText, 7);
+    const guideImage = await renderTextToImage(TEMPLATE_WRITE_GUIDE, 7);
     if (guideImage) {
       const guideEmbed = await pdfDoc.embedPng(guideImage.data);
       const guideHeightMm = 4;
@@ -417,7 +425,7 @@ async function generateTemplatePDFFromChars(
 // 日本語文字をCanvas APIで描画してPNG画像のバイト列を返す
 async function renderCharToImage(char: string): Promise<Uint8Array | null> {
   if (typeof document === 'undefined') return null;
-  const size = 64;
+  const size = 256;
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;

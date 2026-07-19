@@ -10,26 +10,26 @@ export default function About() {
         <h3>流れ</h3>
         <ol class="flow">
           <li class="flow__step">
-            <span class="flow__num">一</span>
+            <span class="flow__num">1</span>
             <div>
               <span class="flow__label">テンプレートをダウンロード・印刷</span>
             </div>
           </li>
           <li class="flow__step">
-            <span class="flow__num">二</span>
+            <span class="flow__num">2</span>
             <div>
               <span class="flow__label">マスに手書き</span>
             </div>
           </li>
           <li class="flow__step">
-            <span class="flow__num">三</span>
+            <span class="flow__num">3</span>
             <div>
               <span class="flow__label">撮影してアップロード</span>
               <span class="flow__hint">ページ識別はQRコード。傾きは自動補正</span>
             </div>
           </li>
           <li class="flow__step">
-            <span class="flow__num">四</span>
+            <span class="flow__num">4</span>
             <div>
               <span class="flow__label">
                 フォントをダウンロード（<span class="num">.ttf</span>）
@@ -64,7 +64,6 @@ export default function About() {
       <section>
         <h3>事実</h3>
         <ul class="about-list">
-          <li>全処理がブラウザ内。画像は端末の外に出ない</li>
           <li>インストール不要・登録不要・無料</li>
           <li>生成したフォントの権利は書いた人のもの。個人・商用とも自由</li>
         </ul>

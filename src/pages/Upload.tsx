@@ -198,7 +198,7 @@ export default function Upload(props: Props) {
           : result.glyphs;
 
       const fontBytes = await buildFont({
-        familyName: props.fontName || 'MyHandwriting',
+        familyName: props.fontName || 'MyFontCraft',
         glyphs,
       });
 
@@ -220,7 +220,7 @@ export default function Upload(props: Props) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${props.fontName || 'MyHandwriting'}.ttf`;
+    a.download = `${props.fontName || 'MyFontCraft'}.ttf`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -231,7 +231,7 @@ export default function Upload(props: Props) {
     if (chars.length === 0) return;
 
     try {
-      const pdfBytes = await generateRetryTemplatePDF(chars, props.fontName || 'MyHandwriting');
+      const pdfBytes = await generateRetryTemplatePDF(chars, props.fontName);
       const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
