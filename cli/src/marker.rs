@@ -30,6 +30,38 @@ const SCORE_WEIGHT_ASPECT: f64 = 1.0;
 const SCORE_WEIGHT_SIDE_RATIO: f64 = 1.0;
 const SCORE_WEIGHT_CENTER: f64 = 8.0;
 
+/// サイズ整合項の重み（#132フォローアップ・司令塔指定）。
+///
+/// 根本原因: aspect_dev/side_dev だけでは「同心縮小デコイ」（4隅とも実マーカーより
+/// 紙中心寄りの別ブロブを拾うが、4点がたまたま実クアッドとほぼ相似な縮小コピーを
+/// 形成する）を判別できない（相似形はアスペクト・対辺比が不変なため）。中心マーカー整合項
+/// があっても、対角線交点の実マーカー距離とデコイ距離の差が小さい（数px〜十数px、対角線長
+/// 4000px超に対して）局面では判別力が足りないことがある。
+///
+/// クアッド辺長とマーカーブロブ自身の外接矩形サイズの比はレイアウトから既知
+/// （横 (201-3)/8=24.75、縦 (286.915-3)/8≈35.49、expected_size_ratios 参照）。
+/// 透視変換は一次近似でクアッド辺長とマーカー径を同率に縮めるためこの比は透視に頑健だが、
+/// 「マーカーサイズはそのまま・辺長だけ縮む」同心縮小デコイはこの比が大きく崩れる。
+///
+/// 較正の顛末（重要）: 当初 wood-background フィクスチャ単体（size_dev が実クアッド0.033
+/// vs 誤検出0.838 と25倍開く）から重み5.0を採用したが、**実写真2枚で回帰した**（page1 TL・
+/// page2 TR で正しい候補1位を外し、page2 は反対にレンズ歪みエラーで停止）。原因は実写真の
+/// ブロブ bbox が合成フィクスチャほど「教科書的なサイズ」にならないこと: リングマーカーが
+/// 複数ブロブに分裂して merge されると bbox が理論値の1.5〜2倍に膨らむことがあり
+/// （page2 TR 候補4=183x181px、marker_px=94.5 の約1.9倍）、しかもそれが**正しい候補**である
+/// ケースがある。つまり実写真では「サイズが理論値から乖離＝誤検出」という前提そのものが
+/// 度々破れる。一方 synthetic デコイの size_dev は依然として実写真ノイズの範囲を大きく
+/// 超える（誤検出側 0.8〜0.9 台 vs 実写真の自然なばらつき 0.01〜0.36 程度）。
+///
+/// 5ケース（wood-background TR/BL、page1 TL、page2 TR、combined TR/BL、perspective TR/BL）
+/// の実測 size_dev・center_dev・aspect_dev・side_dev から「全ケースで正クアッドが勝つ」重みを
+/// 逆算すると安全域は概ね (0.033, 0.089)（p2 TR が上限を、wood/perspective が下限を制約する）。
+/// 中央付近の 0.05 を採用（各ケースのマージン: wood +0.015, p1 +0.11, p2 +0.013,
+/// combined +0.021, perspective +0.013）。5.0 ではなく 0.05 と極端に小さいのは、この項が
+/// 「決定的な弁別」ではなく「center_hint だけでは僅差すぎる局面のタイブレーク」として
+/// 効くように抑える必要があるため。
+const SCORE_WEIGHT_SIZE_CONSISTENCY: f64 = 0.05;
+
 /// 大津の方法で閾値を算出
 pub fn otsu_threshold(gray: &GrayImage) -> u8 {
     let mut histogram = [0u64; 256];
@@ -339,6 +371,9 @@ struct CornerCandidate {
     marker: DetectedMarker,
     /// コーナー近さ順での試行順位（1始まり）。ログ・デバッグ用
     seed_rank: usize,
+    /// マージ後ブロブの外接矩形サイズ（px）。combo_score のサイズ整合項に使う（#132フォローアップ）
+    bbox_w: f64,
+    bbox_h: f64,
 }
 
 /// マージ後ブロブ（bbox + ピクセル加重重心）
@@ -457,9 +492,19 @@ fn diagonal_intersection(
 /// クアッド組み合わせのスコア（#132）。小さいほど良い。
 /// a) クアッドのアスペクト比の期待値（expected_quad_aspect）からの偏差
 /// b) 対辺長比（上下・左右）の 1.0 からの偏差
-/// c) 中心マーカー整合: 対角線交点と中心マーカー位置の距離（対角線長で正規化）。
-///    中心マーカー未検出時はこの項を除外し a, b のみで判定する。
-fn combo_score(quad: &[DetectedMarker; 4], center_hint: Option<&DetectedMarker>) -> f64 {
+/// c) サイズ整合（#132フォローアップ）: クアッド辺長とマーカーブロブ自身の外接矩形サイズの比を
+///    expected_size_ratios と比較した偏差。透視では辺長とマーカー径が一次近似で同率に縮むため
+///    この比は透視に頑健だが、「マーカーサイズはそのまま・辺長だけ縮む」同心縮小デコイは
+///    ここで大きく崩れる（SCORE_WEIGHT_SIZE_CONSISTENCY 参照）。
+/// d) 中心マーカー整合: 対角線交点と中心マーカー位置の距離（対角線長で正規化）。
+///    中心マーカー未検出時はこの項を除外する。
+///
+/// `marker_bbox_px` は [TL, TR, BL, BR] 順のマージ後ブロブ外接矩形サイズ（bbox_w, bbox_h）。
+fn combo_score(
+    quad: &[DetectedMarker; 4],
+    marker_bbox_px: &[(f64, f64); 4],
+    center_hint: Option<&DetectedMarker>,
+) -> f64 {
     let tl = (quad[0].cx, quad[0].cy);
     let tr = (quad[1].cx, quad[1].cy);
     let bl = (quad[2].cx, quad[2].cy);
@@ -482,6 +527,18 @@ fn combo_score(quad: &[DetectedMarker; 4], center_hint: Option<&DetectedMarker>)
     let side_dev = (top_w / bottom_w - 1.0).abs() + (left_h / right_h - 1.0).abs();
 
     let mut score = SCORE_WEIGHT_ASPECT * aspect_dev + SCORE_WEIGHT_SIDE_RATIO * side_dev;
+
+    // サイズ整合項（#132フォローアップ）
+    let mean_marker_w =
+        marker_bbox_px.iter().map(|(w, _)| w).sum::<f64>() / marker_bbox_px.len() as f64;
+    let mean_marker_h =
+        marker_bbox_px.iter().map(|(_, h)| h).sum::<f64>() / marker_bbox_px.len() as f64;
+    if mean_marker_w > 0.0 && mean_marker_h > 0.0 {
+        let (expected_h_ratio, expected_v_ratio) = expected_size_ratios();
+        let h_ratio_dev = (mean_w / mean_marker_w / expected_h_ratio - 1.0).abs();
+        let v_ratio_dev = (mean_h / mean_marker_h / expected_v_ratio - 1.0).abs();
+        score += SCORE_WEIGHT_SIZE_CONSISTENCY * (h_ratio_dev + v_ratio_dev);
+    }
 
     if let Some(center) = center_hint {
         if let Some((ix, iy)) = diagonal_intersection(tl, tr, bl, br) {
@@ -653,6 +710,8 @@ pub fn detect_markers(
                     area: merged.total_area,
                 },
                 seed_rank: tried,
+                bbox_w,
+                bbox_h,
             });
         }
 
@@ -695,7 +754,13 @@ pub fn detect_markers(
                         }
                         continue;
                     }
-                    let score = combo_score(&quad, center_hint);
+                    let marker_bbox_px = [
+                        (tl.bbox_w, tl.bbox_h),
+                        (tr.bbox_w, tr.bbox_h),
+                        (bl.bbox_w, bl.bbox_h),
+                        (br.bbox_w, br.bbox_h),
+                    ];
+                    let score = combo_score(&quad, &marker_bbox_px, center_hint);
                     if best.as_ref().map(|(_, s, _)| score < *s).unwrap_or(true) {
                         best = Some((
                             quad,
@@ -945,6 +1010,16 @@ fn expected_quad_aspect() -> f64 {
     let mean_width = (dist(tl, tr) + dist(bl, br)) / 2.0;
     let mean_height = (dist(tl, bl) + dist(tr, br)) / 2.0;
     mean_width / mean_height
+}
+
+/// クアッド辺長（横・縦）とマーカー径（MARKER_SIZE）の期待比（#132フォローアップ）。
+/// 横 = (MARKER_TR.x - MARKER_TL.x) / MARKER_SIZE、縦 = (MARKER_BL.y - MARKER_TL.y) / MARKER_SIZE。
+/// combo_score のサイズ整合項（SCORE_WEIGHT_SIZE_CONSISTENCY 参照）で使う。
+/// レイアウト変更に自動追従させるためハードコードしない。
+fn expected_size_ratios() -> (f64, f64) {
+    let h_mm = layout::MARKER_TR.x - layout::MARKER_TL.x;
+    let v_mm = layout::MARKER_BL.y - layout::MARKER_TL.y;
+    (h_mm / layout::MARKER_SIZE, v_mm / layout::MARKER_SIZE)
 }
 
 /// 検出した四隅マーカー中心 [TL, TR, BL, BR] が妥当なマーカー矩形かを検証する（#115）。
@@ -1686,6 +1761,12 @@ mod tests {
 
     // --- combo_score（#132） ---
 
+    /// テンプレート通りの辺長/マーカー径比になる「中立」bbox（サイズ整合項の寄与をほぼ0にする）。
+    /// 純粋な平行移動デコイ比較など、サイズ整合項の影響を受けずに他項だけを見たいテストで使う。
+    fn neutral_marker_bbox() -> [(f64, f64); 4] {
+        [(MARKER_PX, MARKER_PX); 4]
+    }
+
     #[test]
     fn combo_score_none_hint_correct_quad_is_minimal() {
         // center_hint=None: アスペクト・対辺比が期待値から逸脱したデコイより
@@ -1693,8 +1774,9 @@ mod tests {
         let template = template_quad();
         let mut decoy = template.clone();
         decoy[1].cx += 500.0; // TR を大きく外側にずらして上辺だけ広げる（アスペクト崩壊）
-        let s_template = combo_score(&template, None);
-        let s_decoy = combo_score(&decoy, None);
+        let bbox = neutral_marker_bbox();
+        let s_template = combo_score(&template, &bbox, None);
+        let s_decoy = combo_score(&decoy, &bbox, None);
         assert!(
             s_template < s_decoy,
             "正クアッドのスコアが最小であるべき: template={s_template} decoy={s_decoy}"
@@ -1721,17 +1803,18 @@ mod tests {
             mk(template[2].cx + 50.0, template[2].cy + 50.0),
             mk(template[3].cx + 50.0, template[3].cy + 50.0),
         ];
+        let bbox = neutral_marker_bbox();
 
-        let s_template = combo_score(&template, Some(&center));
-        let s_shifted = combo_score(&shifted, Some(&center));
+        let s_template = combo_score(&template, &bbox, Some(&center));
+        let s_shifted = combo_score(&shifted, &bbox, Some(&center));
         assert!(
             s_template < s_shifted,
             "中心整合のとれた正クアッドが平行移動デコイより低スコアであるべき: template={s_template} shifted={s_shifted}"
         );
 
-        // center_hint なしでは aspect/side が同一なので事実上タイになる（縮退は仕様）
-        let s_template_none = combo_score(&template, None);
-        let s_shifted_none = combo_score(&shifted, None);
+        // center_hint なしでは aspect/side/size が同一なので事実上タイになる（縮退は仕様）
+        let s_template_none = combo_score(&template, &bbox, None);
+        let s_shifted_none = combo_score(&shifted, &bbox, None);
         assert!(
             (s_template_none - s_shifted_none).abs() < 1e-9,
             "center_hint=None では平行移動デコイと同点になる: template={s_template_none} shifted={s_shifted_none}"
@@ -1756,11 +1839,58 @@ mod tests {
             mk(template[2].cx - 30.0, template[2].cy - 40.0),
             mk(template[3].cx - 30.0, template[3].cy - 40.0),
         ];
-        let s_a = combo_score(&decoy_a, None);
-        let s_b = combo_score(&decoy_b, None);
+        let bbox = neutral_marker_bbox();
+        let s_a = combo_score(&decoy_a, &bbox, None);
+        let s_b = combo_score(&decoy_b, &bbox, None);
         assert!(
             (s_a - s_b).abs() < 1e-9,
             "center_hint=None では平行移動方向によらず同点: a={s_a} b={s_b}"
+        );
+    }
+
+    #[test]
+    fn combo_score_size_consistency_rejects_concentric_shrink_decoy() {
+        // #132フォローアップ（司令塔指定）: 「同心縮小デコイ」— 4隅とも紙中心寄りの
+        // 別ブロブを拾うが、4点がテンプレートとほぼ相似な縮小コピーを形成するケース。
+        // aspect_dev/side_dev は相似形では不変（0）なので、center_hint が無い/精度不足だと
+        // 従来は区別できなかった。デコイは「マーカーサイズはそのまま・辺長だけ縮む」ため、
+        // サイズ整合項（h_ratio/v_ratio が期待値から乖離）で確実に負けることを固定する。
+        let template = template_quad();
+
+        // テンプレートを幾何学的中心に向けて80%に相似縮小した同心デコイ。
+        // アスペクト・対辺比はテンプレートと完全に同一（相似形なので aspect_dev=side_dev=0）。
+        let center = {
+            let tl = (template[0].cx, template[0].cy);
+            let tr = (template[1].cx, template[1].cy);
+            let bl = (template[2].cx, template[2].cy);
+            let br = (template[3].cx, template[3].cy);
+            diagonal_intersection(tl, tr, bl, br).unwrap()
+        };
+        let shrink = |m: &DetectedMarker| -> DetectedMarker {
+            mk(
+                center.0 + (m.cx - center.0) * 0.8,
+                center.1 + (m.cy - center.1) * 0.8,
+            )
+        };
+        let decoy: [DetectedMarker; 4] = [
+            shrink(&template[0]),
+            shrink(&template[1]),
+            shrink(&template[2]),
+            shrink(&template[3]),
+        ];
+
+        // 両クアッドとも「実マーカーと同サイズのブロブ」を拾ったと仮定する
+        // （デコイはサイズ自体は変わらない別ブロブを拾う、という想定が本テストの肝）。
+        let bbox = neutral_marker_bbox();
+
+        // center_hint なし: aspect/side は同一なので、サイズ整合項が無ければ同点になってしまう
+        // （このテストが固定したいのは「その縮退をサイズ整合項が破る」という契約）。
+        let s_template = combo_score(&template, &bbox, None);
+        let s_decoy = combo_score(&decoy, &bbox, None);
+        assert!(
+            s_template < s_decoy,
+            "同心縮小デコイ（辺長80%・マーカーサイズ不変）はサイズ整合項で実クアッドに負けるべき: \
+             template={s_template} decoy={s_decoy}"
         );
     }
 
