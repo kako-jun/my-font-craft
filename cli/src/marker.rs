@@ -1,6 +1,34 @@
-/// 二値化 + マーカー検出
-use image::{GrayImage, Luma, RgbaImage, Rgba};
 use crate::layout;
+/// 二値化 + マーカー検出
+use image::{GrayImage, Luma, Rgba, RgbaImage};
+
+// ── マーカー候補選定の閾値（#132） ──
+
+/// 隅ごとに保持する候補数（コーナー近さ順の distinct クラスタ上位K件、#132）。
+/// 木目の机で撮影した実写真較正（Issue #132 実写真2枚）: 紙の外側の木目・机の縁が
+/// 探索領域（25%マージン）の画像コーナーに近い側を埋め尽くすことがあり、実在マーカーは
+/// 最大で17番目に近いクラスタだった（page1 TopLeft）。組み合わせ数は候補数の積 4 乗だが、
+/// 各隅の生存候補（形状+紙白ゲート通過）は実写真で最大16件程度に収まり、K=30 でも
+/// 数千comboで済む（1〜数秒未満）。
+const CORNER_CANDIDATE_K: usize = 30;
+
+/// 紙白アニュラス検証（#132・本命の防御）の内側/外側半径比率。
+/// marker_px/2（マーカー半径相当）に掛けて環状領域の半径を決める。
+/// 「紙の上のマーカー」は周囲が紙白、木目の節は周囲も木色（暗め・中間調）が続くため分離できる。
+const ANNULUS_INNER_RATIO: f64 = 1.3;
+const ANNULUS_OUTER_RATIO: f64 = 1.8;
+
+/// 環状領域中、二値化で白（紙background）と判定される最小割合。
+/// 平均輝度でなく割合にするのは、TLマーカー付近のグレーバー/見出し文字が
+/// 平均を汚して誤爆させるため（#132）。
+const ANNULUS_WHITE_RATIO_MIN: f64 = 0.5;
+
+/// クアッド組み合わせスコアの重み（小さいほど良い、#132）。
+/// 中心マーカー整合は射影変換で保存される対角線交点＝紙中心のアンカーで、
+/// 相対不変量（アスペクト・対辺比）より判別力が強いため重く重み付けする。
+const SCORE_WEIGHT_ASPECT: f64 = 1.0;
+const SCORE_WEIGHT_SIDE_RATIO: f64 = 1.0;
+const SCORE_WEIGHT_CENTER: f64 = 8.0;
 
 /// 大津の方法で閾値を算出
 pub fn otsu_threshold(gray: &GrayImage) -> u8 {
@@ -305,10 +333,181 @@ pub fn mask_border_background(binary: &mut GrayImage) {
     }
 }
 
+/// 隅ごとの1候補（形状+紙白ゲートを通過したもの、#132）
+#[derive(Debug, Clone)]
+struct CornerCandidate {
+    marker: DetectedMarker,
+    /// コーナー近さ順での試行順位（1始まり）。ログ・デバッグ用
+    seed_rank: usize,
+}
+
+/// マージ後ブロブ（bbox + ピクセル加重重心）
+struct MergedBlob {
+    bbox_min_x: u32,
+    bbox_max_x: u32,
+    bbox_min_y: u32,
+    bbox_max_y: u32,
+    centroid_x: f64,
+    centroid_y: f64,
+    total_area: u32,
+    merged_count: usize,
+}
+
+/// 種ブロブ周辺（merge_radius 内）のブロブを統合し、bbox と重心を計算する。
+/// 候補ごとに使うため detect_markers から切り出したヘルパー（#132）。
+fn merge_blobs_near_seed(
+    filtered: &[&Blob],
+    seed_cx: f64,
+    seed_cy: f64,
+    merge_radius: f64,
+) -> MergedBlob {
+    let mut total_area = 0u32;
+    let mut total_sum_x = 0.0f64;
+    let mut total_sum_y = 0.0f64;
+    let mut merged_count = 0usize;
+    let mut m_min_x = u32::MAX;
+    let mut m_max_x = 0u32;
+    let mut m_min_y = u32::MAX;
+    let mut m_max_y = 0u32;
+
+    for b in filtered {
+        let bcx = b.center_x();
+        let bcy = b.center_y();
+        let dist = ((bcx - seed_cx).powi(2) + (bcy - seed_cy).powi(2)).sqrt();
+        if dist <= merge_radius {
+            total_area += b.area;
+            total_sum_x += b.sum_x;
+            total_sum_y += b.sum_y;
+            merged_count += 1;
+            m_min_x = m_min_x.min(b.min_x);
+            m_max_x = m_max_x.max(b.max_x);
+            m_min_y = m_min_y.min(b.min_y);
+            m_max_y = m_max_y.max(b.max_y);
+        }
+    }
+
+    MergedBlob {
+        bbox_min_x: m_min_x,
+        bbox_max_x: m_max_x,
+        bbox_min_y: m_min_y,
+        bbox_max_y: m_max_y,
+        centroid_x: total_sum_x / total_area as f64,
+        centroid_y: total_sum_y / total_area as f64,
+        total_area,
+        merged_count,
+    }
+}
+
+/// 環状領域（中心を bbox 中心、半径 inner_r〜outer_r）の白ピクセル比率を計算する（#132）。
+/// 「紙の上のマーカー」は周囲が紙白、木目の節は周囲も木色（暗め・中間調）が続くため、
+/// この比率で分離できる。画像外にはみ出す領域はサンプルから除外する。
+fn annulus_white_ratio(binary: &GrayImage, cx: f64, cy: f64, inner_r: f64, outer_r: f64) -> f64 {
+    let w = binary.width() as i32;
+    let h = binary.height() as i32;
+    let icx = cx.round() as i32;
+    let icy = cy.round() as i32;
+    let r_out = outer_r.ceil() as i32;
+
+    let mut white = 0u32;
+    let mut total = 0u32;
+    for dy in -r_out..=r_out {
+        for dx in -r_out..=r_out {
+            let dist = ((dx * dx + dy * dy) as f64).sqrt();
+            if dist < inner_r || dist > outer_r {
+                continue;
+            }
+            let px = icx + dx;
+            let py = icy + dy;
+            if px < 0 || py < 0 || px >= w || py >= h {
+                continue;
+            }
+            total += 1;
+            if binary.get_pixel(px as u32, py as u32)[0] != 0 {
+                white += 1;
+            }
+        }
+    }
+
+    if total == 0 {
+        return 0.0;
+    }
+    white as f64 / total as f64
+}
+
+/// クアッド対角線（TL-BR と TR-BL）の交点を求める。
+/// 射影変換は接続関係を保存するため、矩形の対角線交点（≒紙中心）はこの交点に写る。
+fn diagonal_intersection(
+    tl: (f64, f64),
+    tr: (f64, f64),
+    bl: (f64, f64),
+    br: (f64, f64),
+) -> Option<(f64, f64)> {
+    let (x1, y1) = tl;
+    let (x2, y2) = br;
+    let (x3, y3) = tr;
+    let (x4, y4) = bl;
+    let denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+    if denom.abs() < 1e-9 {
+        return None;
+    }
+    let t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+    Some((x1 + t * (x2 - x1), y1 + t * (y2 - y1)))
+}
+
+/// クアッド組み合わせのスコア（#132）。小さいほど良い。
+/// a) クアッドのアスペクト比の期待値（expected_quad_aspect）からの偏差
+/// b) 対辺長比（上下・左右）の 1.0 からの偏差
+/// c) 中心マーカー整合: 対角線交点と中心マーカー位置の距離（対角線長で正規化）。
+///    中心マーカー未検出時はこの項を除外し a, b のみで判定する。
+fn combo_score(quad: &[DetectedMarker; 4], center_hint: Option<&DetectedMarker>) -> f64 {
+    let tl = (quad[0].cx, quad[0].cy);
+    let tr = (quad[1].cx, quad[1].cy);
+    let bl = (quad[2].cx, quad[2].cy);
+    let br = (quad[3].cx, quad[3].cy);
+
+    let dist = |a: (f64, f64), b: (f64, f64)| ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
+    let top_w = dist(tl, tr);
+    let bottom_w = dist(bl, br);
+    let left_h = dist(tl, bl);
+    let right_h = dist(tr, br);
+    let mean_w = (top_w + bottom_w) / 2.0;
+    let mean_h = (left_h + right_h) / 2.0;
+
+    let expected = expected_quad_aspect();
+    let aspect_dev = if mean_h > 0.0 {
+        ((mean_w / mean_h) / expected - 1.0).abs()
+    } else {
+        0.0
+    };
+    let side_dev = (top_w / bottom_w - 1.0).abs() + (left_h / right_h - 1.0).abs();
+
+    let mut score = SCORE_WEIGHT_ASPECT * aspect_dev + SCORE_WEIGHT_SIDE_RATIO * side_dev;
+
+    if let Some(center) = center_hint {
+        if let Some((ix, iy)) = diagonal_intersection(tl, tr, bl, br) {
+            let diag_len = dist(tl, br).max(dist(tr, bl));
+            if diag_len > 1e-6 {
+                let center_dev =
+                    ((ix - center.cx).powi(2) + (iy - center.cy).powi(2)).sqrt() / diag_len;
+                score += SCORE_WEIGHT_CENTER * center_dev;
+            }
+        }
+    }
+
+    score
+}
+
 /// 四隅マーカーを検出する。25%マージン領域を探索
-/// ブロブの面積・形状でフィルタし、重心（centroid）を返す
-/// パラボリック補間でサブピクセル精度に精緻化する
-pub fn detect_markers(binary: &GrayImage, gray: &GrayImage) -> Result<[DetectedMarker; 4], String> {
+/// ブロブの面積・形状でフィルタし、隅ごとに上位 K 件を候補化。
+/// 各候補を形状ゲート（#115）＋紙白アニュラスゲート（#132）で足切りし、
+/// 生き残った候補の全組み合わせをクアッド幾何ゲート＋スコアリングで評価して最良を採用する。
+/// `center_hint` は事前検出した中心マーカー（未検出なら None）。スコアリングの
+/// 最強のアンカーとして使うが、必須ではない（None ならアスペクト・対辺比のみで判定）。
+pub fn detect_markers(
+    binary: &GrayImage,
+    gray: &GrayImage,
+    center_hint: Option<&DetectedMarker>,
+) -> Result<[DetectedMarker; 4], String> {
     let w = binary.width();
     let h = binary.height();
     let margin_x = (w as f64 * 0.25) as u32;
@@ -321,14 +520,15 @@ pub fn detect_markers(binary: &GrayImage, gray: &GrayImage) -> Result<[DetectedM
         ("BottomRight", w - margin_x, h - margin_y, w, h),
     ];
 
-    let mut markers = Vec::new();
-
     let marker_px = layout::mm_to_px(layout::MARKER_SIZE).round();
     // 塗りつぶし円の期待面積（px²）
     let expected_filled_area = std::f64::consts::PI * (marker_px / 2.0).powi(2);
     // 個別ブロブのフィルタ範囲（アウトラインの弧も拾うが、巨大ブロブは除外）
     let min_blob_area = 30u32;
     let max_blob_area = (expected_filled_area * 5.0) as u32;
+    let merge_radius = marker_px * 1.0; // 1.0倍に縮小（1.5では文字を巻き込む）
+    let annulus_inner = (marker_px / 2.0) * ANNULUS_INNER_RATIO;
+    let annulus_outer = (marker_px / 2.0) * ANNULUS_OUTER_RATIO;
 
     let corner_points: [(f64, f64); 4] = [
         (0.0, 0.0),
@@ -336,6 +536,8 @@ pub fn detect_markers(binary: &GrayImage, gray: &GrayImage) -> Result<[DetectedM
         (0.0, h as f64),
         (w as f64, h as f64),
     ];
+
+    let mut per_corner_candidates: Vec<Vec<CornerCandidate>> = Vec::with_capacity(4);
 
     for (i, (name, x0, y0, x1, y1)) in regions.iter().enumerate() {
         let blobs = extract_blobs(binary, *x0, *y0, *x1, *y1);
@@ -357,103 +559,191 @@ pub fn detect_markers(binary: &GrayImage, gray: &GrayImage) -> Result<[DetectedM
 
         log!(
             "  {} 探索領域: ({},{})..({},{}) ブロブ数={} フィルタ後={}",
-            name, x0, y0, x1, y1, blobs.len(), filtered.len()
+            name,
+            x0,
+            y0,
+            x1,
+            y1,
+            blobs.len(),
+            filtered.len()
         );
 
         if filtered.is_empty() {
             return Err(format!(
                 "{} マーカーが検出できませんでした（ブロブ数={}, フィルタ通過=0）",
-                name, blobs.len()
+                name,
+                blobs.len()
             ));
         }
 
-        // コーナーに最も近いブロブを種として選ぶ
-        let seed = filtered.iter().min_by(|a, b| {
-            let da = (a.center_x() - corner_x).powi(2) + (a.center_y() - corner_y).powi(2);
-            let db = (b.center_x() - corner_x).powi(2) + (b.center_y() - corner_y).powi(2);
+        // コーナー近さ順にソート（インデックス列。ブロブ本体は filtered のまま）
+        let mut order: Vec<usize> = (0..filtered.len()).collect();
+        order.sort_by(|&a, &b| {
+            let da = (filtered[a].center_x() - corner_x).powi(2)
+                + (filtered[a].center_y() - corner_y).powi(2);
+            let db = (filtered[b].center_x() - corner_x).powi(2)
+                + (filtered[b].center_y() - corner_y).powi(2);
             da.partial_cmp(&db).unwrap()
-        }).unwrap();
+        });
 
-        let seed_cx = seed.center_x();
-        let seed_cy = seed.center_y();
-        let merge_radius = marker_px * 1.0; // 1.0倍に縮小（1.5では文字を巻き込む）
-
-        // マージ＋重心計算（bbox中心ではなくピクセル重心を使う）
-        let mut total_area = 0u32;
-        let mut total_sum_x = 0.0f64;
-        let mut total_sum_y = 0.0f64;
-        let mut merged_count = 0usize;
-        let mut m_min_x = u32::MAX;
-        let mut m_max_x = 0u32;
-        let mut m_min_y = u32::MAX;
-        let mut m_max_y = 0u32;
-
-        for b in &filtered {
-            let bcx = b.center_x();
-            let bcy = b.center_y();
-            let dist = ((bcx - seed_cx).powi(2) + (bcy - seed_cy).powi(2)).sqrt();
-            if dist <= merge_radius {
-                total_area += b.area;
-                total_sum_x += b.sum_x;
-                total_sum_y += b.sum_y;
-                merged_count += 1;
-                m_min_x = m_min_x.min(b.min_x);
-                m_max_x = m_max_x.max(b.max_x);
-                m_min_y = m_min_y.min(b.min_y);
-                m_max_y = m_max_y.max(b.max_y);
+        // 上位 K 件を候補化（#132）。木目のように近距離に同一クラスタの小ブロブが
+        // 大量に密集していると、K 件が全て同じクラスタの重複候補で埋まり、
+        // 別クラスタ（実在マーカー等）に到達できなくなる。一度マージ評価した
+        // クラスタに属するブロブは visited にして、以降は新規候補として数えない
+        // （K は「distinct クラスタ」の上限として機能する）。
+        let mut visited = vec![false; filtered.len()];
+        let mut candidates: Vec<CornerCandidate> = Vec::new();
+        let mut tried = 0usize;
+        for &idx in &order {
+            if visited[idx] {
+                continue;
             }
+            if tried >= CORNER_CANDIDATE_K {
+                break;
+            }
+            tried += 1;
+            let seed_cx = filtered[idx].center_x();
+            let seed_cy = filtered[idx].center_y();
+
+            // マージ＋重心計算（bbox中心ではなくピクセル重心を使う）
+            let merged = merge_blobs_near_seed(&filtered, seed_cx, seed_cy, merge_radius);
+            let bbox_w = (merged.bbox_max_x - merged.bbox_min_x + 1) as f64;
+            let bbox_h = (merged.bbox_max_y - merged.bbox_min_y + 1) as f64;
+
+            // このクラスタに実際に属した全ブロブを visited にする（重複候補防止）
+            for (j, b) in filtered.iter().enumerate() {
+                let dist =
+                    ((b.center_x() - seed_cx).powi(2) + (b.center_y() - seed_cy).powi(2)).sqrt();
+                if dist <= merge_radius {
+                    visited[j] = true;
+                }
+            }
+
+            // 形状ゲート（#115。#132で「致命エラー」から「候補の足切りゲート」に降格）:
+            // 落ちても即エラーにせず次点候補へ回す。
+            if let Err(e) = validate_marker_shape(name, bbox_w, bbox_h, marker_px) {
+                log!("  {name} 候補{tried}: 形状ゲート棄却（{e}）");
+                continue;
+            }
+
+            // 紙白アニュラスゲート（#132・本命の防御）: 木目の節など紙外の誤検出は
+            // 周囲も暗い/中間調なので、形状ゲートを通っても弾ける。
+            let bbox_cx = (merged.bbox_min_x + merged.bbox_max_x) as f64 / 2.0;
+            let bbox_cy = (merged.bbox_min_y + merged.bbox_max_y) as f64 / 2.0;
+            let white_ratio =
+                annulus_white_ratio(binary, bbox_cx, bbox_cy, annulus_inner, annulus_outer);
+            if white_ratio < ANNULUS_WHITE_RATIO_MIN {
+                log!("  {name} 候補{tried}: 紙白ゲート棄却 白比率={white_ratio:.2}（閾値={ANNULUS_WHITE_RATIO_MIN}）");
+                continue;
+            }
+
+            // パラボリック補間でサブピクセル精緻化
+            let (refined_x, refined_y) =
+                refine_center_parabolic(gray, merged.centroid_x, merged.centroid_y);
+
+            log!(
+                "  {name} 候補{tried}: centroid=({:.1}, {:.1}) → refined=({refined_x:.2}, {refined_y:.2}) area={} merged={}ブロブ bbox={bbox_w:.0}x{bbox_h:.0} 白比率={white_ratio:.2}",
+                merged.centroid_x, merged.centroid_y, merged.total_area, merged.merged_count
+            );
+
+            candidates.push(CornerCandidate {
+                marker: DetectedMarker {
+                    cx: refined_x,
+                    cy: refined_y,
+                    area: merged.total_area,
+                },
+                seed_rank: tried,
+            });
         }
 
-        // マーカーらしい形状スコア（透視不変）: 実在マーカーは円（塗り or リング）。
-        // 欠落時に拾う別ブロブ（タイトル文字列・罫線角）は横長/縦長で形が違う。
-        // - bbox_aspect ≈ 1（円）: 誤検出テキスト列は横長に、縦線残渣は縦長になる
-        // - fill_ratio: 円の外接矩形内の充填率。マージした複数ブロブの集合が
-        //   矩形をまばらに埋めるほど低くなる（テキスト列は特に低い）
-        let bbox_w = (m_max_x - m_min_x + 1) as f64;
-        let bbox_h = (m_max_y - m_min_y + 1) as f64;
-        let bbox_aspect = bbox_w / bbox_h;
-        let fill_ratio = total_area as f64 / (bbox_w * bbox_h);
-
-        // 透視不変のブロブ形状検証（#115）。ここで弾くのが本命の防御。
-        // マーカーが欠落し別ブロブを掴んだ場合、その外接矩形は円と大きく異なる。
-        validate_marker_shape(name, bbox_w, bbox_h, marker_px)?;
-
-        // 重心（ピクセル加重平均）
-        let centroid_x = total_sum_x / total_area as f64;
-        let centroid_y = total_sum_y / total_area as f64;
-
-        // パラボリック補間でサブピクセル精緻化
-        let (refined_x, refined_y) = refine_center_parabolic(gray, centroid_x, centroid_y);
-        let delta_x = (refined_x - centroid_x).abs();
-        let delta_y = (refined_y - centroid_y).abs();
-
         log!(
-            "  {name} マーカー: centroid=({centroid_x:.1}, {centroid_y:.1}) → refined=({refined_x:.2}, {refined_y:.2}) Δ=({delta_x:.2}, {delta_y:.2}) area={total_area} merged={merged_count}ブロブ bbox={bbox_w:.0}x{bbox_h:.0} bbox_aspect={bbox_aspect:.3} fill={fill_ratio:.3}",
+            "  {name} 候補確定: {}/{}（形状/紙白ゲート通過/試行）",
+            candidates.len(),
+            tried
         );
-        markers.push(DetectedMarker {
-            cx: refined_x,
-            cy: refined_y,
-            area: total_area,
-        });
+
+        if candidates.is_empty() {
+            return Err(format!(
+                "{name} マーカーが検出できませんでした（候補{tried}件、形状/紙白検証を通過した候補なし）"
+            ));
+        }
+
+        per_corner_candidates.push(candidates);
     }
 
-    let quad = [
-        markers[0].clone(),
-        markers[1].clone(),
-        markers[2].clone(),
-        markers[3].clone(),
-    ];
+    // 生き残った候補の全組み合わせをクアッド幾何ゲート＋スコアリングで評価（#132）
+    // (採用クアッド, スコア, 各隅の候補seed_rank) の組
+    type BestCombo = ([DetectedMarker; 4], f64, (usize, usize, usize, usize));
+    let mut best: Option<BestCombo> = None;
+    let mut first_quad_err: Option<String> = None;
+    let mut combos_tried = 0usize;
 
-    // 検出後クアッド幾何検証（#115）: 白塗り欠落マーカーの代わりに別ブロブ
-    // （タイトル文字・罫線角）を誤検出した場合、組み上がる四角形は歪みの範囲を
-    // 超えて崩れる。ここで棄却しないと、デタラメな centroid のまま透視補正が進み、
-    // QR が読めず「不鮮明」に誤診断される。
-    validate_marker_quad(&quad)?;
+    for tl in &per_corner_candidates[0] {
+        for tr in &per_corner_candidates[1] {
+            for bl in &per_corner_candidates[2] {
+                for br in &per_corner_candidates[3] {
+                    combos_tried += 1;
+                    let quad = [
+                        tl.marker.clone(),
+                        tr.marker.clone(),
+                        bl.marker.clone(),
+                        br.marker.clone(),
+                    ];
+                    if let Err(e) = validate_marker_quad(&quad) {
+                        if first_quad_err.is_none() {
+                            first_quad_err = Some(e);
+                        }
+                        continue;
+                    }
+                    let score = combo_score(&quad, center_hint);
+                    if best.as_ref().map(|(_, s, _)| score < *s).unwrap_or(true) {
+                        best = Some((
+                            quad,
+                            score,
+                            (tl.seed_rank, tr.seed_rank, bl.seed_rank, br.seed_rank),
+                        ));
+                    }
+                }
+            }
+        }
+    }
 
-    Ok(quad)
+    log!(
+        "  クアッド組み合わせ探索: 候補数 TL={} TR={} BL={} BR={} 試行={combos_tried} 生存={}",
+        per_corner_candidates[0].len(),
+        per_corner_candidates[1].len(),
+        per_corner_candidates[2].len(),
+        per_corner_candidates[3].len(),
+        if best.is_some() { "あり" } else { "なし" }
+    );
+
+    match best {
+        Some((quad, score, ranks)) => {
+            log!(
+                "  採用: TL(候補{})=({:.1},{:.1}) TR(候補{})=({:.1},{:.1}) BL(候補{})=({:.1},{:.1}) BR(候補{})=({:.1},{:.1}) score={score:.4}",
+                ranks.0, quad[0].cx, quad[0].cy,
+                ranks.1, quad[1].cx, quad[1].cy,
+                ranks.2, quad[2].cx, quad[2].cy,
+                ranks.3, quad[3].cx, quad[3].cy,
+            );
+            Ok(quad)
+        }
+        None => {
+            // 検出後クアッド幾何検証（#115）: 全組み合わせが幾何破綻で棄却された。
+            // ここで棄却しないと、デタラメな centroid のまま透視補正が進み、
+            // QR が読めず「不鮮明」に誤診断される。
+            Err(first_quad_err.unwrap_or_else(|| {
+                "四隅マーカーの配置が不正です（マーカー誤検出の可能性）。四隅のマーカーが隠れず紙全体が写るように撮影してください。".to_string()
+            }))
+        }
+    }
 }
 
-/// 選択した四隅マーカーブロブの外接矩形が「円らしい」形状かを検証する（#115・本命の防御）。
+/// 四隅マーカー候補ブロブの外接矩形が「円らしい」形状かを検証する（#115）。
+///
+/// #132 でクアッド全体を棄却する「致命エラー」から、候補ごとの「足切りゲート」に降格。
+/// 落ちた候補は次点候補に乗り換えるだけで、ここで紙外の誤検出を確実に分離しきる必要はない
+/// （本命の防御は紙白アニュラス検証 annulus_white_ratio + 組み合わせスコアリング）。
 ///
 /// 幾何クアッド不変量（アスペクト・対辺比・面積）は平行移動・スケール不変なので、
 /// 「1点だけ別ブロブを誤検出」を「急な透視の正規スキャン」から原理的に分離できない。
@@ -465,7 +755,12 @@ pub fn detect_markers(binary: &GrayImage, gray: &GrayImage) -> Result<[DetectedM
 ///   bbox 各辺 ≈ 85〜104px（marker_px≈94.5 の 0.9〜1.1 倍）
 /// - 欠落時の誤検出ブロブ: タイトル文字列 = bbox 110x27（aspect=4.07）等、円から大きく逸脱
 ///   （fill_ratio は塗り円 0.785 / リング 0.07 と幅広く、リングと誤検出を分離できないので不使用）
-pub fn validate_marker_shape(name: &str, bbox_w: f64, bbox_h: f64, marker_px: f64) -> Result<(), String> {
+pub fn validate_marker_shape(
+    name: &str,
+    bbox_w: f64,
+    bbox_h: f64,
+    marker_px: f64,
+) -> Result<(), String> {
     let aspect = bbox_w / bbox_h;
     // 円の外接矩形は正方形（≈1.0）。中程度の透視（〜30°）でも短縮率 cos30≈0.87 に留まり
     // 0.87〜1.15 程度。0.6〜1.67 に締めて横長テキスト列・縦長罫線を弾く（実写は誤棄却しない）。
@@ -627,7 +922,10 @@ pub fn detect_center_marker(binary: &GrayImage) -> Option<DetectedMarker> {
     best.map(|b| {
         log!(
             "  中心マーカー検出: centroid=({:.1}, {:.1}) area={} fill_ratio={:.2}",
-            b.center_x(), b.center_y(), b.area, b.fill_ratio()
+            b.center_x(),
+            b.center_y(),
+            b.area,
+            b.fill_ratio()
         );
         DetectedMarker {
             cx: b.center_x(),
@@ -695,7 +993,11 @@ pub fn detect_orientation(
                 }
                 let px = cx + dx;
                 let py = cy + dy;
-                if px >= 0 && py >= 0 && (px as u32) < binary.width() && (py as u32) < binary.height() {
+                if px >= 0
+                    && py >= 0
+                    && (px as u32) < binary.width()
+                    && (py as u32) < binary.height()
+                {
                     total += 1;
                     if binary.get_pixel(px as u32, py as u32)[0] == 0 {
                         black_count += 1;
@@ -704,7 +1006,11 @@ pub fn detect_orientation(
             }
         }
 
-        let density = if total > 0 { black_count as f64 / total as f64 } else { 0.0 };
+        let density = if total > 0 {
+            black_count as f64 / total as f64
+        } else {
+            0.0
+        };
         log!("  マーカー[{i}]: 密度={density:.3} (黒={black_count}/{total})");
         densities.push((i, density));
     }
@@ -772,7 +1078,13 @@ pub fn rotate_image(img: &RgbaImage, degrees: u32) -> RgbaImage {
 }
 
 /// マーカー配列を回転に合わせて並べ替え（TL, TR, BL, BR の順に）
-pub fn reorder_markers(markers: &[DetectedMarker; 4], tl_index: usize, rotation: u32, img_w: u32, img_h: u32) -> [DetectedMarker; 4] {
+pub fn reorder_markers(
+    markers: &[DetectedMarker; 4],
+    tl_index: usize,
+    rotation: u32,
+    img_w: u32,
+    img_h: u32,
+) -> [DetectedMarker; 4] {
     if rotation == 0 {
         return markers.clone();
     }
@@ -785,7 +1097,11 @@ pub fn reorder_markers(markers: &[DetectedMarker; 4], tl_index: usize, rotation:
             270 => (m.cy, img_w as f64 - 1.0 - m.cx),
             _ => (m.cx, m.cy),
         };
-        DetectedMarker { cx: nx, cy: ny, area: m.area }
+        DetectedMarker {
+            cx: nx,
+            cy: ny,
+            area: m.area,
+        }
     };
 
     // tl_index が回転後にTLになるように並べ替え
@@ -854,9 +1170,17 @@ mod tests {
     #[test]
     fn degenerate_short_side_quad_fails() {
         // 4点が同一位置に潰れている（辺長ゼロ）→ 辺が短すぎる分岐
-        let q = [mk(500.0, 500.0), mk(500.0, 500.0), mk(500.0, 500.0), mk(500.0, 500.0)];
+        let q = [
+            mk(500.0, 500.0),
+            mk(500.0, 500.0),
+            mk(500.0, 500.0),
+            mk(500.0, 500.0),
+        ];
         let err = validate_marker_quad(&q).unwrap_err();
-        assert!(err.contains("マーカー") && err.contains("辺が短すぎる"), "err={err}");
+        assert!(
+            err.contains("マーカー") && err.contains("辺が短すぎる"),
+            "err={err}"
+        );
     }
 
     #[test]
@@ -865,7 +1189,10 @@ mod tests {
         let t = template_quad();
         let q = [t[1].clone(), t[0].clone(), t[2].clone(), t[3].clone()];
         let err = validate_marker_quad(&q).unwrap_err();
-        assert!(err.contains("マーカー") && err.contains("退化"), "err={err}");
+        assert!(
+            err.contains("マーカー") && err.contains("退化"),
+            "err={err}"
+        );
     }
 
     #[test]
@@ -878,7 +1205,10 @@ mod tests {
             mk(2100.0, 2100.0),
         ];
         let err = validate_marker_quad(&q).unwrap_err();
-        assert!(err.contains("マーカー") && err.contains("アスペクト"), "err={err}");
+        assert!(
+            err.contains("マーカー") && err.contains("アスペクト"),
+            "err={err}"
+        );
     }
 
     // --- ブロブ形状スコア（透視不変・本命の誤検出分離） ---
@@ -897,20 +1227,29 @@ mod tests {
     fn text_row_blob_shape_fails() {
         // 欠落時に掴むタイトル文字列の外接矩形（実測 110x27, aspect=4.07）
         let err = validate_marker_shape("TopLeft", 110.0, 27.0, MARKER_PX).unwrap_err();
-        assert!(err.contains("マーカー") && err.contains("形状") && err.contains("縦横比"), "err={err}");
+        assert!(
+            err.contains("マーカー") && err.contains("形状") && err.contains("縦横比"),
+            "err={err}"
+        );
     }
 
     #[test]
     fn vertical_line_blob_shape_fails() {
         // 縦長の罫線残渣（aspect ≈ 0.1）も円形でないとして棄却
         let err = validate_marker_shape("T", 20.0, 200.0, MARKER_PX).unwrap_err();
-        assert!(err.contains("マーカー") && err.contains("縦横比"), "err={err}");
+        assert!(
+            err.contains("マーカー") && err.contains("縦横比"),
+            "err={err}"
+        );
     }
 
     #[test]
     fn oversized_blob_shape_fails() {
         // 正方形でもマーカー実寸の 3 倍超なら別物（巨大セル領域など）
         let err = validate_marker_shape("T", 300.0, 300.0, MARKER_PX).unwrap_err();
-        assert!(err.contains("マーカー") && err.contains("大きさ"), "err={err}");
+        assert!(
+            err.contains("マーカー") && err.contains("大きさ"),
+            "err={err}"
+        );
     }
 }

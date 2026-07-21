@@ -1,9 +1,9 @@
-/// 画像処理パイプライン（process サブコマンド + WASM用エントリポイント）
-use image::{DynamicImage, GrayImage, RgbaImage, Rgba, ImageReader, ImageDecoder};
-use image::metadata::Orientation;
-use serde::{Serialize, Deserialize};
-use crate::{layout, marker, perspective, qr, cell, vectorizer};
 use crate::vectorizer::PathCommand;
+use crate::{cell, layout, marker, perspective, qr, vectorizer};
+use image::metadata::Orientation;
+/// 画像処理パイプライン（process サブコマンド + WASM用エントリポイント）
+use image::{DynamicImage, GrayImage, ImageDecoder, ImageReader, Rgba, RgbaImage};
+use serde::{Deserialize, Serialize};
 
 use std::io::{BufRead, Cursor, Seek};
 #[cfg(not(target_arch = "wasm32"))]
@@ -20,8 +20,8 @@ fn decode_oriented_rgba<R: BufRead + Seek>(reader: ImageReader<R>) -> Result<Rgb
     // Exif が無い・壊れている場合は NoTransforms で続行（ユーザ撮影画像では
     // Exif チャンク欠損が十分にあり得るため、ここではエラーにしたくない）
     let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
-    let mut img = DynamicImage::from_decoder(decoder)
-        .map_err(|e| format!("画像デコードエラー: {e}"))?;
+    let mut img =
+        DynamicImage::from_decoder(decoder).map_err(|e| format!("画像デコードエラー: {e}"))?;
     if orientation != Orientation::NoTransforms {
         log!("  Exif Orientation 適用: {orientation:?}");
         img.apply_orientation(orientation);
@@ -40,7 +40,7 @@ pub struct ProcessedCell {
     pub is_empty: bool,
     pub adopted: bool,
     pub cell_index: usize,
-    pub image_data: Vec<u8>,  // RGBA生データ（二値化済み: 白背景+黒ストローク）
+    pub image_data: Vec<u8>, // RGBA生データ（二値化済み: 白背景+黒ストローク）
     pub width: u32,
     pub height: u32,
     /// ベジェパス配列（輪郭単位）。採用セルのみ埋める（空配列の場合あり）
@@ -61,7 +61,7 @@ pub struct ProcessResult {
     /// 非 None かつ非空のとき、scanner 側はこれを優先し `char_selection` の解決を要求しない。
     pub qr_chars: Option<Vec<String>>,
     pub cells: Vec<ProcessedCell>,
-    pub corrected_image: Vec<u8>,  // 補正後画像のRGBA
+    pub corrected_image: Vec<u8>, // 補正後画像のRGBA
     pub corrected_width: u32,
     pub corrected_height: u32,
     /// シアンサンプルを検出できたか（#111 QA）。false はモノクロ印刷・色褪せ印刷の
@@ -76,11 +76,13 @@ pub struct ProcessResult {
 fn estimate_dpi(markers: &[marker::DetectedMarker; 4]) -> f64 {
     // markers[0]=TL, markers[1]=TR, markers[2]=BL, markers[3]=BR
     // TL→TR: 198.0mm (水平)
-    let h_px = ((markers[1].cx - markers[0].cx).powi(2) + (markers[1].cy - markers[0].cy).powi(2)).sqrt();
+    let h_px =
+        ((markers[1].cx - markers[0].cx).powi(2) + (markers[1].cy - markers[0].cy).powi(2)).sqrt();
     let h_dpi = h_px / 198.0 * 25.4;
 
     // TL→BL: 286.0mm (垂直)
-    let v_px = ((markers[2].cx - markers[0].cx).powi(2) + (markers[2].cy - markers[0].cy).powi(2)).sqrt();
+    let v_px =
+        ((markers[2].cx - markers[0].cx).powi(2) + (markers[2].cy - markers[0].cy).powi(2)).sqrt();
     let v_dpi = v_px / 286.0 * 25.4;
 
     let avg_dpi = (h_dpi + v_dpi) / 2.0;
@@ -104,7 +106,9 @@ fn check_dpi(dpi: f64) -> Result<(), String> {
         return Err(format!("解像度が低すぎます ({dpi:.0} DPI)。もう少し近づけて撮影してください（推奨: 300DPI以上）"));
     }
     if dpi < 250.0 {
-        log!("  ⚠ 解像度が低めです ({dpi:.0} DPI)。処理は続行しますが品質が低下する可能性があります");
+        log!(
+            "  ⚠ 解像度が低めです ({dpi:.0} DPI)。処理は続行しますが品質が低下する可能性があります"
+        );
     } else {
         log!("  ✓ 解像度: {dpi:.0} DPI (OK)");
     }
@@ -116,8 +120,7 @@ fn check_dpi(dpi: f64) -> Result<(), String> {
 /// CLI用パイプラインを実行（ファイル読み込み・デバッグ画像保存付き）
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(output_dir)
-        .map_err(|e| format!("出力ディレクトリ作成エラー: {e}"))?;
+    std::fs::create_dir_all(output_dir).map_err(|e| format!("出力ディレクトリ作成エラー: {e}"))?;
 
     // ステップ1: 画像読み込み
     log!("\n=== ステップ1: 画像読み込み ===");
@@ -150,9 +153,16 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
         .map_err(|e| format!("保存エラー: {e}"))?;
     log!("  → 02b_masked.png 保存完了（境界接触領域を白化）");
 
+    // ステップ2.6: 中心マーカー事前検出（#132）: 四隅クアッド候補選定のアンカーに使う
+    log!("\n=== ステップ2.6: 中心マーカー事前検出 ===");
+    let center_hint = marker::detect_center_marker(&binary);
+    if center_hint.is_none() {
+        log!("  中心マーカー未検出（アンカーなしでクアッド候補を評価）");
+    }
+
     // ステップ3: マーカー検出
     log!("\n=== ステップ3: マーカー検出 ===");
-    let markers = marker::detect_markers(&binary, &gray)?;
+    let markers = marker::detect_markers(&binary, &gray, center_hint.as_ref())?;
     let marker_img = marker::draw_marker_overlay(&rgba, &markers);
     marker_img
         .save(output_dir.join("03_markers.png"))
@@ -166,7 +176,8 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
     let (oriented_img, oriented_markers) = if rotation != 0 {
         log!("  画像を{rotation}°回転します");
         let rotated = marker::rotate_image(&rgba, rotation);
-        let reordered = marker::reorder_markers(&markers, tl_index, rotation, rgba.width(), rgba.height());
+        let reordered =
+            marker::reorder_markers(&markers, tl_index, rotation, rgba.width(), rgba.height());
         (rotated, reordered)
     } else {
         (rgba.clone(), markers.clone())
@@ -191,7 +202,10 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
     let residual_threshold_mm = 1.0;
 
     for iteration in 0..max_iterations {
-        log!("\n=== ステップ6.5: 補正品質チェック (反復{}) ===", iteration + 1);
+        log!(
+            "\n=== ステップ6.5: 補正品質チェック (反復{}) ===",
+            iteration + 1
+        );
         match verify_correction_quality_cli(&corrected, output_dir) {
             Some((max_residual_mm, re_detected)) => {
                 if max_residual_mm <= residual_threshold_mm {
@@ -202,7 +216,10 @@ pub fn run_pipeline(image_path: &Path, output_dir: &Path) -> Result<(), String> 
                     log!("  ⚠ {max_iterations}回で収束せず（残差 {max_residual_mm:.2}mm）");
                     break;
                 }
-                log!("  反復{}: 残差 {max_residual_mm:.2}mm — 再補正", iteration + 1);
+                log!(
+                    "  反復{}: 残差 {max_residual_mm:.2}mm — 再補正",
+                    iteration + 1
+                );
                 corrected = perspective::homography_refine(&corrected, &re_detected);
             }
             None => {
@@ -330,9 +347,13 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
     marker::mask_border_background(&mut binary);
     log!("  境界接触領域を白化");
 
+    // ステップ2.6: 中心マーカー事前検出（#132）: 四隅クアッド候補選定のアンカーに使う
+    log!("=== ステップ2.6: 中心マーカー事前検出 ===");
+    let center_hint = marker::detect_center_marker(&binary);
+
     // ステップ3: マーカー検出
     log!("=== ステップ3: マーカー検出 ===");
-    let markers = marker::detect_markers(&binary, &gray)?;
+    let markers = marker::detect_markers(&binary, &gray, center_hint.as_ref())?;
 
     // ステップ4: 向き検出
     log!("=== ステップ4: 向き検出 ===");
@@ -341,7 +362,8 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
     let (oriented_img, oriented_markers) = if rotation != 0 {
         log!("  画像を{rotation}°回転します");
         let rotated = marker::rotate_image(&rgba, rotation);
-        let reordered = marker::reorder_markers(&markers, tl_index, rotation, rgba.width(), rgba.height());
+        let reordered =
+            marker::reorder_markers(&markers, tl_index, rotation, rgba.width(), rgba.height());
         (rotated, reordered)
     } else {
         (rgba.clone(), markers.clone())
@@ -371,7 +393,10 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
                     log!("  {max_iterations}回で収束せず（残差 {max_residual_mm:.2}mm）");
                     break;
                 }
-                log!("  反復{}: 残差 {max_residual_mm:.2}mm — 再補正", iteration + 1);
+                log!(
+                    "  反復{}: 残差 {max_residual_mm:.2}mm — 再補正",
+                    iteration + 1
+                );
                 corrected = perspective::homography_refine(&corrected, &re_detected);
             }
             None => {
@@ -457,7 +482,8 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
         for slot in &cr.slots {
             // 生セルを一度だけ二値化+品質ゲート（#110）し、
             // プレビュー RGBA とベクター化に同じバイナリを使う（結果が必ず一致する）
-            let raw_cell = cell::extract_cell_image_raw(&normalized, cr.row, cr.col, slot.cell_index);
+            let raw_cell =
+                cell::extract_cell_image_raw(&normalized, cr.row, cr.col, slot.cell_index);
             let cell_w = raw_cell.width();
             let cell_h = raw_cell.height();
             let (gated_binary, mut quality) = vectorizer::binarize_with_quality(&raw_cell);
@@ -466,7 +492,12 @@ pub fn process_image_bytes(bytes: &[u8]) -> Result<ProcessResult, String> {
             // 空（MAX ガード発火 or pre-gate 消失）なら needs_review を立てて #108 の
             // 「黙って欠字」を防ぐ（#112）。
             let paths = if adopted {
-                vectorizer::vectorize_adopted_with_review(&gated_binary, cell_w, cell_h, &mut quality)
+                vectorizer::vectorize_adopted_with_review(
+                    &gated_binary,
+                    cell_w,
+                    cell_h,
+                    &mut quality,
+                )
             } else {
                 Vec::new()
             };
@@ -533,11 +564,19 @@ struct QrInfo {
 
 impl QrInfo {
     fn empty() -> Self {
-        Self { page: None, total: None, selection: None, chars: None }
+        Self {
+            page: None,
+            total: None,
+            selection: None,
+            chars: None,
+        }
     }
 
     fn is_empty(&self) -> bool {
-        self.page.is_none() && self.total.is_none() && self.selection.is_none() && self.chars.is_none()
+        self.page.is_none()
+            && self.total.is_none()
+            && self.selection.is_none()
+            && self.chars.is_none()
     }
 }
 
@@ -564,25 +603,37 @@ fn parse_qr_payload(data: &str) -> QrInfo {
 
         // chars 配列の検証: 各要素が「単一文字 (chars().count() == 1) の string」であること。
         // 1 要素でも不正があれば None。空配列も None。
-        let chars: Option<Vec<String>> = v.get("chars").and_then(|x| x.as_array()).and_then(|arr| {
-            if arr.is_empty() {
-                return None;
-            }
-            let mut out: Vec<String> = Vec::with_capacity(arr.len());
-            for item in arr {
-                let s = item.as_str()?;
-                if s.chars().count() != 1 {
+        let chars: Option<Vec<String>> =
+            v.get("chars").and_then(|x| x.as_array()).and_then(|arr| {
+                if arr.is_empty() {
                     return None;
                 }
-                out.push(s.to_string());
-            }
-            Some(out)
-        });
+                let mut out: Vec<String> = Vec::with_capacity(arr.len());
+                for item in arr {
+                    let s = item.as_str()?;
+                    if s.chars().count() != 1 {
+                        return None;
+                    }
+                    out.push(s.to_string());
+                }
+                Some(out)
+            });
 
         if product_ok && version_ok && (selection.is_some() || chars.is_some()) {
-            let page = v.get("pg").and_then(|x| x.as_u64()).and_then(|n| u32::try_from(n).ok());
-            let total = v.get("t").and_then(|x| x.as_u64()).and_then(|n| u32::try_from(n).ok());
-            return QrInfo { page, total, selection, chars };
+            let page = v
+                .get("pg")
+                .and_then(|x| x.as_u64())
+                .and_then(|n| u32::try_from(n).ok());
+            let total = v
+                .get("t")
+                .and_then(|x| x.as_u64())
+                .and_then(|n| u32::try_from(n).ok());
+            return QrInfo {
+                page,
+                total,
+                selection,
+                chars,
+            };
         }
     }
 
@@ -597,7 +648,12 @@ mod qr_parse_tests {
     fn v3_json_basic() {
         assert_eq!(
             parse_qr_payload(r#"{"p":"mfc","v":3,"pg":1,"t":2,"m":2,"s":"h"}"#),
-            QrInfo { page: Some(1), total: Some(2), selection: Some("h".to_string()), chars: None },
+            QrInfo {
+                page: Some(1),
+                total: Some(2),
+                selection: Some("h".to_string()),
+                chars: None
+            },
         );
     }
 
@@ -605,7 +661,12 @@ mod qr_parse_tests {
     fn v3_json_all_sets() {
         assert_eq!(
             parse_qr_payload(r#"{"p":"mfc","v":3,"pg":3,"t":10,"m":2,"s":"hkaj"}"#),
-            QrInfo { page: Some(3), total: Some(10), selection: Some("hkaj".to_string()), chars: None },
+            QrInfo {
+                page: Some(3),
+                total: Some(10),
+                selection: Some("hkaj".to_string()),
+                chars: None
+            },
         );
     }
 
@@ -613,7 +674,12 @@ mod qr_parse_tests {
     fn v3_json_with_whitespace() {
         assert_eq!(
             parse_qr_payload("  {\"p\":\"mfc\",\"v\":3,\"pg\":5,\"t\":7,\"s\":\"hk\"}  "),
-            QrInfo { page: Some(5), total: Some(7), selection: Some("hk".to_string()), chars: None },
+            QrInfo {
+                page: Some(5),
+                total: Some(7),
+                selection: Some("hk".to_string()),
+                chars: None
+            },
         );
     }
 
@@ -658,7 +724,12 @@ mod qr_parse_tests {
         // u32::MAX 超の値は try_from で弾かれて None になる
         assert_eq!(
             parse_qr_payload(r#"{"p":"mfc","v":3,"pg":4294967296,"t":2,"s":"h"}"#),
-            QrInfo { page: None, total: Some(2), selection: Some("h".to_string()), chars: None },
+            QrInfo {
+                page: None,
+                total: Some(2),
+                selection: Some("h".to_string()),
+                chars: None
+            },
         );
     }
 
@@ -733,7 +804,12 @@ mod qr_parse_tests {
         // chars が空配列でも s があるなら受理（chars だけ None）
         assert_eq!(
             parse_qr_payload(r#"{"p":"mfc","v":3,"pg":1,"t":1,"m":2,"s":"h","chars":[]}"#),
-            QrInfo { page: Some(1), total: Some(1), selection: Some("h".to_string()), chars: None },
+            QrInfo {
+                page: Some(1),
+                total: Some(1),
+                selection: Some("h".to_string()),
+                chars: None
+            },
         );
     }
 
@@ -771,12 +847,15 @@ mod qr_parse_tests {
 // ── 共通処理関数（CLI/WASM両方で使用） ──
 
 /// 補正品質チェック（画像保存なし版 — WASM用）
-fn verify_correction_quality_wasm(corrected: &RgbaImage) -> Option<(f64, [marker::DetectedMarker; 4])> {
+fn verify_correction_quality_wasm(
+    corrected: &RgbaImage,
+) -> Option<(f64, [marker::DetectedMarker; 4])> {
     let gray = DynamicImage::ImageRgba8(corrected.clone()).into_luma8();
     let threshold = marker::otsu_threshold(&gray);
     let binary = marker::binarize(&gray, threshold);
+    let center_hint = marker::detect_center_marker(&binary);
 
-    match marker::detect_markers(&binary, &gray) {
+    match marker::detect_markers(&binary, &gray, center_hint.as_ref()) {
         Ok(detected) => {
             let expected = [
                 (layout::MARKER_TL, "TL"),
@@ -819,12 +898,16 @@ fn verify_correction_quality_wasm(corrected: &RgbaImage) -> Option<(f64, [marker
 
 /// 補正品質チェック（CLI用 — デバッグ画像保存付き）
 #[cfg(not(target_arch = "wasm32"))]
-fn verify_correction_quality_cli(corrected: &RgbaImage, output_dir: &Path) -> Option<(f64, [marker::DetectedMarker; 4])> {
+fn verify_correction_quality_cli(
+    corrected: &RgbaImage,
+    output_dir: &Path,
+) -> Option<(f64, [marker::DetectedMarker; 4])> {
     let gray = DynamicImage::ImageRgba8(corrected.clone()).into_luma8();
     let threshold = marker::otsu_threshold(&gray);
     let binary = marker::binarize(&gray, threshold);
+    let center_hint = marker::detect_center_marker(&binary);
 
-    match marker::detect_markers(&binary, &gray) {
+    match marker::detect_markers(&binary, &gray, center_hint.as_ref()) {
         Ok(detected) => {
             let expected = [
                 (layout::MARKER_TL, "TL"),
@@ -852,9 +935,13 @@ fn verify_correction_quality_cli(corrected: &RgbaImage, output_dir: &Path) -> Op
                 max_err = max_err.max(err);
                 total_err += err;
 
-                let status = if err_mm < 0.5 { "OK" }
-                    else if err_mm < 1.0 { "注意" }
-                    else { "要改善" };
+                let status = if err_mm < 0.5 {
+                    "OK"
+                } else if err_mm < 1.0 {
+                    "注意"
+                } else {
+                    "要改善"
+                };
 
                 log!(
                     "  {name}: 期待({exp_px_x:.1}, {exp_px_y:.1}) 検出({det_x:.1}, {det_y:.1}) 残差={err:.1}px ({err_mm:.2}mm) [{status}]"
@@ -958,7 +1045,7 @@ fn apply_lens_tps_correction(corrected: RgbaImage) -> Result<(RgbaImage, bool), 
         );
     }
 
-    let corners = match marker::detect_markers(&binary, &gray) {
+    let corners = match marker::detect_markers(&binary, &gray, Some(&center_detected)) {
         Ok(c) => c,
         Err(e) => {
             log!("  ⚠ 4隅マーカー再検出失敗 ({e}) — TPS補正をスキップ");
@@ -989,7 +1076,10 @@ fn apply_lens_tps_correction(corrected: RgbaImage) -> Result<(RgbaImage, bool), 
     // 紙面内側にだけ作用する。
     let mid = |a: (f64, f64), b: (f64, f64)| ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0);
     let src_pts: Vec<(f64, f64)> = vec![
-        corner_src[0], corner_src[1], corner_src[2], corner_src[3],
+        corner_src[0],
+        corner_src[1],
+        corner_src[2],
+        corner_src[3],
         mid(corner_src[0], corner_src[1]), // top
         mid(corner_src[2], corner_src[3]), // bottom
         mid(corner_src[0], corner_src[2]), // left
@@ -997,7 +1087,10 @@ fn apply_lens_tps_correction(corrected: RgbaImage) -> Result<(RgbaImage, bool), 
         (center_detected.cx, center_detected.cy),
     ];
     let dst_pts: Vec<(f64, f64)> = vec![
-        corner_dst[0], corner_dst[1], corner_dst[2], corner_dst[3],
+        corner_dst[0],
+        corner_dst[1],
+        corner_dst[2],
+        corner_dst[3],
         mid(corner_dst[0], corner_dst[1]),
         mid(corner_dst[2], corner_dst[3]),
         mid(corner_dst[0], corner_dst[2]),
@@ -1027,10 +1120,15 @@ fn verify_center_marker(corrected: &RgbaImage) {
             let err = (dx * dx + dy * dy).sqrt();
             let err_mm = err / layout::mm_to_px(1.0);
 
-            let status = if err_mm < 0.5 { "OK" }
-                else if err_mm < 1.0 { "注意" }
-                else if err_mm < 3.0 { "要改善" }
-                else { "レンズ歪みの可能性" };
+            let status = if err_mm < 0.5 {
+                "OK"
+            } else if err_mm < 1.0 {
+                "注意"
+            } else if err_mm < 3.0 {
+                "要改善"
+            } else {
+                "レンズ歪みの可能性"
+            };
 
             log!(
                 "  中心マーカー: 期待({exp_px_x:.1}, {exp_px_y:.1}) 検出({:.1}, {:.1}) 残差={err:.1}px ({err_mm:.2}mm) [{status}]",
@@ -1127,7 +1225,10 @@ fn apply_orthogonality_correction_wasm(img: RgbaImage) -> RgbaImage {
             return img;
         }
         if angle.abs() > 5.0 {
-            log!("  ⚠ 残留角度 {:.2}° が大きすぎます — 台形補正が失敗している可能性があります", angle.abs());
+            log!(
+                "  ⚠ 残留角度 {:.2}° が大きすぎます — 台形補正が失敗している可能性があります",
+                angle.abs()
+            );
         }
         log!("  → {:.3}° の微小回転補正を適用", -angle);
         rotate_small_angle(&img, angle)
@@ -1152,7 +1253,10 @@ fn apply_orthogonality_correction_cli(img: RgbaImage, output_dir: &Path) -> Rgba
             return img;
         }
         if angle.abs() > 5.0 {
-            log!("  ⚠ 残留角度 {:.2}° が大きすぎます — 台形補正が失敗している可能性があります", angle.abs());
+            log!(
+                "  ⚠ 残留角度 {:.2}° が大きすぎます — 台形補正が失敗している可能性があります",
+                angle.abs()
+            );
         }
         log!("  → {:.3}° の微小回転補正を適用", -angle);
         let corrected = rotate_small_angle(&img, angle);
@@ -1172,7 +1276,8 @@ fn measure_grid_angle(binary: &GrayImage) -> Option<f64> {
         .collect();
 
     let y_top = layout::mm_to_px(layout::BODY_START_Y + 2.0).round() as u32;
-    let y_bottom = layout::mm_to_px(layout::BODY_START_Y + 10.0 * layout::ROW_HEIGHT + 2.0).round() as u32;
+    let y_bottom =
+        layout::mm_to_px(layout::BODY_START_Y + 10.0 * layout::ROW_HEIGHT + 2.0).round() as u32;
 
     let mut angles = Vec::new();
 
@@ -1186,9 +1291,7 @@ fn measure_grid_angle(binary: &GrayImage) -> Option<f64> {
             let dy = y_bottom as f64 - y_top as f64;
             let angle_deg = (dx / dy).atan().to_degrees();
             angles.push(angle_deg);
-            log!(
-                "  縦罫線 x={col_x_mm:.0}mm: top_x={tx} bottom_x={bx} 角度={angle_deg:.3}°"
-            );
+            log!("  縦罫線 x={col_x_mm:.0}mm: top_x={tx} bottom_x={bx} 角度={angle_deg:.3}°");
         }
     }
 
@@ -1232,9 +1335,7 @@ fn correct_shadow(img: &RgbaImage) -> RgbaImage {
             right_ratios.push(expected / right_avg.max(1.0));
         }
 
-        log!(
-            "  バーステップ[{i}]: 期待={expected:.0} 左実測={left_avg:.1} 右実測={right_avg:.1}"
-        );
+        log!("  バーステップ[{i}]: 期待={expected:.0} 左実測={left_avg:.1} 右実測={right_avg:.1}");
     }
 
     let left_ratio = if left_ratios.is_empty() {
@@ -1288,7 +1389,11 @@ fn sample_region_rgb(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> (f64, f
     }
 
     if count > 0 {
-        (sum_r / count as f64, sum_g / count as f64, sum_b / count as f64)
+        (
+            sum_r / count as f64,
+            sum_g / count as f64,
+            sum_b / count as f64,
+        )
     } else {
         (0.0, 0.0, 0.0)
     }
@@ -1352,7 +1457,13 @@ fn correct_white_balance(img: &RgbaImage) -> RgbaImage {
     log!("  WB補正係数: R={coeff_r:.3} G={coeff_g:.3} B={coeff_b:.3} ({valid_steps}ステップ平均)");
 
     // 補正係数が極端な場合はスキップ
-    if coeff_r < 0.5 || coeff_r > 2.0 || coeff_g < 0.5 || coeff_g > 2.0 || coeff_b < 0.5 || coeff_b > 2.0 {
+    if coeff_r < 0.5
+        || coeff_r > 2.0
+        || coeff_g < 0.5
+        || coeff_g > 2.0
+        || coeff_b < 0.5
+        || coeff_b > 2.0
+    {
         log!("  ⚠ 補正係数が極端なためスキップ");
         return img.clone();
     }
@@ -1415,7 +1526,8 @@ fn remove_cyan(img: &RgbaImage) -> (RgbaImage, bool) {
     let sample_x = layout::mm_to_px(layout::CYAN_SAMPLE_X).round() as u32;
     let sample_y = layout::mm_to_px(layout::CYAN_SAMPLE_Y).round() as u32;
     let sample_size = layout::mm_to_px(layout::CYAN_SAMPLE_SIZE).round() as u32;
-    let (cyan_r, cyan_g, cyan_b) = sample_region_rgb(img, sample_x, sample_y, sample_size, sample_size);
+    let (cyan_r, cyan_g, cyan_b) =
+        sample_region_rgb(img, sample_x, sample_y, sample_size, sample_size);
     log!("  シアンサンプル平均色: R={cyan_r:.1} G={cyan_g:.1} B={cyan_b:.1}");
 
     // 検出できなくても erase_grid_lines (inner_margin=5px)
@@ -1519,9 +1631,21 @@ fn erase_grid_lines(img: &RgbaImage) -> RgbaImage {
                 let (mm_x, mm_y) = layout::get_cell_position(row, col, cell_idx);
 
                 erase_horizontal_line(&mut out, mm_x, mm_y, layout::CELL_SIZE, line_margin);
-                erase_horizontal_line(&mut out, mm_x, mm_y + layout::CELL_SIZE, layout::CELL_SIZE, line_margin);
+                erase_horizontal_line(
+                    &mut out,
+                    mm_x,
+                    mm_y + layout::CELL_SIZE,
+                    layout::CELL_SIZE,
+                    line_margin,
+                );
                 erase_vertical_line(&mut out, mm_x, mm_y, layout::CELL_SIZE, line_margin);
-                erase_vertical_line(&mut out, mm_x + layout::CELL_SIZE, mm_y, layout::CELL_SIZE, line_margin);
+                erase_vertical_line(
+                    &mut out,
+                    mm_x + layout::CELL_SIZE,
+                    mm_y,
+                    layout::CELL_SIZE,
+                    line_margin,
+                );
 
                 // 内枠（シアン）は台形補正の残差＋縁のぼかしで幅が出やすいので、
                 // 外枠より広いマージンで塗り潰す。手書きは内枠線の内側に集中する前提
@@ -1530,9 +1654,21 @@ fn erase_grid_lines(img: &RgbaImage) -> RgbaImage {
                 let ix = mm_x + inner_offset;
                 let iy = mm_y + inner_offset;
                 erase_horizontal_line(&mut out, ix, iy, layout::INNER_SIZE, inner_margin);
-                erase_horizontal_line(&mut out, ix, iy + layout::INNER_SIZE, layout::INNER_SIZE, inner_margin);
+                erase_horizontal_line(
+                    &mut out,
+                    ix,
+                    iy + layout::INNER_SIZE,
+                    layout::INNER_SIZE,
+                    inner_margin,
+                );
                 erase_vertical_line(&mut out, ix, iy, layout::INNER_SIZE, inner_margin);
-                erase_vertical_line(&mut out, ix + layout::INNER_SIZE, iy, layout::INNER_SIZE, inner_margin);
+                erase_vertical_line(
+                    &mut out,
+                    ix + layout::INNER_SIZE,
+                    iy,
+                    layout::INNER_SIZE,
+                    inner_margin,
+                );
 
                 // ベースライン/センターガイド線（#111）。
                 // 除去の主防御はシアン除去。ここは layout 既知の第2防御で、
@@ -1560,16 +1696,40 @@ fn erase_grid_lines(img: &RgbaImage) -> RgbaImage {
                 );
 
                 let check_y = mm_y + layout::CELL_SIZE;
-                erase_horizontal_line(&mut out, mm_x, check_y + layout::CHECK_HEIGHT, layout::CELL_SIZE, line_margin);
+                erase_horizontal_line(
+                    &mut out,
+                    mm_x,
+                    check_y + layout::CHECK_HEIGHT,
+                    layout::CELL_SIZE,
+                    line_margin,
+                );
                 erase_vertical_line(&mut out, mm_x, check_y, layout::CHECK_HEIGHT, line_margin);
-                erase_vertical_line(&mut out, mm_x + layout::CELL_SIZE, check_y, layout::CHECK_HEIGHT, line_margin);
+                erase_vertical_line(
+                    &mut out,
+                    mm_x + layout::CELL_SIZE,
+                    check_y,
+                    layout::CHECK_HEIGHT,
+                    line_margin,
+                );
             }
 
             let (sx, sy) = layout::get_sample_position(row, col);
             erase_horizontal_line(&mut out, sx, sy, layout::SAMPLE_WIDTH, line_margin);
-            erase_horizontal_line(&mut out, sx, sy + layout::CELL_SIZE, layout::SAMPLE_WIDTH, line_margin);
+            erase_horizontal_line(
+                &mut out,
+                sx,
+                sy + layout::CELL_SIZE,
+                layout::SAMPLE_WIDTH,
+                line_margin,
+            );
             erase_vertical_line(&mut out, sx, sy, layout::CELL_SIZE, line_margin);
-            erase_vertical_line(&mut out, sx + layout::SAMPLE_WIDTH, sy, layout::CELL_SIZE, line_margin);
+            erase_vertical_line(
+                &mut out,
+                sx + layout::SAMPLE_WIDTH,
+                sy,
+                layout::CELL_SIZE,
+                line_margin,
+            );
         }
     }
 
@@ -1639,7 +1799,9 @@ fn find_grid_line_x(binary: &GrayImage, expected_x: i32, y: u32, search_range: i
 
     for dy in -2i32..=2 {
         let sy = (y as i32 + dy).max(0) as u32;
-        if sy >= binary.height() { continue; }
+        if sy >= binary.height() {
+            continue;
+        }
 
         for dx in -search_range..=search_range {
             let x = expected_x + dx;
@@ -1722,8 +1884,9 @@ mod image_ops_tests {
         let inner_offset = (layout::CELL_SIZE - layout::INNER_SIZE) / 2.0;
         let ix = mm_x + inner_offset;
         let iy = mm_y + inner_offset;
-        let baseline_y = layout::mm_to_px(iy + layout::INNER_SIZE - layout::GUIDE_BASELINE_OFFSET_MM)
-            .round() as u32;
+        let baseline_y =
+            layout::mm_to_px(iy + layout::INNER_SIZE - layout::GUIDE_BASELINE_OFFSET_MM).round()
+                as u32;
         let center_x = layout::mm_to_px(mm_x + layout::CELL_SIZE / 2.0).round() as u32;
         let inner_left_x = layout::mm_to_px(ix).round() as u32;
         let inner_top_y = layout::mm_to_px(iy).round() as u32;
@@ -1750,11 +1913,31 @@ mod image_ops_tests {
         }
         let out = erase_grid_lines(&img);
         for x in seg_x0..seg_x1 {
-            assert_eq!(*out.get_pixel(x, baseline_y), WHITE, "公称位置 x={x} は白化されるべき");
-            assert_eq!(*out.get_pixel(x, baseline_y + 4), WHITE, "+4px x={x} は白化されるべき");
-            assert_eq!(*out.get_pixel(x, baseline_y + 5), gray, "+5px x={x} は帯の外で残存すべき");
-            assert_eq!(*out.get_pixel(x, baseline_y - 4), WHITE, "-4px x={x} は白化されるべき");
-            assert_eq!(*out.get_pixel(x, baseline_y - 5), gray, "-5px x={x} は帯の外で残存すべき");
+            assert_eq!(
+                *out.get_pixel(x, baseline_y),
+                WHITE,
+                "公称位置 x={x} は白化されるべき"
+            );
+            assert_eq!(
+                *out.get_pixel(x, baseline_y + 4),
+                WHITE,
+                "+4px x={x} は白化されるべき"
+            );
+            assert_eq!(
+                *out.get_pixel(x, baseline_y + 5),
+                gray,
+                "+5px x={x} は帯の外で残存すべき"
+            );
+            assert_eq!(
+                *out.get_pixel(x, baseline_y - 4),
+                WHITE,
+                "-4px x={x} は白化されるべき"
+            );
+            assert_eq!(
+                *out.get_pixel(x, baseline_y - 5),
+                gray,
+                "-5px x={x} は帯の外で残存すべき"
+            );
         }
     }
 
@@ -1775,11 +1958,31 @@ mod image_ops_tests {
         }
         let out = erase_grid_lines(&img);
         for y in seg_y0..seg_y1 {
-            assert_eq!(*out.get_pixel(center_x, y), WHITE, "公称位置 y={y} は白化されるべき");
-            assert_eq!(*out.get_pixel(center_x + 4, y), WHITE, "+4px y={y} は白化されるべき");
-            assert_eq!(*out.get_pixel(center_x + 5, y), gray, "+5px y={y} は帯の外で残存すべき");
-            assert_eq!(*out.get_pixel(center_x - 4, y), WHITE, "-4px y={y} は白化されるべき");
-            assert_eq!(*out.get_pixel(center_x - 5, y), gray, "-5px y={y} は帯の外で残存すべき");
+            assert_eq!(
+                *out.get_pixel(center_x, y),
+                WHITE,
+                "公称位置 y={y} は白化されるべき"
+            );
+            assert_eq!(
+                *out.get_pixel(center_x + 4, y),
+                WHITE,
+                "+4px y={y} は白化されるべき"
+            );
+            assert_eq!(
+                *out.get_pixel(center_x + 5, y),
+                gray,
+                "+5px y={y} は帯の外で残存すべき"
+            );
+            assert_eq!(
+                *out.get_pixel(center_x - 4, y),
+                WHITE,
+                "-4px y={y} は白化されるべき"
+            );
+            assert_eq!(
+                *out.get_pixel(center_x - 5, y),
+                gray,
+                "-5px y={y} は帯の外で残存すべき"
+            );
         }
     }
 
@@ -1792,13 +1995,24 @@ mod image_ops_tests {
         let dark150 = Rgba([150, 150, 150, 255]); // lum 150,000 >= 150,000 → 塗られる
         let x149 = inner_left_x + 10;
         let x150 = inner_left_x + 12;
-        assert!(x150 < center_x - 4, "検査画素がセンターガイド帯に入らないこと");
+        assert!(
+            x150 < center_x - 4,
+            "検査画素がセンターガイド帯に入らないこと"
+        );
         let mut img = white_page();
         img.put_pixel(x149, baseline_y, dark149);
         img.put_pixel(x150, baseline_y, dark150);
         let out = erase_grid_lines(&img);
-        assert_eq!(*out.get_pixel(x149, baseline_y), dark149, "輝度149 は手書きとして保護");
-        assert_eq!(*out.get_pixel(x150, baseline_y), WHITE, "輝度150 は白塗り対象");
+        assert_eq!(
+            *out.get_pixel(x149, baseline_y),
+            dark149,
+            "輝度149 は手書きとして保護"
+        );
+        assert_eq!(
+            *out.get_pixel(x150, baseline_y),
+            WHITE,
+            "輝度150 は白塗り対象"
+        );
     }
 
     #[test]
@@ -1828,7 +2042,11 @@ mod image_ops_tests {
             Rgba([200, 202, 202, 255]),
             "cyan_score=2 は残存"
         );
-        assert_eq!(*out.get_pixel(1020, 1000), WHITE, "avg=140 は処理対象（境界含む）");
+        assert_eq!(
+            *out.get_pixel(1020, 1000),
+            WHITE,
+            "avg=140 は処理対象（境界含む）"
+        );
         assert_eq!(
             *out.get_pixel(1030, 1000),
             Rgba([134, 142, 142, 255]),
@@ -1845,7 +2063,11 @@ mod image_ops_tests {
         img.put_pixel(1000, 1000, strong_cyan);
         let (out, detected) = remove_cyan(&img);
         assert!(!detected, "サンプル未検出フラグが返るべき");
-        assert_eq!(*out.get_pixel(1000, 1000), strong_cyan, "全スキップで残存すべき");
+        assert_eq!(
+            *out.get_pixel(1000, 1000),
+            strong_cyan,
+            "全スキップで残存すべき"
+        );
     }
 
     #[test]
