@@ -853,17 +853,27 @@ fn verify_correction_quality_wasm(
     let gray = DynamicImage::ImageRgba8(corrected.clone()).into_luma8();
     let threshold = marker::otsu_threshold(&gray);
     let binary = marker::binarize(&gray, threshold);
-    let center_hint = marker::detect_center_marker(&binary);
 
-    match marker::detect_markers(&binary, &gray, center_hint.as_ref()) {
+    // 補正後画像は4隅の期待位置が既知なので、全域探索ではなく期待位置近傍の
+    // 局所探索で再検出する（#132フォローアップ）。全域探索のままだと、木目机の
+    // 実写真で残った紙外の木目クラスタに再び引っ張られ、反復が未収束のまま
+    // 打ち切られることがあった（wood-background フィクスチャで確認）。
+    let expected = [
+        (layout::MARKER_TL, "TL"),
+        (layout::MARKER_TR, "TR"),
+        (layout::MARKER_BL, "BL"),
+        (layout::MARKER_BR, "BR"),
+    ];
+    let expected_centers_px: [(f64, f64); 4] = std::array::from_fn(|i| {
+        let (cx, cy) = layout::marker_center(&expected[i].0);
+        (layout::mm_to_px(cx), layout::mm_to_px(cy))
+    });
+    let marker_px = layout::mm_to_px(layout::MARKER_SIZE).round();
+    let search_radius = marker_px * marker::LOCAL_SEARCH_RADIUS_RATIO;
+
+    match marker::detect_markers_near_expected(&binary, &gray, &expected_centers_px, search_radius)
+    {
         Ok(detected) => {
-            let expected = [
-                (layout::MARKER_TL, "TL"),
-                (layout::MARKER_TR, "TR"),
-                (layout::MARKER_BL, "BL"),
-                (layout::MARKER_BR, "BR"),
-            ];
-
             let mut max_err = 0.0f64;
 
             for (i, (marker_def, name)) in expected.iter().enumerate() {
@@ -905,17 +915,25 @@ fn verify_correction_quality_cli(
     let gray = DynamicImage::ImageRgba8(corrected.clone()).into_luma8();
     let threshold = marker::otsu_threshold(&gray);
     let binary = marker::binarize(&gray, threshold);
-    let center_hint = marker::detect_center_marker(&binary);
 
-    match marker::detect_markers(&binary, &gray, center_hint.as_ref()) {
+    // 補正後画像は4隅の期待位置が既知なので、全域探索ではなく期待位置近傍の
+    // 局所探索で再検出する（#132フォローアップ、詳細は verify_correction_quality_wasm 参照）。
+    let expected = [
+        (layout::MARKER_TL, "TL"),
+        (layout::MARKER_TR, "TR"),
+        (layout::MARKER_BL, "BL"),
+        (layout::MARKER_BR, "BR"),
+    ];
+    let expected_centers_px: [(f64, f64); 4] = std::array::from_fn(|i| {
+        let (cx, cy) = layout::marker_center(&expected[i].0);
+        (layout::mm_to_px(cx), layout::mm_to_px(cy))
+    });
+    let marker_px = layout::mm_to_px(layout::MARKER_SIZE).round();
+    let search_radius = marker_px * marker::LOCAL_SEARCH_RADIUS_RATIO;
+
+    match marker::detect_markers_near_expected(&binary, &gray, &expected_centers_px, search_radius)
+    {
         Ok(detected) => {
-            let expected = [
-                (layout::MARKER_TL, "TL"),
-                (layout::MARKER_TR, "TR"),
-                (layout::MARKER_BL, "BL"),
-                (layout::MARKER_BR, "BR"),
-            ];
-
             let mut max_err = 0.0f64;
             let mut total_err = 0.0f64;
 

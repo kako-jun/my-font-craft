@@ -739,6 +739,158 @@ pub fn detect_markers(
     }
 }
 
+/// 補正後画像の局所再検出（#132フォローアップ）に使う探索半径の比率。
+/// marker_px（テンプレート期待マーカーサイズ px）に掛けて窓の半径を決める。
+/// 「2〜3×marker_px」の中間を取った値。木目机の wood-background フィクスチャで
+/// 実写較正: ホモグラフィー後の残差はせいぜい数十px（TPS前でも通常 <marker_px）
+/// なので、2.5倍の窓があれば実在マーカーは必ず窓内に収まる。
+pub const LOCAL_SEARCH_RADIUS_RATIO: f64 = 2.5;
+
+/// 期待位置近傍だけを探索してマーカーを再検出する（#132フォローアップ・補正後の再検出専用）。
+///
+/// 背景: 補正後画像では4隅の期待位置が layout の mm 座標から既知なので、初回検出
+/// （detect_markers）と同じ「25%マージン領域の全域探索」は不要かつ有害になり得る。
+/// wood-background フィクスチャ（machine #132 セルフレビュー指摘）では、補正後の
+/// 再検出が全域探索のままだと同じ木目クラスタに再び引っ張られ、TopRight の候補が
+/// 全滅して反復が未収束のまま打ち切られていた。
+///
+/// 各マーカーについて期待中心を中心とする一辺 2×search_radius_px の正方窓だけで
+/// ブロブ抽出し、形状ゲート（#115, validate_marker_shape）を通過した候補のうち
+/// 期待位置に最も近いものを採用する。
+///
+/// 紙白アニュラスゲート（annulus_white_ratio）はここでは適用しない: 窓が画像端
+/// （紙の外）にかかると、アニュラスの外側リングが紙外領域を含んで誤爆し得る
+/// （残差が残っている状態では期待位置が実際のマーカーより紙端寄りにズレることがある）。
+/// 窓を期待位置近傍だけに絞ること自体が「遠く離れた木目等はそもそも候補にすらならない」
+/// という強い防御になっており、全域探索版のような追加ゲートは不要と判断した。
+pub fn detect_markers_near_expected(
+    binary: &GrayImage,
+    gray: &GrayImage,
+    expected_centers_px: &[(f64, f64); 4],
+    search_radius_px: f64,
+) -> Result<[DetectedMarker; 4], String> {
+    const NAMES: [&str; 4] = ["TopLeft", "TopRight", "BottomLeft", "BottomRight"];
+
+    let w = binary.width();
+    let h = binary.height();
+    let marker_px = layout::mm_to_px(layout::MARKER_SIZE).round();
+    let expected_filled_area = std::f64::consts::PI * (marker_px / 2.0).powi(2);
+    let min_blob_area = 30u32;
+    let max_blob_area = (expected_filled_area * 5.0) as u32;
+    let merge_radius = marker_px * 1.0;
+
+    let mut markers: Vec<DetectedMarker> = Vec::with_capacity(4);
+
+    for (i, &(ecx, ecy)) in expected_centers_px.iter().enumerate() {
+        let name = NAMES[i];
+        let x0 = (ecx - search_radius_px).max(0.0) as u32;
+        let y0 = (ecy - search_radius_px).max(0.0) as u32;
+        let x1 = ((ecx + search_radius_px).min(w as f64)) as u32;
+        let y1 = ((ecy + search_radius_px).min(h as f64)) as u32;
+
+        if x1 <= x0 || y1 <= y0 {
+            return Err(format!(
+                "{name} マーカーが検出できませんでした（局所探索窓が画像範囲外）"
+            ));
+        }
+
+        let blobs = extract_blobs(binary, x0, y0, x1, y1);
+        let filtered: Vec<&Blob> = blobs
+            .iter()
+            .filter(|b| {
+                b.area >= min_blob_area
+                    && b.area <= max_blob_area
+                    && b.aspect_ratio() > 0.35
+                    && b.aspect_ratio() < 3.0
+            })
+            .collect();
+
+        log!(
+            "  {name} 局所再探索: 窓=({x0},{y0})..({x1},{y1}) 期待=({ecx:.1},{ecy:.1}) ブロブ数={} フィルタ後={}",
+            blobs.len(),
+            filtered.len()
+        );
+
+        if filtered.is_empty() {
+            return Err(format!(
+                "{name} マーカーが検出できませんでした（局所窓内ブロブ数={}, フィルタ通過=0）",
+                blobs.len()
+            ));
+        }
+
+        // 期待位置に近い順に候補化し、形状ゲート（#115）を通過した最初の候補
+        // （＝期待位置に最も近い候補）を採用する。全域版と異なり紙白アニュラス
+        // ゲートは適用しない（理由は関数ドキュメント参照）。
+        let mut order: Vec<usize> = (0..filtered.len()).collect();
+        order.sort_by(|&a, &b| {
+            let da =
+                (filtered[a].center_x() - ecx).powi(2) + (filtered[a].center_y() - ecy).powi(2);
+            let db =
+                (filtered[b].center_x() - ecx).powi(2) + (filtered[b].center_y() - ecy).powi(2);
+            da.partial_cmp(&db).unwrap()
+        });
+
+        let mut visited = vec![false; filtered.len()];
+        let mut found: Option<DetectedMarker> = None;
+        let mut tried = 0usize;
+
+        for &idx in &order {
+            if visited[idx] {
+                continue;
+            }
+            tried += 1;
+            let seed_cx = filtered[idx].center_x();
+            let seed_cy = filtered[idx].center_y();
+            let merged = merge_blobs_near_seed(&filtered, seed_cx, seed_cy, merge_radius);
+
+            for (j, b) in filtered.iter().enumerate() {
+                let dist =
+                    ((b.center_x() - seed_cx).powi(2) + (b.center_y() - seed_cy).powi(2)).sqrt();
+                if dist <= merge_radius {
+                    visited[j] = true;
+                }
+            }
+
+            let bbox_w = (merged.bbox_max_x - merged.bbox_min_x + 1) as f64;
+            let bbox_h = (merged.bbox_max_y - merged.bbox_min_y + 1) as f64;
+
+            if let Err(e) = validate_marker_shape(name, bbox_w, bbox_h, marker_px) {
+                log!("  {name} 局所候補{tried}: 形状ゲート棄却（{e}）");
+                continue;
+            }
+
+            let (refined_x, refined_y) =
+                refine_center_parabolic(gray, merged.centroid_x, merged.centroid_y);
+            log!(
+                "  {name} 局所候補{tried}: 採用 centroid=({:.1}, {:.1}) → refined=({refined_x:.2}, {refined_y:.2}) bbox={bbox_w:.0}x{bbox_h:.0}",
+                merged.centroid_x, merged.centroid_y
+            );
+            found = Some(DetectedMarker {
+                cx: refined_x,
+                cy: refined_y,
+                area: merged.total_area,
+            });
+            break;
+        }
+
+        match found {
+            Some(m) => markers.push(m),
+            None => {
+                return Err(format!(
+                    "{name} マーカーが検出できませんでした（局所候補{tried}件、形状検証を通過した候補なし）"
+                ));
+            }
+        }
+    }
+
+    Ok([
+        markers[0].clone(),
+        markers[1].clone(),
+        markers[2].clone(),
+        markers[3].clone(),
+    ])
+}
+
 /// 四隅マーカー候補ブロブの外接矩形が「円らしい」形状かを検証する（#115）。
 ///
 /// #132 でクアッド全体を棄却する「致命エラー」から、候補ごとの「足切りゲート」に降格。
@@ -2101,5 +2253,78 @@ mod tests {
                 "translateWasmErrorの3パターンいずれにも一致しない: err={err}"
             );
         }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // detect_markers_near_expected（#132フォローアップ・補正後の局所再検出）
+    // ══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn detect_markers_near_expected_finds_real_marker_near_window_center() {
+        // 期待位置のすぐ近く（残差数px相当）に実マーカーがあれば採用する。
+        // 全域探索と違い、期待位置から遠い場所にある別ブロブ（デコイ）は
+        // そもそも窓の外なので候補にすらならないことも併せて確認する。
+        let (w, h) = (1600u32, 2000u32);
+        let marker_px = layout::mm_to_px(layout::MARKER_SIZE).round();
+        let mut img = white_image(w, h);
+
+        let expected: [(f64, f64); 4] = [
+            (150.0, 150.0),
+            (1450.0, 150.0),
+            (150.0, 1850.0),
+            (1450.0, 1850.0),
+        ];
+        // 実マーカーは期待位置から数px（残差相当）ずれた位置に置く。
+        let actual: [(f64, f64); 4] = [
+            (152.0, 148.0),
+            (1447.0, 153.0),
+            (151.0, 1846.0),
+            (1453.0, 1852.0),
+        ];
+        for &(cx, cy) in &actual {
+            draw_filled_circle(&mut img, cx, cy, marker_px / 2.0, 0);
+        }
+
+        // デコイ: 期待位置から大きく離れた場所（窓の外）に置く。全域探索なら
+        // 候補になり得るが、局所探索では窓外なのでそもそも探索されないはず。
+        draw_filled_circle(&mut img, 700.0, 1000.0, marker_px / 2.0, 0);
+
+        let search_radius = marker_px * LOCAL_SEARCH_RADIUS_RATIO;
+        let markers = detect_markers_near_expected(&img, &img, &expected, search_radius)
+            .expect("期待位置近傍の実マーカーを検出できるべき");
+
+        assert_marker_near(&markers[0], actual[0], 3.0, "TL");
+        assert_marker_near(&markers[1], actual[1], 3.0, "TR");
+        assert_marker_near(&markers[2], actual[2], 3.0, "BL");
+        assert_marker_near(&markers[3], actual[3], 3.0, "BR");
+    }
+
+    #[test]
+    fn detect_markers_near_expected_errs_when_window_has_no_candidate() {
+        // TR の期待位置近傍の窓内に一切ブロブが無い（紙面が白いだけ）場合、
+        // 全域フォールバックはせず「TopRight マーカーが検出できませんでした」で
+        // 即座に Err を返すべき（局所再検出は失敗を隠さず反復中断させる契約）。
+        let (w, h) = (1600u32, 2000u32);
+        let marker_px = layout::mm_to_px(layout::MARKER_SIZE).round();
+        let mut img = white_image(w, h);
+
+        let expected: [(f64, f64); 4] = [
+            (150.0, 150.0),
+            (1450.0, 150.0),
+            (150.0, 1850.0),
+            (1450.0, 1850.0),
+        ];
+        // TL/BL/BR のみ描画し、TR の窓内には何も置かない。
+        draw_filled_circle(&mut img, expected[0].0, expected[0].1, marker_px / 2.0, 0);
+        draw_filled_circle(&mut img, expected[2].0, expected[2].1, marker_px / 2.0, 0);
+        draw_filled_circle(&mut img, expected[3].0, expected[3].1, marker_px / 2.0, 0);
+
+        let search_radius = marker_px * LOCAL_SEARCH_RADIUS_RATIO;
+        let err = detect_markers_near_expected(&img, &img, &expected, search_radius)
+            .expect_err("TR窓内に候補が無ければ Err を返すべき");
+        assert!(
+            err.contains("TopRight") && err.contains("マーカーが検出できませんでした"),
+            "err={err}"
+        );
     }
 }
