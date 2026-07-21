@@ -1252,4 +1252,854 @@ mod tests {
             "err={err}"
         );
     }
+
+    // --- validate_marker_shape 境界値（#132・3点法） ---
+
+    #[test]
+    fn validate_marker_shape_aspect_lo_boundary() {
+        // 下限 0.6（inclusive）。bbox_h=150 固定でサイズ比ゲートには触れない。
+        assert!(
+            validate_marker_shape("T", 89.9, 150.0, MARKER_PX).is_err(),
+            "aspect=0.5993 は下限未満で棄却されるべき"
+        );
+        assert!(
+            validate_marker_shape("T", 90.0, 150.0, MARKER_PX).is_ok(),
+            "aspect=0.6 ちょうどは inclusive で通るべき"
+        );
+        assert!(
+            validate_marker_shape("T", 90.1, 150.0, MARKER_PX).is_ok(),
+            "aspect=0.6007 は下限超で通るべき"
+        );
+    }
+
+    #[test]
+    fn validate_marker_shape_aspect_hi_boundary() {
+        // 上限 1.667（inclusive）。bbox_h=100 固定でサイズ比ゲートには触れない。
+        assert!(
+            validate_marker_shape("T", 166.6, 100.0, MARKER_PX).is_ok(),
+            "aspect=1.666 は上限未満で通るべき"
+        );
+        assert!(
+            validate_marker_shape("T", 166.7, 100.0, MARKER_PX).is_ok(),
+            "aspect=1.667 ちょうどは inclusive で通るべき"
+        );
+        assert!(
+            validate_marker_shape("T", 166.8, 100.0, MARKER_PX).is_err(),
+            "aspect=1.668 は上限超で棄却されるべき"
+        );
+    }
+
+    #[test]
+    fn validate_marker_shape_size_ratio_lo_boundary() {
+        // 下限 0.45（inclusive）。bbox_h=60 固定で aspect は 0.6〜1.667 の範囲内に収める
+        // （wr=bbox_w/marker_px が境界を跨いでも aspect ゲートには触れないようにする）。
+        assert!(
+            validate_marker_shape("T", 42.4, 60.0, MARKER_PX).is_err(),
+            "wr=0.4487 は下限未満で棄却されるべき"
+        );
+        assert!(
+            validate_marker_shape("T", 42.525, 60.0, MARKER_PX).is_ok(),
+            "wr=0.45 ちょうどは inclusive で通るべき"
+        );
+        assert!(
+            validate_marker_shape("T", 42.6, 60.0, MARKER_PX).is_ok(),
+            "wr=0.4508 は下限超で通るべき"
+        );
+    }
+
+    #[test]
+    fn validate_marker_shape_size_ratio_hi_boundary() {
+        // 上限 2.5（inclusive）。bbox_h=150 固定で aspect は範囲内に収める。
+        assert!(
+            validate_marker_shape("T", 236.1, 150.0, MARKER_PX).is_ok(),
+            "wr=2.4984 は上限未満で通るべき"
+        );
+        assert!(
+            validate_marker_shape("T", 236.25, 150.0, MARKER_PX).is_ok(),
+            "wr=2.5 ちょうどは inclusive で通るべき"
+        );
+        assert!(
+            validate_marker_shape("T", 236.4, 150.0, MARKER_PX).is_err(),
+            "wr=2.5016 は上限超で棄却されるべき"
+        );
+    }
+
+    // --- validate_marker_quad 境界値（#132・3点法） ---
+
+    #[test]
+    fn validate_marker_quad_min_side_boundary() {
+        // 上辺長 50.0px（inclusive）。他の辺・アスペクト・面積は十分余裕を持たせる。
+        let q = |top_w: f64| [mk(0.0, 0.0), mk(top_w, 0.0), mk(0.0, 72.0), mk(50.0, 72.0)];
+        assert!(
+            validate_marker_quad(&q(49.9)).is_err(),
+            "top_w=49.9 は下限未満で棄却されるべき"
+        );
+        assert!(
+            validate_marker_quad(&q(50.0)).is_ok(),
+            "top_w=50.0 ちょうどは inclusive で通るべき"
+        );
+        assert!(
+            validate_marker_quad(&q(50.1)).is_ok(),
+            "top_w=50.1 は下限超で通るべき"
+        );
+    }
+
+    #[test]
+    fn validate_marker_quad_area_floor_boundary_le_fails() {
+        // signed_area <= area_floor（0.25*mean_w*mean_h）で退化判定。<= の等号側を確認する。
+        // 座標は「min_side・アスペクト・対辺比は全て許容帯内に収めたまま面積比だけを
+        // area_floor 境界付近で振る」凸4角形をテンプレート矩形との線形補間（詳細はテスト作成
+        // セッションの探索記録を参照）。signed_area/area_floor は t に対して非線形なので、
+        // 事前計算した定数ではなく実際の validate_marker_quad を使って実行時に二分探索し、
+        // 「最後に落ちる t（lo）」と「最初に通る t（hi）」を隣接する浮動小数点値まで詰める。
+        // これにより <= の等号側（lo）が退化棄却されることを浮動小数点誤差に頼らず確認する。
+        let q = |t: f64| {
+            let lerp =
+                |a: (f64, f64), b: (f64, f64)| (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t);
+            let a_tl = (0.0, 0.0);
+            let a_tr = (60.22791507158993, 122.00427808013211);
+            let a_bl = (146.10019783850225, 168.69732496263964);
+            let a_br = (327.07822618877304, 177.81725999008614);
+            let expected = 198.0 / 283.915;
+            let w = 200.0;
+            let l = w / expected;
+            let b_tl = (0.0, 0.0);
+            let b_tr = (w, 0.0);
+            let b_bl = (0.0, l);
+            let b_br = (w, l);
+            let (tlx, tly) = lerp(a_tl, b_tl);
+            let (trx, try_y) = lerp(a_tr, b_tr);
+            let (blx, bly) = lerp(a_bl, b_bl);
+            let (brx, bry) = lerp(a_br, b_br);
+            [mk(tlx, tly), mk(trx, try_y), mk(blx, bly), mk(brx, bry)]
+        };
+
+        // t=0.15 は退化（ratio<1）、t=0.20 は通過（ratio>1）であることを事前調査済み。
+        let mut lo = 0.15f64; // 退化側（Err）を保つ
+        let mut hi = 0.20f64; // 通過側（Ok）を保つ
+        assert!(
+            validate_marker_quad(&q(lo)).is_err(),
+            "探索区間の下端は退化のはず"
+        );
+        assert!(
+            validate_marker_quad(&q(hi)).is_ok(),
+            "探索区間の上端は通過のはず"
+        );
+        for _ in 0..100 {
+            let mid = (lo + hi) / 2.0;
+            if mid == lo || mid == hi {
+                break; // 隣接する浮動小数点値まで収束
+            }
+            if validate_marker_quad(&q(mid)).is_err() {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+
+        let err_at_lo = validate_marker_quad(&q(lo)).unwrap_err();
+        assert!(
+            err_at_lo.contains("マーカー") && err_at_lo.contains("退化"),
+            "area_floor境界の退化側（signed_area<=area_floor）は退化棄却されるべき: err={err_at_lo}"
+        );
+        assert!(
+            validate_marker_quad(&q(hi)).is_ok(),
+            "隣接する浮動小数点値まで詰めた通過側（signed_area>area_floor）は通るべき"
+        );
+    }
+
+    #[test]
+    fn validate_marker_quad_side_ratio_lo_boundary() {
+        // 対辺比下限 0.6（inclusive）。bottom_w=100 固定、上辺のみ動かす。
+        // H=120 でアスペクトをテンプレート期待値の許容帯に収める。
+        let q = |top_w: f64| {
+            [
+                mk(-top_w / 2.0, 0.0),
+                mk(top_w / 2.0, 0.0),
+                mk(-50.0, 120.0),
+                mk(50.0, 120.0),
+            ]
+        };
+        assert!(
+            validate_marker_quad(&q(59.9)).is_err(),
+            "w_ratio=0.599 は下限未満で棄却されるべき"
+        );
+        assert!(
+            validate_marker_quad(&q(60.0)).is_ok(),
+            "w_ratio=0.6 ちょうどは inclusive で通るべき"
+        );
+        assert!(
+            validate_marker_quad(&q(60.1)).is_ok(),
+            "w_ratio=0.601 は下限超で通るべき"
+        );
+    }
+
+    #[test]
+    fn validate_marker_quad_side_ratio_hi_boundary() {
+        // 対辺比上限 1/0.6（inclusive）。bottom_w=64.0（2の累乗）固定、上辺=hi*64.0。
+        // 2の累乗の乗除算は丸め誤差が生じないため、w_ratio=top_w/64.0 が
+        // ソース側の ratio_hi = 1.0/0.6 と bit-exact に一致する
+        // （100倍して割り戻すと二重丸めでずれる。2の累乗倍なら仮数部が変化せず可逆）。
+        let hi = 1.0f64 / 0.6f64;
+        let bottom_w = 64.0f64;
+        let top_w_at = hi * bottom_w;
+        // H=128 でアスペクトをテンプレート期待値の許容帯に収める（境界検証には無関係）。
+        let q = |top_w: f64| {
+            [
+                mk(-top_w / 2.0, 0.0),
+                mk(top_w / 2.0, 0.0),
+                mk(-bottom_w / 2.0, 128.0),
+                mk(bottom_w / 2.0, 128.0),
+            ]
+        };
+        assert!(
+            validate_marker_quad(&q(top_w_at - 0.1)).is_ok(),
+            "w_ratio が上限未満は通るべき"
+        );
+        assert!(
+            validate_marker_quad(&q(top_w_at)).is_ok(),
+            "w_ratio=1/0.6 ちょうどは inclusive で通るべき"
+        );
+        assert!(
+            validate_marker_quad(&q(top_w_at + 0.1)).is_err(),
+            "w_ratio が上限超は棄却されるべき"
+        );
+    }
+
+    // --- merge_blobs_near_seed（#132） ---
+
+    #[test]
+    fn merge_blobs_near_seed_radius_includes_near_excludes_far() {
+        // 種(50,50)から半径100内の3ブロブを面積加重合成し、半径外の1ブロブは除外する。
+        let mk_blob = |area: u32, cx: f64, cy: f64, min_x, max_x, min_y, max_y| Blob {
+            area,
+            sum_x: area as f64 * cx,
+            sum_y: area as f64 * cy,
+            min_x,
+            max_x,
+            min_y,
+            max_y,
+        };
+        let near1 = mk_blob(10, 50.0, 50.0, 45, 55, 45, 55); // dist=0
+        let near2 = mk_blob(20, 100.0, 50.0, 95, 105, 45, 55); // dist=50
+        let near3 = mk_blob(30, 120.0, 80.0, 110, 130, 70, 90); // dist≈76.2
+        let far = mk_blob(40, 300.0, 300.0, 290, 310, 290, 310); // dist≈353.6（半径外）
+        let blobs = [&near1, &near2, &near3, &far];
+
+        let merged = merge_blobs_near_seed(&blobs, 50.0, 50.0, 100.0);
+
+        assert_eq!(
+            merged.merged_count, 3,
+            "半径外の1ブロブは統合対象から除外されるべき"
+        );
+        assert_eq!(merged.total_area, 60, "統合面積は半径内3ブロブの合計のみ");
+        assert!(
+            (merged.centroid_x - (6100.0 / 60.0)).abs() < 1e-9,
+            "面積加重重心x: got={}",
+            merged.centroid_x
+        );
+        assert!(
+            (merged.centroid_y - 65.0).abs() < 1e-9,
+            "面積加重重心y: got={}",
+            merged.centroid_y
+        );
+        assert_eq!(merged.bbox_min_x, 45);
+        assert_eq!(merged.bbox_max_x, 130, "半径外ブロブのbboxは含まれないべき");
+        assert_eq!(merged.bbox_min_y, 45);
+        assert_eq!(merged.bbox_max_y, 90);
+    }
+
+    // --- diagonal_intersection（#132） ---
+
+    #[test]
+    fn diagonal_intersection_rectangle_is_geometric_center() {
+        let tl = (0.0, 0.0);
+        let tr = (100.0, 0.0);
+        let bl = (0.0, 80.0);
+        let br = (100.0, 80.0);
+        let (ix, iy) = diagonal_intersection(tl, tr, bl, br).expect("交点が求まるべき");
+        assert!((ix - 50.0).abs() < 1e-9, "ix={ix}");
+        assert!((iy - 40.0).abs() < 1e-9, "iy={iy}");
+    }
+
+    #[test]
+    fn diagonal_intersection_parallel_diagonals_returns_none() {
+        // TL-BR と TR-BL が同じ傾き（10,10）で平行 → 交点なし
+        let tl = (0.0, 0.0);
+        let br = (10.0, 10.0);
+        let tr = (0.0, 5.0);
+        let bl = (10.0, 15.0);
+        assert!(diagonal_intersection(tl, tr, bl, br).is_none());
+    }
+
+    // --- combo_score（#132） ---
+
+    #[test]
+    fn combo_score_none_hint_correct_quad_is_minimal() {
+        // center_hint=None: アスペクト・対辺比が期待値から逸脱したデコイより
+        // テンプレート通りの正クアッドのスコアが小さい（アスペクトが崩れる分デコイが不利）。
+        let template = template_quad();
+        let mut decoy = template.clone();
+        decoy[1].cx += 500.0; // TR を大きく外側にずらして上辺だけ広げる（アスペクト崩壊）
+        let s_template = combo_score(&template, None);
+        let s_decoy = combo_score(&decoy, None);
+        assert!(
+            s_template < s_decoy,
+            "正クアッドのスコアが最小であるべき: template={s_template} decoy={s_decoy}"
+        );
+    }
+
+    #[test]
+    fn combo_score_center_hint_discriminates_translated_decoy() {
+        // aspect/side は平行移動不変なので同値になるデコイ（テンプレート全体を平行移動しただけ）を、
+        // 中心マーカー整合項のみで正クアッドより不利にできることを確認する。
+        let template = template_quad();
+        let (cx, cy) = {
+            let tl = (template[0].cx, template[0].cy);
+            let tr = (template[1].cx, template[1].cy);
+            let bl = (template[2].cx, template[2].cy);
+            let br = (template[3].cx, template[3].cy);
+            diagonal_intersection(tl, tr, bl, br).unwrap()
+        };
+        let center = mk(cx, cy);
+
+        let shifted: [DetectedMarker; 4] = [
+            mk(template[0].cx + 50.0, template[0].cy + 50.0),
+            mk(template[1].cx + 50.0, template[1].cy + 50.0),
+            mk(template[2].cx + 50.0, template[2].cy + 50.0),
+            mk(template[3].cx + 50.0, template[3].cy + 50.0),
+        ];
+
+        let s_template = combo_score(&template, Some(&center));
+        let s_shifted = combo_score(&shifted, Some(&center));
+        assert!(
+            s_template < s_shifted,
+            "中心整合のとれた正クアッドが平行移動デコイより低スコアであるべき: template={s_template} shifted={s_shifted}"
+        );
+
+        // center_hint なしでは aspect/side が同一なので事実上タイになる（縮退は仕様）
+        let s_template_none = combo_score(&template, None);
+        let s_shifted_none = combo_score(&shifted, None);
+        assert!(
+            (s_template_none - s_shifted_none).abs() < 1e-9,
+            "center_hint=None では平行移動デコイと同点になる: template={s_template_none} shifted={s_shifted_none}"
+        );
+    }
+
+    #[test]
+    fn combo_score_none_hint_symmetric_decoys_tie_is_pinned_behavior() {
+        // #132仕様のピン留め: center_hint=None のとき、aspect/side が同一な複数の
+        // デコイ（テンプレートを異なる方向に平行移動しただけ）は同点になる（縮退は仕様であり
+        // バグではない）。この挙動を固定する。
+        let template = template_quad();
+        let decoy_a: [DetectedMarker; 4] = [
+            mk(template[0].cx + 30.0, template[0].cy + 40.0),
+            mk(template[1].cx + 30.0, template[1].cy + 40.0),
+            mk(template[2].cx + 30.0, template[2].cy + 40.0),
+            mk(template[3].cx + 30.0, template[3].cy + 40.0),
+        ];
+        let decoy_b: [DetectedMarker; 4] = [
+            mk(template[0].cx - 30.0, template[0].cy - 40.0),
+            mk(template[1].cx - 30.0, template[1].cy - 40.0),
+            mk(template[2].cx - 30.0, template[2].cy - 40.0),
+            mk(template[3].cx - 30.0, template[3].cy - 40.0),
+        ];
+        let s_a = combo_score(&decoy_a, None);
+        let s_b = combo_score(&decoy_b, None);
+        assert!(
+            (s_a - s_b).abs() < 1e-9,
+            "center_hint=None では平行移動方向によらず同点: a={s_a} b={s_b}"
+        );
+    }
+
+    // --- annulus_white_ratio（#132） ---
+
+    #[test]
+    fn annulus_white_ratio_radius_boundary_inclusion() {
+        // 半径5.0の格子点シェル（dist==5.0ちょうどの12点: (0,±5)(±5,0)(±3,±4)(±4,±3)）を
+        // 白にし、他は全て黒にした20x20画像で、内側/外側それぞれの境界inclusive性を確認する。
+        let mut img = GrayImage::from_pixel(20, 20, Luma([0u8]));
+        let center = (10i32, 10i32);
+        let shell: [(i32, i32); 12] = [
+            (0, 5),
+            (0, -5),
+            (5, 0),
+            (-5, 0),
+            (3, 4),
+            (3, -4),
+            (-3, 4),
+            (-3, -4),
+            (4, 3),
+            (4, -3),
+            (-4, 3),
+            (-4, -3),
+        ];
+        for (dx, dy) in shell {
+            img.put_pixel(
+                (center.0 + dx) as u32,
+                (center.1 + dy) as u32,
+                Luma([255u8]),
+            );
+        }
+        let (cx, cy) = (10.0, 10.0);
+
+        // 内側境界（outer_r=5.001 固定で dist=5.0 のシェル以外を窓の外に追い出す）:
+        // dist=5.0 は inner_r=4.999/5.0 では含まれ（not < inner_r）、5.001 では除外される
+        assert!(
+            (annulus_white_ratio(&img, cx, cy, 4.999, 5.001) - 1.0).abs() < 1e-9,
+            "inner_r=4.999: シェルは含まれ全白になるべき"
+        );
+        assert!(
+            (annulus_white_ratio(&img, cx, cy, 5.0, 5.001) - 1.0).abs() < 1e-9,
+            "inner_r=5.0 ちょうどは inclusive でシェルを含むべき"
+        );
+        assert_eq!(
+            annulus_white_ratio(&img, cx, cy, 5.001, 5.001),
+            0.0,
+            "inner_r=5.001 はシェルを除外し total=0 で 0.0 を返すべき"
+        );
+
+        // 外側境界（inner_r=4.999 固定で dist=5.0 のシェル以外を窓の外に追い出す）:
+        // dist=5.0 は outer_r=5.0/5.001 では含まれ（not > outer_r）、4.999 では除外される
+        assert_eq!(
+            annulus_white_ratio(&img, cx, cy, 4.999, 4.999),
+            0.0,
+            "outer_r=4.999 はシェルを除外し total=0 で 0.0 を返すべき"
+        );
+        assert!(
+            (annulus_white_ratio(&img, cx, cy, 4.999, 5.0) - 1.0).abs() < 1e-9,
+            "outer_r=5.0 ちょうどは inclusive でシェルを含むべき"
+        );
+        assert!(
+            (annulus_white_ratio(&img, cx, cy, 4.999, 5.001) - 1.0).abs() < 1e-9,
+            "outer_r=5.001 はシェルを含むべき"
+        );
+    }
+
+    #[test]
+    fn annulus_white_ratio_image_edge_overflow_does_not_break_calculation() {
+        // 中心を画像左上コーナー(0,0)に置き、環状領域の大部分が画像外にはみ出しても
+        // total が減るだけでパニックせず、範囲内画素だけで比率が計算されることを確認する。
+        let img = GrayImage::from_pixel(50, 50, Luma([255u8]));
+        let ratio = annulus_white_ratio(&img, 0.0, 0.0, 5.0, 10.0);
+        assert!(
+            (0.0..=1.0).contains(&ratio),
+            "画像端はみ出しでも比率は[0,1]に収まるべき: ratio={ratio}"
+        );
+        assert_eq!(ratio, 1.0, "画像内は全て白なので比率は1.0のはず");
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // detect_markers 統合テスト（#132）
+    // ══════════════════════════════════════════════════════════════
+    //
+    // 合成 GrayImage を直接構築して detect_markers を通しで検証する。
+    // binary と gray は同じ0/255バッファを共有する（gray はサブピクセル精緻化にのみ
+    // 使われ、0/255の2値でも refine が原点回帰するだけで結果は破綻しない）。
+    // マーカー実寸は layout::mm_to_px(MARKER_SIZE) から実行時に取得し、ハードコードしない。
+
+    fn white_image(w: u32, h: u32) -> GrayImage {
+        GrayImage::from_pixel(w, h, Luma([255u8]))
+    }
+
+    fn draw_filled_circle(img: &mut GrayImage, cx: f64, cy: f64, radius: f64, value: u8) {
+        let icx = cx.round() as i32;
+        let icy = cy.round() as i32;
+        let r = radius.ceil() as i32;
+        for dy in -r..=r {
+            for dx in -r..=r {
+                if ((dx * dx + dy * dy) as f64).sqrt() > radius {
+                    continue;
+                }
+                let px = icx + dx;
+                let py = icy + dy;
+                if px >= 0 && py >= 0 && (px as u32) < img.width() && (py as u32) < img.height() {
+                    img.put_pixel(px as u32, py as u32, Luma([value]));
+                }
+            }
+        }
+    }
+
+    fn draw_filled_rect(img: &mut GrayImage, x0: f64, y0: f64, w: f64, h: f64, value: u8) {
+        let ix0 = x0.round() as i32;
+        let iy0 = y0.round() as i32;
+        let iw = w.round() as i32;
+        let ih = h.round() as i32;
+        for dy in 0..ih {
+            for dx in 0..iw {
+                let px = ix0 + dx;
+                let py = iy0 + dy;
+                if px >= 0 && py >= 0 && (px as u32) < img.width() && (py as u32) < img.height() {
+                    img.put_pixel(px as u32, py as u32, Luma([value]));
+                }
+            }
+        }
+    }
+
+    /// 内側は塗らない円環（外周の annulus 領域だけを塗る）。木目相当の「暗色に囲まれる」
+    /// 状況を簡略化して再現する（紙白ゲートは白比率しか見ないため、リアルな木目模様の
+    /// 描画は不要。#132 の裁定通り、テストの意図に必要な最小限の合成にとどめる）。
+    fn draw_dark_ring(img: &mut GrayImage, cx: f64, cy: f64, inner_r: f64, outer_r: f64) {
+        let icx = cx.round() as i32;
+        let icy = cy.round() as i32;
+        let r = outer_r.ceil() as i32;
+        for dy in -r..=r {
+            for dx in -r..=r {
+                let dist = ((dx * dx + dy * dy) as f64).sqrt();
+                if dist < inner_r || dist > outer_r {
+                    continue;
+                }
+                let px = icx + dx;
+                let py = icy + dy;
+                if px >= 0 && py >= 0 && (px as u32) < img.width() && (py as u32) < img.height() {
+                    img.put_pixel(px as u32, py as u32, Luma([0u8]));
+                }
+            }
+        }
+    }
+
+    fn assert_marker_near(m: &DetectedMarker, expected: (f64, f64), tol: f64, label: &str) {
+        let d = ((m.cx - expected.0).powi(2) + (m.cy - expected.1).powi(2)).sqrt();
+        assert!(
+            d <= tol,
+            "{label}: got=({:.1},{:.1}) expected≈({:.1},{:.1}) dist={d:.1} tol={tol}",
+            m.cx,
+            m.cy,
+            expected.0,
+            expected.1
+        );
+    }
+
+    /// 1600x2000 の合成キャンバスに、4隅がそれぞれの探索領域内に収まる基準クアッドを描く。
+    /// 各マーカーは正円（半径=marker_px/2）。呼び出し側が任意にノイズ・デコイを追加できるよう
+    /// 画像と4隅座標を返す（座標順は [TL, TR, BL, BR]）。
+    fn baseline_scene() -> (GrayImage, [(f64, f64); 4]) {
+        let (w, h) = (1600u32, 2000u32);
+        let corners: [(f64, f64); 4] = [
+            (150.0, 150.0),
+            (1450.0, 150.0),
+            (150.0, 1850.0),
+            (1450.0, 1850.0),
+        ];
+        let marker_px = layout::mm_to_px(layout::MARKER_SIZE).round();
+        let mut img = white_image(w, h);
+        for &(cx, cy) in &corners {
+            draw_filled_circle(&mut img, cx, cy, marker_px / 2.0, 0);
+        }
+        (img, corners)
+    }
+
+    #[test]
+    fn detect_markers_clean_baseline_with_center_hint() {
+        // 観点20: ノイズなし4隅マーカーのみの正常系ベースライン
+        let (img, corners) = baseline_scene();
+        let center_hint = mk(
+            (corners[0].0 + corners[3].0) / 2.0,
+            (corners[0].1 + corners[3].1) / 2.0,
+        );
+        let markers = detect_markers(&img, &img, Some(&center_hint))
+            .expect("ノイズなしベースラインは検出できるべき");
+        assert_marker_near(&markers[0], corners[0], 3.0, "TL");
+        assert_marker_near(&markers[1], corners[1], 3.0, "TR");
+        assert_marker_near(&markers[2], corners[2], 3.0, "BL");
+        assert_marker_near(&markers[3], corners[3], 3.0, "BR");
+    }
+
+    #[test]
+    fn detect_markers_none_hint_still_adopts_real_markers() {
+        // 観点21: center_hint=None でも正マーカーが採用される（フォールバック経路）
+        let (img, corners) = baseline_scene();
+        let markers = detect_markers(&img, &img, None).expect("center_hint なしでも検出できるべき");
+        assert_marker_near(&markers[0], corners[0], 3.0, "TL");
+        assert_marker_near(&markers[1], corners[1], 3.0, "TR");
+        assert_marker_near(&markers[2], corners[2], 3.0, "BL");
+        assert_marker_near(&markers[3], corners[3], 3.0, "BR");
+    }
+
+    #[test]
+    fn detect_markers_dense_noise_cluster_deduped_reaches_distant_real_marker() {
+        // 観点14: コーナー付近の密集ノイズクラスタ（1つの distinct クラスタとして統合され
+        // shape ゲートで棄却される）を超えて、遠い実マーカーに到達・採用することを確認する。
+        let (w, h) = (1600u32, 2000u32);
+        let marker_px = layout::mm_to_px(layout::MARKER_SIZE).round();
+        let mut img = white_image(w, h);
+
+        // TopLeft: 実コーナー(0,0)近くに5個の小ブロブを並べる（相互に merge_radius 内）。
+        // 統合後の bbox は横長（aspect≫1.667）になり shape ゲートで棄却される。
+        for i in 0..5 {
+            let x0 = 20.0 + i as f64 * 15.0;
+            draw_filled_rect(&mut img, x0, 20.0, 6.0, 6.0, 0);
+        }
+        let tl_real = (300.0, 380.0);
+        draw_filled_circle(&mut img, tl_real.0, tl_real.1, marker_px / 2.0, 0);
+
+        let tr = (1450.0, 150.0);
+        let bl = (150.0, 1850.0);
+        let br = (1450.0, 1850.0);
+        draw_filled_circle(&mut img, tr.0, tr.1, marker_px / 2.0, 0);
+        draw_filled_circle(&mut img, bl.0, bl.1, marker_px / 2.0, 0);
+        draw_filled_circle(&mut img, br.0, br.1, marker_px / 2.0, 0);
+
+        let markers = detect_markers(&img, &img, None)
+            .expect("ノイズクラスタを超えて実マーカーに到達・採用できるべき");
+        assert_marker_near(
+            &markers[0],
+            tl_real,
+            3.0,
+            "TL（ノイズを避けて実マーカーを採用）",
+        );
+        assert_marker_near(&markers[1], tr, 3.0, "TR");
+        assert_marker_near(&markers[2], bl, 3.0, "BL");
+        assert_marker_near(&markers[3], br, 3.0, "BR");
+    }
+
+    #[test]
+    fn detect_markers_one_corner_all_candidates_gated_out_errs() {
+        // 観点22: 1隅（TopLeft）に形状ゲートを通らないブロブしかない
+        // → 「候補{tried}件、形状/紙白検証を通過した候補なし」Err になる。
+        let (w, h) = (1600u32, 2000u32);
+        let marker_px = layout::mm_to_px(layout::MARKER_SIZE).round();
+        let mut img = white_image(w, h);
+        // aspect=0.5: ブロブレベルの事前フィルタ(0.35〜3.0)は通過するが、
+        // validate_marker_shape のアスペクト帯(0.6〜1.667)には収まらない。
+        draw_filled_rect(&mut img, 130.0, 110.0, 40.0, 80.0, 0);
+
+        draw_filled_circle(&mut img, 1450.0, 150.0, marker_px / 2.0, 0);
+        draw_filled_circle(&mut img, 150.0, 1850.0, marker_px / 2.0, 0);
+        draw_filled_circle(&mut img, 1450.0, 1850.0, marker_px / 2.0, 0);
+
+        let err = detect_markers(&img, &img, None).unwrap_err();
+        assert!(
+            err.contains("TopLeft")
+                && err.contains("候補")
+                && err.contains("形状/紙白検証を通過した候補なし"),
+            "err={err}"
+        );
+    }
+
+    #[test]
+    fn detect_markers_all_combos_rejected_by_quad_gate_errs() {
+        // 観点23: 各隅は単独では形状/紙白ゲートを通過するが、TopLeft の位置がテンプレートの
+        // アスペクトから大きく外れるため、唯一の組み合わせがクアッドゲートで棄却される
+        // （「配置が不正」系 Err）。
+        let (w, h) = (1600u32, 2000u32);
+        let marker_px = layout::mm_to_px(layout::MARKER_SIZE).round();
+        let mut img = white_image(w, h);
+
+        let tl = (60.0, 440.0); // TopLeft領域内の極端な位置（アスペクトを崩す）
+        let tr = (1450.0, 150.0);
+        let bl = (150.0, 1850.0);
+        let br = (1450.0, 1850.0);
+        for &(cx, cy) in &[tl, tr, bl, br] {
+            draw_filled_circle(&mut img, cx, cy, marker_px / 2.0, 0);
+        }
+
+        let err = detect_markers(&img, &img, None).unwrap_err();
+        assert!(
+            err.contains("マーカー") && err.contains("配置が不正"),
+            "err={err}"
+        );
+    }
+
+    #[test]
+    fn detect_markers_paper_white_gate_rejects_decoy_only() {
+        // 観点17: 白背景に囲まれた正候補 vs 暗色リングに囲まれた同形デコイ。
+        // デコイはコーナーに近く先に試行されるが紙白ゲートで棄却され、
+        // 遠い正候補（白背景）が採用される。
+        let (w, h) = (1600u32, 2000u32);
+        let marker_px = layout::mm_to_px(layout::MARKER_SIZE).round();
+        let annulus_inner = (marker_px / 2.0) * ANNULUS_INNER_RATIO;
+        let annulus_outer = (marker_px / 2.0) * ANNULUS_OUTER_RATIO;
+        let mut img = white_image(w, h);
+
+        // デコイ: コーナーに近い(90,90)。marker_px相当の円＋その外側に紙白ゲートを
+        // 破る暗色リング（annulus範囲を覆う。円との間に白い隙間を残し4連結で結合させない）。
+        let decoy = (90.0, 90.0);
+        draw_filled_circle(&mut img, decoy.0, decoy.1, marker_px / 2.0, 0);
+        draw_dark_ring(
+            &mut img,
+            decoy.0,
+            decoy.1,
+            annulus_inner,
+            annulus_outer + 2.0,
+        );
+
+        // 正候補: デコイから十分離れた白背景の中（暗色リングの影響が及ばない距離）。
+        let real = (300.0, 380.0);
+        draw_filled_circle(&mut img, real.0, real.1, marker_px / 2.0, 0);
+
+        let tr = (1450.0, 150.0);
+        let bl = (150.0, 1850.0);
+        let br = (1450.0, 1850.0);
+        draw_filled_circle(&mut img, tr.0, tr.1, marker_px / 2.0, 0);
+        draw_filled_circle(&mut img, bl.0, bl.1, marker_px / 2.0, 0);
+        draw_filled_circle(&mut img, br.0, br.1, marker_px / 2.0, 0);
+
+        let markers =
+            detect_markers(&img, &img, None).expect("紙白ゲートでデコイのみ棄却され検出できるべき");
+        assert_marker_near(
+            &markers[0],
+            real,
+            3.0,
+            "TL（デコイでなく正候補が採用される）",
+        );
+    }
+
+    #[test]
+    fn detect_markers_heading_and_gray_bar_blobs_do_not_block_real_marker() {
+        // 観点18: 見出し文字ブロブ（実測110x27, aspect=4.07）とグレーバー黒ステップ
+        // （実測5mm×24.4mm, aspect=0.205）相当のブロブが実マーカー付近にあっても、
+        // どちらもブロブレベルの事前フィルタ（aspect 0.35〜3.0）で除外され、
+        // 実マーカーの検出を妨げないことを確認する。
+        let (w, h) = (1600u32, 2000u32);
+        let marker_px = layout::mm_to_px(layout::MARKER_SIZE).round();
+        let mut img = white_image(w, h);
+
+        let real = (200.0, 200.0);
+        draw_filled_circle(&mut img, real.0, real.1, marker_px / 2.0, 0);
+
+        // グレーバー黒ステップ相当（aspect=59/288≈0.205 < 0.35 で事前フィルタ除外）
+        draw_filled_rect(&mut img, 300.0, 50.0, 59.0, 288.0, 0);
+        // 見出し文字列相当（aspect=110/27≈4.07 > 3.0 で事前フィルタ除外）
+        draw_filled_rect(&mut img, 20.0, 430.0, 110.0, 27.0, 0);
+
+        let tr = (1450.0, 150.0);
+        let bl = (150.0, 1850.0);
+        let br = (1450.0, 1850.0);
+        draw_filled_circle(&mut img, tr.0, tr.1, marker_px / 2.0, 0);
+        draw_filled_circle(&mut img, bl.0, bl.1, marker_px / 2.0, 0);
+        draw_filled_circle(&mut img, br.0, br.1, marker_px / 2.0, 0);
+
+        let markers = detect_markers(&img, &img, None)
+            .expect("見出し/グレーバー相当ブロブに妨げられず検出できるべき");
+        assert_marker_near(&markers[0], real, 3.0, "TL");
+    }
+
+    #[test]
+    fn detect_markers_decoy_passing_all_gates_rejected_only_by_center_score() {
+        // 観点19: 形状・紙白・クアッド幾何ゲートを全て通過するデコイ（テンプレートを
+        // 均一平行移動しただけなので aspect/side は正クアッドと同値）が、中心マーカー
+        // 整合スコアのみで排除されることを確認する。
+        let e = expected_quad_aspect();
+        let mean_w = 2400.0f64;
+        let mean_h = mean_w / e;
+        let real: [(f64, f64); 4] = [
+            (300.0, 300.0),
+            (300.0 + mean_w, 300.0),
+            (300.0, 300.0 + mean_h),
+            (300.0 + mean_w, 300.0 + mean_h),
+        ];
+        let shift = (150.0, 150.0); // 大きさ≈212 > merge_radius(marker_px) なので別クラスタになる
+        let decoy: [(f64, f64); 4] = real.map(|(x, y)| (x + shift.0, y + shift.1));
+
+        let w = (real[1].0 + 300.0).round() as u32;
+        let h = (real[2].1 + 300.0).round() as u32;
+        let marker_px = layout::mm_to_px(layout::MARKER_SIZE).round();
+        let mut img = white_image(w, h);
+        for &(cx, cy) in real.iter().chain(decoy.iter()) {
+            draw_filled_circle(&mut img, cx, cy, marker_px / 2.0, 0);
+        }
+
+        let center_hint = mk((real[0].0 + real[3].0) / 2.0, (real[0].1 + real[3].1) / 2.0);
+        let markers = detect_markers(&img, &img, Some(&center_hint))
+            .expect("正クアッドが中心整合スコアで選ばれ検出できるべき");
+        assert_marker_near(
+            &markers[0],
+            real[0],
+            3.0,
+            "TL（デコイでなく正クアッドが選ばれる）",
+        );
+        assert_marker_near(&markers[1], real[1], 3.0, "TR");
+        assert_marker_near(&markers[2], real[2], 3.0, "BL");
+        assert_marker_near(&markers[3], real[3], 3.0, "BR");
+    }
+
+    // ── C-24: エラー文字列契約回帰（#132） ──
+    //
+    // src/lib/scanner/processor.ts の translateWasmError は detect_markers 由来の
+    // エラー文字列を3パターンの部分文字列で分岐する:
+    //   1) "マーカーが検出できませんでした"
+    //   2) "マーカーの配置が不正" または "四隅マーカーらしい形状が見つかりません"
+    // ここでは detect_markers / validate_marker_shape / validate_marker_quad の
+    // 全エラーパスの文言が、このいずれかのパターンを含むことを固定する。
+    // 司令塔裁定: これはバグではなく契約回帰テストとして固定する（#132セッション記録）。
+
+    fn matches_translate_wasm_error_pattern(err: &str) -> bool {
+        err.contains("マーカーが検出できませんでした")
+            || err.contains("マーカーの配置が不正")
+            || err.contains("四隅マーカーらしい形状が見つかりません")
+    }
+
+    #[test]
+    fn error_contract_all_detect_markers_paths_match_translate_wasm_error_patterns() {
+        let mut errors: Vec<String> = Vec::new();
+
+        // prefilter-empty（フィルタ通過ブロブなし）: 全白画像
+        let blank = white_image(400, 500);
+        errors.push(detect_markers(&blank, &blank, None).unwrap_err());
+
+        // candidates-empty（形状/紙白検証を通過した候補なし）
+        {
+            let (w, h) = (1600u32, 2000u32);
+            let marker_px = layout::mm_to_px(layout::MARKER_SIZE).round();
+            let mut img = white_image(w, h);
+            draw_filled_rect(&mut img, 130.0, 110.0, 40.0, 80.0, 0);
+            draw_filled_circle(&mut img, 1450.0, 150.0, marker_px / 2.0, 0);
+            draw_filled_circle(&mut img, 150.0, 1850.0, marker_px / 2.0, 0);
+            draw_filled_circle(&mut img, 1450.0, 1850.0, marker_px / 2.0, 0);
+            errors.push(detect_markers(&img, &img, None).unwrap_err());
+        }
+
+        // validate_marker_shape: アスペクト異常 / 大きさ異常
+        errors.push(validate_marker_shape("T", 110.0, 27.0, MARKER_PX).unwrap_err());
+        errors.push(validate_marker_shape("T", 300.0, 300.0, MARKER_PX).unwrap_err());
+
+        // validate_marker_quad: 辺が短すぎる / 退化 / 対辺比異常 / アスペクト異常
+        {
+            let q = [
+                mk(500.0, 500.0),
+                mk(500.0, 500.0),
+                mk(500.0, 500.0),
+                mk(500.0, 500.0),
+            ];
+            errors.push(validate_marker_quad(&q).unwrap_err());
+        }
+        {
+            let t = template_quad();
+            let q = [t[1].clone(), t[0].clone(), t[2].clone(), t[3].clone()];
+            errors.push(validate_marker_quad(&q).unwrap_err());
+        }
+        {
+            // 対辺比異常（w_ratio=59.9/100=0.599<0.6）。全辺は50px以上を保つ。
+            let q = [
+                mk(-29.95, 0.0),
+                mk(29.95, 0.0),
+                mk(-50.0, 120.0),
+                mk(50.0, 120.0),
+            ];
+            errors.push(validate_marker_quad(&q).unwrap_err());
+        }
+        {
+            let q = [
+                mk(100.0, 100.0),
+                mk(2100.0, 100.0),
+                mk(100.0, 2100.0),
+                mk(2100.0, 2100.0),
+            ];
+            errors.push(validate_marker_quad(&q).unwrap_err());
+        }
+
+        // detect_markers 内の最終フォールバック文字列（現行の制御フローでは
+        // per_corner_candidates が全て非空を保証された後にのみ組み合わせ探索に入るため、
+        // 実行時に到達するのは事実上困難＝防御的な文言。文字列そのものの契約適合のみ確認する。
+        let fallback = "四隅マーカーの配置が不正です（マーカー誤検出の可能性）。四隅のマーカーが隠れず紙全体が写るように撮影してください。";
+        errors.push(fallback.to_string());
+
+        for err in &errors {
+            assert!(
+                matches_translate_wasm_error_pattern(err) && err.contains("マーカー"),
+                "translateWasmErrorの3パターンいずれにも一致しない: err={err}"
+            );
+        }
+    }
 }
