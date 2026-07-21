@@ -1,6 +1,6 @@
 /// セル画像（RGBA）からグリフのパスを抽出するモジュール
 ///
-/// 二値化は Sauvola（cell.rs 共通）を使う。画像処理は Rust 側で完結させ、
+/// 二値化はハイブリッド（グローバル閾値 OR Sauvola、cell.rs 共通、#136）を使う。画像処理は Rust 側で完結させ、
 /// JS は得られた PathCommand 配列を opentype.js の Path に流し込むだけにする。
 ///
 /// ランレングス方式: 二値化画像の各行で黒ピクセルの連続区間（ラン）を検出し、
@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::cell::{
-    apply_cell_quality_gate, apply_clahe_pub, compensate_ink_bleed, morphological_open_close,
-    rgba_to_gray_pub, sauvola_binarize_pub, CellQuality, SAUVOLA_K_PUB, SAUVOLA_WINDOW_PUB,
+    apply_cell_quality_gate, apply_clahe_pub, binarize_hybrid_pub, compensate_ink_bleed,
+    morphological_open_close, rgba_to_gray_pub, CellQuality,
 };
 use crate::layout;
 
@@ -709,10 +709,11 @@ fn extract_rects(binary_sauvola: &[u8], w: u32, h: u32) -> Option<(Vec<(u32, u32
 
 /// セル画像を二値化し、品質ゲート（#110）を通した結果を返す。
 ///
-/// 戻り値: (Sauvola 形式のバイナリ: 0=黒/255=白, 品質情報)
+/// 戻り値: (0=黒/255=白のバイナリ, 品質情報)
 ///
-/// 処理順: グレー化 → CLAHE → Sauvola → モルフォロジ open-close →
-/// **品質ゲート（境界接触成分の除去 + 面積フィルタ）** → インクブリード補正。
+/// 処理順: グレー化 → CLAHE → ハイブリッド二値化（グローバル閾値 OR Sauvola、#136）
+/// → モルフォロジ open-close → **品質ゲート（境界接触成分の除去 + 面積フィルタ）**
+/// → インクブリード補正。
 /// ゲートをインクブリード補正（1px erosion）より前に置くのは、erosion で
 /// 残渣の境界接触が1px後退して検出帯から外れるのを防ぐため。
 pub fn binarize_with_quality(img: &RgbaImage) -> (Vec<u8>, CellQuality) {
@@ -723,7 +724,7 @@ pub fn binarize_with_quality(img: &RgbaImage) -> (Vec<u8>, CellQuality) {
     }
     let gray = rgba_to_gray_pub(img);
     let gray = apply_clahe_pub(&gray, w, h);
-    let binary = sauvola_binarize_pub(&gray, w, h, SAUVOLA_K_PUB, SAUVOLA_WINDOW_PUB);
+    let binary = binarize_hybrid_pub(&gray, w, h);
     let mut binary = morphological_open_close(&binary, w, h);
     let quality = apply_cell_quality_gate(&mut binary, w, h);
     let binary = compensate_ink_bleed(&binary, w, h);

@@ -381,7 +381,7 @@ fn analyze_check_mark(check_img: &RgbaImage) -> (CheckMark, f64) {
         gray
     };
     let gray = apply_clahe(&gray, w, h);
-    let binary = sauvola_binarize(&gray, w, h, SAUVOLA_K, SAUVOLA_WINDOW);
+    let binary = binarize_hybrid(&gray, w, h);
     let binary = morphological_open_close(&binary, w, h);
 
     let total = w * h;
@@ -421,7 +421,7 @@ fn measure_inner_black_ratio(img: &RgbaImage, margin_ratio: f64) -> f64 {
         gray
     };
     let gray = apply_clahe(&gray, w, h);
-    let binary = sauvola_binarize(&gray, w, h, SAUVOLA_K, SAUVOLA_WINDOW);
+    let binary = binarize_hybrid(&gray, w, h);
     let mut binary = morphological_open_close(&binary, w, h);
     // 孤立スペック除去: モルフォロジを生き残った小さな黒ブロブ（シアン残骸・点ノイズ）を消す。
     // これがないと数px角の残骸が複数あるだけで空欄セルが「非空」と誤判定され、空欄を黒グリフ化しうる。
@@ -914,6 +914,47 @@ fn sauvola_binarize(gray: &[u8], w: u32, h: u32, k: f64, window_size: u32) -> Ve
     binary
 }
 
+// ── ハイブリッド二値化（#136） ──
+
+/// グローバル閾値（紙白正規化済み画像が前提）。輝度がこの値未満ならインクとみなす。
+///
+/// 較正値 180: 実写真（筆ペン, IMG_20260720_162145.jpg, session #136）で
+/// 太い筆ペンストローク内部（輝度おおよそ20〜60）を確実にインク判定しつつ、
+/// 印刷ガイド線の薄グレー残骸（輝度およそ200台後半〜白に近い、erase_grid_lines
+/// 後段で大半は消えているが取りこぼしが輝度220以上に残る想定）を拾わない値として選定。
+/// Sauvola単独の弱点（窓幅を超える太いストロークで局所コントラストが消え内部を
+/// 背景と誤判定する = 空洞化）を、紙白正規化済みという前提を活かした固定閾値で補う。
+const GLOBAL_INK_THRESHOLD: u8 = 180;
+
+/// グローバル閾値二値化: 輝度 < threshold を黒（インク）、それ以外を白とする単純な二値化。
+fn global_binarize(gray: &[u8], threshold: u8) -> Vec<u8> {
+    gray.iter()
+        .map(|&v| if v < threshold { 0 } else { 255 })
+        .collect()
+}
+
+/// ハイブリッド二値化（#136）: グローバル閾値とSauvola局所閾値の論理和（OR）。
+///
+/// 背景: 筆ペン（線幅2〜4mm ≒ 300DPIで24〜48px）は SAUVOLA_WINDOW(15px) より太く、
+/// 窓内がインクだけで埋まると局所分散が0近くまで落ち Sauvola 閾値が引きずられて
+/// ストローク内部を「背景」と誤判定する（穴あき文字になる）。
+///
+/// 対策: 紙白正規化済み画像に対する固定グローバル閾値（GLOBAL_INK_THRESHOLD）を
+/// 追加し、「どちらかがインク判定なら黒」の OR で合成する。
+/// - グローバル閾値: 太い濃いストロークの内部を面で確実に拾う（Sauvolaが取りこぼす領域）
+/// - Sauvola: 薄い鉛筆・かすれた線の縁など、グローバル閾値では拾えない低コントラスト部を担当
+///
+/// 結果としてどちらか一方が単独で持つ弱点を他方が補う。
+pub(crate) fn binarize_hybrid(gray: &[u8], w: u32, h: u32) -> Vec<u8> {
+    let global = global_binarize(gray, GLOBAL_INK_THRESHOLD);
+    let sauvola = sauvola_binarize(gray, w, h, SAUVOLA_K, SAUVOLA_WINDOW);
+    global
+        .iter()
+        .zip(sauvola.iter())
+        .map(|(&g, &s)| if g == 0 || s == 0 { 0 } else { 255 })
+        .collect()
+}
+
 /// Integral Imageから矩形領域の合計値を取得
 fn rect_sum(integral: &[i64], w: u32, x0: i32, y0: i32, x1: i32, y1: i32) -> i64 {
     let w = w as i32;
@@ -1016,11 +1057,10 @@ pub(crate) fn rgba_to_gray_pub(img: &RgbaImage) -> Vec<u8> {
 pub(crate) fn apply_clahe_pub(gray: &[u8], w: u32, h: u32) -> Vec<u8> {
     apply_clahe(gray, w, h)
 }
-pub(crate) fn sauvola_binarize_pub(gray: &[u8], w: u32, h: u32, k: f64, window: u32) -> Vec<u8> {
-    sauvola_binarize(gray, w, h, k, window)
+/// #136: セル二値化経路（vectorizer::binarize_with_quality）向けのハイブリッド二値化。
+pub(crate) fn binarize_hybrid_pub(gray: &[u8], w: u32, h: u32) -> Vec<u8> {
+    binarize_hybrid(gray, w, h)
 }
-pub(crate) const SAUVOLA_K_PUB: f64 = SAUVOLA_K;
-pub(crate) const SAUVOLA_WINDOW_PUB: u32 = SAUVOLA_WINDOW;
 
 /// Opening(Erode→Dilate)→Closing(Dilate→Erode)の一連処理
 /// Opening: 小さな黒ノイズを除去、Closing: 小さな白ノイズを埋める
@@ -1702,11 +1742,13 @@ mod tests {
 
     #[test]
     fn inner_ratio_all_black() {
-        // 均一黒画像: Sauvolaではコントラストがないため「背景」と判定 → 黒比率0
-        // これはSauvola法の正しい挙動（固定閾値とは異なる）
+        // 均一黒画像: Sauvola単独ではコントラストがないため「背景」と誤判定していた
+        // （#136 の空洞化バグそのもの: 太い筆ペン線の内部が窓全体インクで埋まるのと同じ状況）。
+        // ハイブリッド二値化（#136）はグローバル閾値が輝度0を確実にインク判定するため、
+        // 均一黒画像は黒比率1.0（全面インク）になるのが正しい挙動。
         let img = make_uniform_image(100, 100, Rgba([0, 0, 0, 255]));
         let ratio = measure_inner_black_ratio(&img, 0.2);
-        assert!((ratio - 0.0).abs() < 0.01, "ratio={ratio} should be ~0.0 (Sauvola: uniform=no contrast)");
+        assert!((ratio - 1.0).abs() < 0.01, "ratio={ratio} should be ~1.0 (hybrid: global threshold catches uniform ink)");
     }
 
     #[test]
