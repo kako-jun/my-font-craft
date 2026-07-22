@@ -1853,6 +1853,137 @@ mod tests {
         assert!(binary.is_empty());
     }
 
+    // ── ハイブリッド二値化テスト（#136） ──
+
+    #[test]
+    fn hybrid_fills_thick_stroke_that_sauvola_hollows() {
+        // 60×60白背景に30×30の塗り黒矩形（太い筆ペンストロークを模す）。
+        // 矩形はSAUVOLA_WINDOW(15px)よりずっと太いので、内部深く（境界からwindow半径7px
+        // 以上離れた領域）はSauvola単独だと局所コントラストがゼロになり「背景」と誤判定される
+        // （#136 の空洞化バグそのもの）。ハイブリッドはグローバル閾値がこれを救う。
+        let w = 60u32;
+        let h = 60u32;
+        let mut gray = vec![255u8; (w * h) as usize];
+        for y in 15..45u32 {
+            for x in 15..45u32 {
+                gray[(y * w + x) as usize] = 0;
+            }
+        }
+
+        let sauvola_only = sauvola_binarize(&gray, w, h, SAUVOLA_K, SAUVOLA_WINDOW);
+        let hybrid = binarize_hybrid(&gray, w, h);
+
+        // 矩形の中心付近（境界から10px以上内側、window半径7pxより余裕を持たせる）
+        let interior: Vec<(u32, u32)> = (22..38u32)
+            .flat_map(|y| (22..38u32).map(move |x| (x, y)))
+            .collect();
+
+        let sauvola_interior_white = interior
+            .iter()
+            .filter(|&&(x, y)| sauvola_only[(y * w + x) as usize] == 255)
+            .count();
+        assert!(
+            sauvola_interior_white > 0,
+            "前提確認: Sauvola単独では太い矩形の内部に空洞（白）が生じるはず（実際={sauvola_interior_white}）"
+        );
+
+        let hybrid_interior_white = interior
+            .iter()
+            .filter(|&&(x, y)| hybrid[(y * w + x) as usize] == 255)
+            .count();
+        assert_eq!(
+            hybrid_interior_white, 0,
+            "ハイブリッドでは太い矩形の内部に空洞があってはならない（白={hybrid_interior_white}/{}）",
+            interior.len()
+        );
+    }
+
+    #[test]
+    fn hybrid_preserves_counter_inside_thick_ring() {
+        // 60×60白背景に太い黒枠（幅10px）のリング（「ロ」のような字形を模す）。
+        // 内側の白い穴（カウンター）がハイブリッドのグローバル閾値ORで塗り潰されないことを確認する。
+        let w = 60u32;
+        let h = 60u32;
+        let mut gray = vec![255u8; (w * h) as usize];
+        // 外側の黒矩形（10,10)-(50,50)
+        for y in 10..50u32 {
+            for x in 10..50u32 {
+                gray[(y * w + x) as usize] = 0;
+            }
+        }
+        // 内側の白い穴（20,20)-(40,40) を掘る → 壁厚10px
+        for y in 20..40u32 {
+            for x in 20..40u32 {
+                gray[(y * w + x) as usize] = 255;
+            }
+        }
+
+        let hybrid = binarize_hybrid(&gray, w, h);
+
+        // カウンター内部（穴の境界からさらに2px内側を見て、morphology前の生二値化で判定）
+        let counter: Vec<(u32, u32)> = (22..38u32)
+            .flat_map(|y| (22..38u32).map(move |x| (x, y)))
+            .collect();
+        let counter_black = counter
+            .iter()
+            .filter(|&&(x, y)| hybrid[(y * w + x) as usize] == 0)
+            .count();
+        assert_eq!(
+            counter_black, 0,
+            "カウンター（内側の白）がハイブリッド二値化で塗り潰されてはならない（黒={counter_black}/{}）",
+            counter.len()
+        );
+
+        // 外壁（太い黒輪郭）自体は空洞化せず黒のままであることも併せて確認
+        let wall_center = (15u32, 30u32); // 壁の中央付近（x∈[10,20)の中心）
+        assert_eq!(
+            hybrid[(wall_center.1 * w + wall_center.0) as usize],
+            0,
+            "太い外壁の内部が空洞化してはならない"
+        );
+    }
+
+    #[test]
+    fn hybrid_still_detects_faint_line_via_sauvola_when_below_global_threshold() {
+        // グローバル閾値(180)には届かない薄い低コントラスト線（輝度185、背景255）を、
+        // Sauvola側の局所判定が従来どおり検出できることを確認する。
+        // #136 でグローバル閾値を追加しても、薄い鉛筆・かすれの縁の検出はSauvolaが担い続ける
+        // という設計方針（OR合成であって置き換えではない）を保証する回帰テスト。
+        let w = 60u32;
+        let h = 60u32;
+        let mut gray = vec![255u8; (w * h) as usize];
+        // 中央に10×10の薄い線パッチ（輝度185、GLOBAL_INK_THRESHOLD=180未満ではない）
+        for y in 25..35u32 {
+            for x in 25..35u32 {
+                gray[(y * w + x) as usize] = 185;
+            }
+        }
+        // グローバル閾値単独ではこのパッチを拾えないことを確認（前提: 185 >= GLOBAL_INK_THRESHOLD）
+        let global_only = global_binarize(&gray, GLOBAL_INK_THRESHOLD);
+        let patch_center = (30u32, 30u32);
+        assert_eq!(
+            global_only[(patch_center.1 * w + patch_center.0) as usize],
+            255,
+            "前提確認: グローバル閾値単独では輝度185のパッチは白のまま"
+        );
+
+        // Sauvola単独では局所コントラスト（周囲255 vs パッチ185）により黒判定できることを確認
+        let sauvola_only = sauvola_binarize(&gray, w, h, SAUVOLA_K, SAUVOLA_WINDOW);
+        assert_eq!(
+            sauvola_only[(patch_center.1 * w + patch_center.0) as usize],
+            0,
+            "前提確認: Sauvolaは局所コントラストで薄いパッチを検出できるはず"
+        );
+
+        // ハイブリッドでもSauvola側の判定によりパッチが検出される
+        let hybrid = binarize_hybrid(&gray, w, h);
+        assert_eq!(
+            hybrid[(patch_center.1 * w + patch_center.0) as usize],
+            0,
+            "ハイブリッドでもSauvola経路で薄いパッチが検出されるべき"
+        );
+    }
+
     #[test]
     fn rect_sum_single_pixel_at_origin() {
         // 3x3画像: 全ピクセル値1のIntegral Image
