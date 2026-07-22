@@ -738,13 +738,20 @@ pub fn detect_markers(
         per_corner_candidates.push(candidates);
     }
 
-    // 組み合わせ爆発ガード（#132フォローアップ）。CORNER_CANDIDATE_K=30 は各隅独立の
-    // 上限だが、4隅とも上限近くまで生存すると最大 30^4=810,000 通りの組み合わせを
-    // 総当たりすることになりうる（木目机等ノイズの多い撮影条件で起こりうる。実写真2枚
-    // では通常数百〜数千で収まる）。閾値を超えたら黙って打ち切らず、各隅の候補を
-    // コーナー近さ（seed_rank）上位 COMBO_TRUNCATE_K 件に切り詰めて log! で明示する。
-    // candidates は生成時点で既に seed_rank 昇順（コーナーに近い順）なので、
-    // 単純に先頭 COMBO_TRUNCATE_K 件を残せば「近い候補優先」になる。
+    apply_combo_explosion_guard(&mut per_corner_candidates);
+    select_best_combo(&per_corner_candidates, center_hint)
+}
+
+/// 組み合わせ爆発ガード（#132フォローアップ）。CORNER_CANDIDATE_K=30 は各隅独立の
+/// 上限だが、4隅とも上限近くまで生存すると最大 30^4=810,000 通りの組み合わせを
+/// 総当たりすることになりうる（木目机等ノイズの多い撮影条件で起こりうる。実写真2枚
+/// では通常数百〜数千で収まる）。総組み合わせ数（各隅の候補数の積）が
+/// COMBO_EXPLOSION_THRESHOLD を超えたら黙って打ち切らず、各隅の候補を
+/// コーナー近さ（seed_rank）上位 COMBO_TRUNCATE_K 件に切り詰めて log! で明示する。
+/// candidates は生成時点で既に seed_rank 昇順（コーナーに近い順）なので、
+/// 単純に先頭 COMBO_TRUNCATE_K 件を残せば「近い候補優先」になる。
+/// detect_markers から切り出したヘルパー（#132フォローアップ・ユニットテスト容易化のため）。
+fn apply_combo_explosion_guard(per_corner_candidates: &mut [Vec<CornerCandidate>]) {
     let total_combos: usize = per_corner_candidates.iter().map(|c| c.len()).product();
     if total_combos > COMBO_EXPLOSION_THRESHOLD {
         log!(
@@ -755,8 +762,17 @@ pub fn detect_markers(
             candidates.truncate(COMBO_TRUNCATE_K);
         }
     }
+}
 
-    // 生き残った候補の全組み合わせをクアッド幾何ゲート＋スコアリングで評価（#132）
+/// 隅ごとに生き残った候補（[TL, TR, BL, BR] 順）の全組み合わせをクアッド幾何ゲート＋
+/// スコアリングで評価し、最良の1組を返す（#132）。detect_markers から切り出したヘルパー
+/// （#132フォローアップ・組み合わせ爆発ガードのユニットテスト容易化のため）。
+///
+/// 全組み合わせがクアッド幾何ゲートで棄却された場合のみ Err（メッセージは従来と互換）。
+fn select_best_combo(
+    per_corner_candidates: &[Vec<CornerCandidate>],
+    center_hint: Option<&DetectedMarker>,
+) -> Result<[DetectedMarker; 4], String> {
     // (採用クアッド, スコア, 各隅の候補seed_rank) の組
     type BestCombo = ([DetectedMarker; 4], f64, (usize, usize, usize, usize));
     let mut best: Option<BestCombo> = None;
@@ -1995,6 +2011,81 @@ mod tests {
             "画像端はみ出しでも比率は[0,1]に収まるべき: ratio={ratio}"
         );
         assert_eq!(ratio, 1.0, "画像内は全て白なので比率は1.0のはず");
+    }
+
+    // --- 組み合わせ爆発ガード（#132フォローアップ） ---
+
+    #[test]
+    fn combo_explosion_guard_truncates_and_still_selects_correct_quad() {
+        // 各隅20件（20^4=160,000 > COMBO_EXPLOSION_THRESHOLD=100,000）の合成候補を用意し、
+        // (a) ガード発動で各隅が COMBO_TRUNCATE_K=10 件に切り詰められること、
+        // (b) 切り詰め後も正クアッド（テンプレート通りの4点、各隅 seed_rank=1）が
+        //     select_best_combo で選定されることを、ログでなく結果（候補リスト長・
+        //     選定されたクアッドの座標）で固定する。
+        //
+        // 各隅の candidates は seed_rank=1 に正解（テンプレート点そのもの、bbox=MARKER_PX）、
+        // seed_rank=2..=20 にコーナーから遠ざかる方向へ大きくズレたデコイを置く
+        // （実装同様、生成順=seed_rank昇順=コーナー近い順を保つ）。truncate は先頭を残すので、
+        // 正解は必ず生き残る。
+        let template = template_quad();
+        let make_corner = |correct: &DetectedMarker| -> Vec<CornerCandidate> {
+            let mut v = vec![CornerCandidate {
+                marker: correct.clone(),
+                seed_rank: 1,
+                bbox_w: MARKER_PX,
+                bbox_h: MARKER_PX,
+            }];
+            for rank in 2..=20usize {
+                let decoy = mk(
+                    correct.cx + rank as f64 * 37.0,
+                    correct.cy - rank as f64 * 23.0,
+                );
+                v.push(CornerCandidate {
+                    marker: decoy,
+                    seed_rank: rank,
+                    bbox_w: MARKER_PX,
+                    bbox_h: MARKER_PX,
+                });
+            }
+            v
+        };
+
+        let mut per_corner_candidates: Vec<Vec<CornerCandidate>> = vec![
+            make_corner(&template[0]),
+            make_corner(&template[1]),
+            make_corner(&template[2]),
+            make_corner(&template[3]),
+        ];
+
+        let total_before: usize = per_corner_candidates.iter().map(|c| c.len()).product();
+        assert!(
+            total_before > COMBO_EXPLOSION_THRESHOLD,
+            "この合成シナリオは閾値を超えている前提: total={total_before}"
+        );
+
+        apply_combo_explosion_guard(&mut per_corner_candidates);
+
+        // (a) 切り詰めが発動したことを候補リスト長で確認（ログでなく結果で判定）
+        for (i, candidates) in per_corner_candidates.iter().enumerate() {
+            assert_eq!(
+                candidates.len(),
+                COMBO_TRUNCATE_K,
+                "隅{i}が COMBO_TRUNCATE_K 件に切り詰められていない: len={}",
+                candidates.len()
+            );
+            assert_eq!(
+                candidates[0].seed_rank, 1,
+                "切り詰め後も最近傍候補（seed_rank=1・正解）が先頭に残っているべき"
+            );
+        }
+
+        // (b) 切り詰め後も正しいクアッドが選定される
+        let quad = select_best_combo(&per_corner_candidates, None)
+            .expect("切り詰め後も有効な組み合わせが選定できるべき");
+        assert_marker_near(&quad[0], (template[0].cx, template[0].cy), 1e-6, "TL");
+        assert_marker_near(&quad[1], (template[1].cx, template[1].cy), 1e-6, "TR");
+        assert_marker_near(&quad[2], (template[2].cx, template[2].cy), 1e-6, "BL");
+        assert_marker_near(&quad[3], (template[3].cx, template[3].cy), 1e-6, "BR");
     }
 
     // ══════════════════════════════════════════════════════════════
