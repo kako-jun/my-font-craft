@@ -1063,14 +1063,6 @@ fn apply_lens_tps_correction(corrected: RgbaImage) -> Result<(RgbaImage, bool), 
         );
     }
 
-    let corners = match marker::detect_markers(&binary, &gray, Some(&center_detected)) {
-        Ok(c) => c,
-        Err(e) => {
-            log!("  ⚠ 4隅マーカー再検出失敗 ({e}) — TPS補正をスキップ");
-            return Ok((corrected, false));
-        }
-    };
-
     let marker_defs = [
         layout::MARKER_TL,
         layout::MARKER_TR,
@@ -1078,13 +1070,36 @@ fn apply_lens_tps_correction(corrected: RgbaImage) -> Result<(RgbaImage, bool), 
         layout::MARKER_BR,
     ];
 
+    // 補正後画像は4隅の期待位置が layout の mm 座標から既知なので、全域探索ではなく
+    // 期待位置近傍の局所探索で再検出する（#132フォローアップ）。verify_correction_quality_cli/
+    // _wasm と同じ理屈: この時点で紙面はほぼホモグラフィー補正済みなので、全域探索が
+    // 拾いうる紙外の誤検出（木目等）を避けられる。
+    let expected_centers_px: [(f64, f64); 4] = std::array::from_fn(|i| {
+        let (cx, cy) = layout::marker_center(&marker_defs[i]);
+        (layout::mm_to_px(cx), layout::mm_to_px(cy))
+    });
+    let marker_px = layout::mm_to_px(layout::MARKER_SIZE).round();
+    let search_radius = marker_px * marker::LOCAL_SEARCH_RADIUS_RATIO;
+
+    let corners = match marker::detect_markers_near_expected(
+        &binary,
+        &gray,
+        &expected_centers_px,
+        search_radius,
+    ) {
+        Ok(c) => c,
+        Err(e) => {
+            log!("  ⚠ 4隅マーカー再検出失敗 ({e}) — TPS補正をスキップ");
+            return Ok((corrected, false));
+        }
+    };
+
     // 4隅 → ホモグラフィー後の検出位置と期待位置
     let mut corner_src = [(0.0, 0.0); 4];
     let mut corner_dst = [(0.0, 0.0); 4];
     for i in 0..4 {
         corner_src[i] = (corners[i].cx, corners[i].cy);
-        let (cx, cy) = layout::marker_center(&marker_defs[i]);
-        corner_dst[i] = (layout::mm_to_px(cx), layout::mm_to_px(cy));
+        corner_dst[i] = expected_centers_px[i];
     }
 
     // 4辺中点を制御点として追加。
