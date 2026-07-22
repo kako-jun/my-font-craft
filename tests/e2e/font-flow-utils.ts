@@ -70,9 +70,12 @@ export async function withStageLogs<T>(
 export async function runScanToFontFlow(page: Page, zipPath: string): Promise<string> {
   await page.goto('/');
 
-  // フォント作成ページへ遷移（#98: ヘッダー nav は <a> リンク化済み）
-  await page.getByRole('link', { name: '2. フォント作成', exact: true }).click();
-  await expect(page.locator('h2')).toContainText('フォントを作成する');
+  // フォント作成ページへ遷移。main導線整理（62a89ce）でヘッダーnavは撤去され、
+  // ホーム(src/pages/Home.tsx)の「撮影画像からフォントを作成する」リンク（/upload）に
+  // 統合された。遷移先 Upload.tsx の見出しは h1「撮影画像からフォントを作成する」
+  // （h2は複数あり複数マッチで strict mode 違反になるため h1 を見る）。
+  await page.getByRole('link', { name: '撮影画像からフォントを作成する', exact: true }).click();
+  await expect(page.locator('h1')).toContainText('フォントを作成する');
 
   // ZIPをアップロード（hidden input に直接セット）
   await page.locator('#zip-input').setInputFiles(zipPath);
