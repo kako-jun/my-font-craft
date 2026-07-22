@@ -93,4 +93,29 @@ test.describe('歪み合成スキャン: 台形補正を通してフォント生
       if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
     }
   });
+
+  test('木目調背景（wood-background）の1ページからページ1の全文字を抽出できる', async ({
+    page,
+  }, testInfo) => {
+    // #132: 木目の机で撮影した実写真の再現条件（紙外コーナー近くに紛らわしい暗色円形
+    // ブロブがある背景）で、紙白アニュラスゲート＋組み合わせスコアリングにより
+    // 誤検出を回避して四隅マーカーを検出し、golden path を完走できることを確認する。
+    test.setTimeout(300_000);
+
+    const zipPath = path.join(DISTORTED_DIR, '..', 'test-upload-wood-background.zip');
+    await createZipFromFiles(
+      [path.join(DISTORTED_DIR, 'page-01-wood-background.png')],
+      zipPath,
+    );
+
+    try {
+      await withStageLogs(page, testInfo, async () => {
+        const fontPath = await runScanToFontFlow(page, zipPath);
+        const font = loadFont(fontPath);
+        expectGlyphsForChars(font, PAGE1_CHARS);
+      });
+    } finally {
+      if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+    }
+  });
 });

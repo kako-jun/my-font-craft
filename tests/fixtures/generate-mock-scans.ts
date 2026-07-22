@@ -63,6 +63,9 @@ import {
   CYAN_SAMPLE_X,
   CYAN_SAMPLE_Y,
   CYAN_SAMPLE_SIZE,
+  CENTER_MARKER_X,
+  CENTER_MARKER_Y,
+  CENTER_MARKER_SIZE,
   isSkippedCell,
   gridToCharIndex,
 } from '../../src/lib/template/layout';
@@ -106,6 +109,30 @@ function drawCircleMarker(
   } else {
     ctx.stroke();
   }
+}
+
+/**
+ * 中心マーカーを描画（#132フォローアップ）。
+ *
+ * cli/src/template.rs の draw_center_marker と同一仕様（塗りつぶし四角 + 白アイソレーション
+ * 境界）で描く。これまでこのモック生成器は中心マーカーを一切描いておらず、合成フィクスチャが
+ * 実テンプレートを忠実に再現していなかった（司令塔判断・#132）。detect_markers の
+ * combo_score は中心マーカーヒントが無いとアスペクト・対辺比のみで四隅候補を評価し、
+ * 稀にページ内側の別ブロブ（文字の輪ループ等）が実マーカーより高スコアになり得る。
+ * これはグリッド描画後（罫線を上書き+白境界で隔離）に呼ぶこと。
+ */
+function drawCenterMarker(ctx: CanvasRenderingContext2D) {
+  const x = px(CENTER_MARKER_X);
+  const y = px(CENTER_MARKER_Y);
+  const size = px(CENTER_MARKER_SIZE);
+  const border = 4; // 白アイソレーション境界（px、cli/src/template.rs と同じ生px値）
+
+  // 周囲の罫線を白で上書きして隔離
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(x - border, y - border, size + border * 2, size + border * 2);
+  // 塗りつぶし四角
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(x, y, size, size);
 }
 
 /**
@@ -403,6 +430,9 @@ async function generatePage(
       }
     }
   }
+
+  // 中心マーカー（グリッド後に描画して罫線を上書き+白境界で隔離。cli/src/template.rs と同順序）
+  drawCenterMarker(ctx);
 
   return canvas.toBuffer('image/png');
 }

@@ -13,6 +13,7 @@ import {
   applyHomography,
   computeDistortedCorners,
   distortPng,
+  generateWoodTexture,
   type Point,
 } from '../fixtures/distort';
 
@@ -366,5 +367,83 @@ describe('distortPng', () => {
     expect(out.h).toBe(4 + 400);
     // デフォルト背景 [200,195,185]
     expect(rgbAt(out, 0, 0)).toEqual([200, 195, 185]);
+  });
+
+  it('backgroundTexture（#132）指定時は紙外領域が単色ではなくテクスチャからサンプリングされる', async () => {
+    // 出力サイズ（8+400=408角）と同サイズの ImageData を用意し、四隅を互いに異なる
+    // 既知色にしておく。単色 background が使われていればこれらは全て同じ background 色に
+    // なるはずなので、四隅が期待した個別の色になっていれば texture 経路が使われた証拠になる。
+    const input = makePng(8, 8, () => [255, 0, 0]);
+    const size = 8 + 400;
+    const texCanvas = createCanvas(size, size);
+    const texCtx = texCanvas.getContext('2d');
+    const texImg = texCtx.createImageData(size, size);
+    const corners: Record<string, [number, number, number]> = {
+      tl: [10, 20, 30],
+      tr: [40, 50, 60],
+      bl: [70, 80, 90],
+      br: [100, 110, 120],
+    };
+    const setPixel = (x: number, y: number, rgb: [number, number, number]) => {
+      const i = (y * size + x) * 4;
+      texImg.data[i] = rgb[0];
+      texImg.data[i + 1] = rgb[1];
+      texImg.data[i + 2] = rgb[2];
+      texImg.data[i + 3] = 255;
+    };
+    setPixel(0, 0, corners.tl);
+    setPixel(size - 1, 0, corners.tr);
+    setPixel(0, size - 1, corners.bl);
+    setPixel(size - 1, size - 1, corners.br);
+
+    const out = await readPixels(
+      await distortPng(input, { padding: 200, backgroundTexture: texImg }),
+    );
+    expect(out.w).toBe(size);
+    expect(out.h).toBe(size);
+    expect(rgbAt(out, 0, 0)).toEqual(corners.tl);
+    expect(rgbAt(out, out.w - 1, 0)).toEqual(corners.tr);
+    expect(rgbAt(out, 0, out.h - 1)).toEqual(corners.bl);
+    expect(rgbAt(out, out.w - 1, out.h - 1)).toEqual(corners.br);
+  });
+
+  it('backgroundTexture にファクトリ関数を渡すと出力サイズ(outW,outH)で呼ばれる', async () => {
+    const input = makePng(8, 8, () => [255, 0, 0]);
+    let calledWith: [number, number] | null = null;
+    const out = await readPixels(
+      await distortPng(input, {
+        padding: 200,
+        backgroundTexture: (outW, outH) => {
+          calledWith = [outW, outH];
+          const c = createCanvas(outW, outH);
+          const ctx = c.getContext('2d');
+          ctx.fillStyle = 'rgb(9,9,9)';
+          ctx.fillRect(0, 0, outW, outH);
+          return ctx.getImageData(0, 0, outW, outH);
+        },
+      }),
+    );
+    expect(calledWith).toEqual([8 + 400, 8 + 400]);
+    expect(rgbAt(out, 0, 0)).toEqual([9, 9, 9]);
+  });
+});
+
+describe('generateWoodTexture（#132）', () => {
+  it('左上コーナー近くに固定配置した暗色円ブロブが期待位置に存在する', () => {
+    const img = generateWoodTexture(800, 1000, 0x132);
+    const at = (x: number, y: number): [number, number, number] => {
+      const i = (y * img.width + x) * 4;
+      return [img.data[i], img.data[i + 1], img.data[i + 2]];
+    };
+    // 固定配置した節の中心 (70,70) は節色 #332417 そのもの
+    expect(at(70, 70)).toEqual([0x33, 0x24, 0x17]);
+    // 半径60pxの円なので、中心から水平に55px離れた内側の点も同じ節色のはず
+    expect(at(70 + 55, 70)).toEqual([0x33, 0x24, 0x17]);
+  });
+
+  it('同じseedなら決定的に同じ画素になる（フィクスチャ再現性）', () => {
+    const a = generateWoodTexture(400, 500, 42);
+    const b = generateWoodTexture(400, 500, 42);
+    expect(Array.from(a.data)).toEqual(Array.from(b.data));
   });
 });

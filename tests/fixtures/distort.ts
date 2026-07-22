@@ -10,7 +10,8 @@
  * 出力→入力の逆写像 + バイリニア補間で自前実装する。
  */
 
-import { createCanvas, loadImage } from 'canvas';
+import { createCanvas, loadImage, type ImageData as CanvasImageData } from 'canvas';
+import { mulberry32 } from './postprocess';
 
 export interface Point {
   x: number;
@@ -26,8 +27,15 @@ export interface DistortOptions {
   scale?: number;
   /** 余白（px）。グレー背景で埋める */
   padding?: number;
-  /** 背景色（机/床のシミュレート） */
+  /** 背景色（机/床のシミュレート）。backgroundTexture 指定時は無視される */
   background?: [number, number, number];
+  /**
+   * 背景テクスチャ（#132 wood-background バリアント用）。出力サイズ（入力+余白×2）は
+   * distortPng 内でしか確定しないため、ImageData そのものか、(outW,outH)=>ImageData の
+   * ファクトリ関数のどちらかを渡す。紙外（余白）領域はこのテクスチャからサンプリングされる
+   * （generateWoodTexture 参照）。未指定時は従来通り background の単色塗りつぶし。
+   */
+  backgroundTexture?: CanvasImageData | ((outW: number, outH: number) => CanvasImageData);
   /** 明度ムラ: 上端→下端の輝度倍率の振れ幅（例 0.12 → 上 1.06倍〜下 0.94倍） */
   brightnessGradient?: number;
   /** 3x3 ボックスぼかしを適用するか（軽いピンボケのシミュレート） */
@@ -181,6 +189,10 @@ export async function distortPng(input: Buffer, opts: DistortOptions): Promise<B
 
   const grad = opts.brightnessGradient ?? 0;
   const [bgR, bgG, bgB] = background;
+  const texture =
+    typeof opts.backgroundTexture === 'function'
+      ? opts.backgroundTexture(outW, outH)
+      : opts.backgroundTexture;
 
   for (let dy = 0; dy < outH; dy++) {
     // 明度ムラ: 上端 1+grad/2 → 下端 1-grad/2 の線形勾配
@@ -189,9 +201,19 @@ export async function distortPng(input: Buffer, opts: DistortOptions): Promise<B
       const o = (dy * outW + dx) * 4;
       const { x: sx, y: sy } = applyHomography(hInv, dx, dy);
 
-      let r = bgR;
-      let g = bgG;
-      let b = bgB;
+      let r: number;
+      let g: number;
+      let b: number;
+      if (texture) {
+        const to = o; // backgroundTexture は出力キャンバスと同サイズ前提
+        r = texture.data[to];
+        g = texture.data[to + 1];
+        b = texture.data[to + 2];
+      } else {
+        r = bgR;
+        g = bgG;
+        b = bgB;
+      }
       if (sx >= 0 && sx <= srcW - 1 && sy >= 0 && sy <= srcH - 1) {
         // バイリニア補間
         const x0 = Math.floor(sx);
@@ -226,6 +248,66 @@ export async function distortPng(input: Buffer, opts: DistortOptions): Promise<B
 
   outCtx.putImageData(outImage, 0, 0);
   return outCanvas.toBuffer('image/png');
+}
+
+/**
+ * 木目調の背景テクスチャを生成する（#132 wood-background バリアント用）。
+ * 暗色ベース + 縞（年輪相当）+ ランダムな暗色円形ブロブ（節）を描く簡易テクスチャ。
+ * 低コストな疑似で足り、写実性は求めない。
+ *
+ * #132 の再現条件: 紙外（余白）領域に、面積/アスペクトフィルタを通過しうる
+ * 暗色「円」ブロブが最低1つコーナー近くに来るように固定配置する
+ * （cli/src/marker.rs の四隅探索は各コーナーから25%マージン領域を走査するため、
+ * ここに紛らわしい円形ブロブを置くと #132 が直していた誤検出条件を再現できる）。
+ * distortPng の余白（padding）領域はコーナーが常に紙外になるため、
+ * 出力キャンバスのコーナー付近に固定で置けば確実に紙外に配置できる。
+ */
+export function generateWoodTexture(
+  outW: number,
+  outH: number,
+  seed = 0x0132,
+): CanvasImageData {
+  const rand = mulberry32(seed);
+  const canvas = createCanvas(outW, outH);
+  const ctx = canvas.getContext('2d');
+
+  // 暗色ベース
+  ctx.fillStyle = '#5a4632';
+  ctx.fillRect(0, 0, outW, outH);
+
+  // 縞（年輪相当）: 明暗の異なる横縞を低コストに重ね描き
+  const stripeCount = Math.max(8, Math.round(outH / 40));
+  for (let i = 0; i < stripeCount; i++) {
+    const y = (i / stripeCount) * outH + (rand() - 0.5) * 20;
+    const stripeH = 6 + rand() * 14;
+    const shade = Math.round(70 + rand() * 40);
+    ctx.fillStyle = `rgba(${shade + 20}, ${shade}, ${Math.round(shade * 0.65)}, 0.5)`;
+    ctx.fillRect(0, y, outW, stripeH);
+  }
+
+  // 節（ランダム暗色円ブロブ）: 質感付け。位置はランダムでよい
+  const knotColor = '#332417';
+  for (let i = 0; i < 6; i++) {
+    const kx = rand() * outW;
+    const ky = rand() * outH;
+    const kr = 20 + rand() * 30;
+    ctx.fillStyle = knotColor;
+    ctx.beginPath();
+    ctx.ellipse(kx, ky, kr, kr * (0.7 + rand() * 0.5), rand() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // #132 再現条件: 面積/アスペクトフィルタを通過しうる暗色「円」ブロブを、
+  // 左上コーナーから固定オフセットで確実に1つ配置する。
+  // 半径60px（塗り面積≈11310px²）は実マーカー相当（marker_px≈94.5px@300dpi、
+  // cli/src/marker.rs の面積フィルタ 30px²〜約35000px²）を余裕を持って通過しうる大きさで、
+  // アスペクトは1.0（正円）なので 0.35〜3.0 のブロブ事前フィルタも通過する。
+  ctx.fillStyle = knotColor;
+  ctx.beginPath();
+  ctx.arc(70, 70, 60, 0, Math.PI * 2);
+  ctx.fill();
+
+  return ctx.getImageData(0, 0, outW, outH);
 }
 
 function clamp255(v: number): number {
@@ -275,6 +357,17 @@ export const DISTORT_VARIANTS: { suffix: string; opts: DistortOptions }[] = [
       padding: 200,
       brightnessGradient: 0.1,
       blur: true,
+    },
+  },
+  {
+    // #132: 木目調の机で撮影した実写真の再現条件。台形強度は perspective と同じにし、
+    // 背景だけを一様グレーから木目テクスチャ（紙外コーナー近くに紛らわしい暗色円形
+    // ブロブを固定配置）に差し替える。
+    suffix: 'wood-background',
+    opts: {
+      trapezoid: 0.05,
+      padding: 200,
+      backgroundTexture: (outW: number, outH: number) => generateWoodTexture(outW, outH),
     },
   },
 ];
