@@ -12,6 +12,14 @@ use image::{GrayImage, Luma, Rgba, RgbaImage};
 /// 数千comboで済む（1〜数秒未満）。
 const CORNER_CANDIDATE_K: usize = 30;
 
+/// 組み合わせ爆発ガード（#132フォローアップ）の閾値。総組み合わせ数（4隅の候補数の積）が
+/// これを超えたら各隅を COMBO_TRUNCATE_K 件に切り詰める。100,000通り × 1combo あたりの
+/// 評価コスト（distance計算数個・O(1)）は経験上 1秒未満に収まる規模として設定。
+const COMBO_EXPLOSION_THRESHOLD: usize = 100_000;
+
+/// 組み合わせ爆発ガード発動時に各隅を切り詰める候補数（コーナー近さ上位、#132フォローアップ）。
+const COMBO_TRUNCATE_K: usize = 10;
+
 /// 紙白アニュラス検証（#132・本命の防御）の内側/外側半径比率。
 /// marker_px/2（マーカー半径相当）に掛けて環状領域の半径を決める。
 /// 「紙の上のマーカー」は周囲が紙白、木目の節は周囲も木色（暗め・中間調）が続くため分離できる。
@@ -730,6 +738,24 @@ pub fn detect_markers(
         per_corner_candidates.push(candidates);
     }
 
+    // 組み合わせ爆発ガード（#132フォローアップ）。CORNER_CANDIDATE_K=30 は各隅独立の
+    // 上限だが、4隅とも上限近くまで生存すると最大 30^4=810,000 通りの組み合わせを
+    // 総当たりすることになりうる（木目机等ノイズの多い撮影条件で起こりうる。実写真2枚
+    // では通常数百〜数千で収まる）。閾値を超えたら黙って打ち切らず、各隅の候補を
+    // コーナー近さ（seed_rank）上位 COMBO_TRUNCATE_K 件に切り詰めて log! で明示する。
+    // candidates は生成時点で既に seed_rank 昇順（コーナーに近い順）なので、
+    // 単純に先頭 COMBO_TRUNCATE_K 件を残せば「近い候補優先」になる。
+    let total_combos: usize = per_corner_candidates.iter().map(|c| c.len()).product();
+    if total_combos > COMBO_EXPLOSION_THRESHOLD {
+        log!(
+            "  ⚠ 組み合わせ爆発ガード: 総組み合わせ数={total_combos}（閾値={COMBO_EXPLOSION_THRESHOLD}）\
+             — 各隅の候補をコーナー近さ上位{COMBO_TRUNCATE_K}件に切り詰めます"
+        );
+        for candidates in per_corner_candidates.iter_mut() {
+            candidates.truncate(COMBO_TRUNCATE_K);
+        }
+    }
+
     // 生き残った候補の全組み合わせをクアッド幾何ゲート＋スコアリングで評価（#132）
     // (採用クアッド, スコア, 各隅の候補seed_rank) の組
     type BestCombo = ([DetectedMarker; 4], f64, (usize, usize, usize, usize));
@@ -806,9 +832,9 @@ pub fn detect_markers(
 
 /// 補正後画像の局所再検出（#132フォローアップ）に使う探索半径の比率。
 /// marker_px（テンプレート期待マーカーサイズ px）に掛けて窓の半径を決める。
-/// 「2〜3×marker_px」の中間を取った値。木目机の wood-background フィクスチャで
-/// 実写較正: ホモグラフィー後の残差はせいぜい数十px（TPS前でも通常 <marker_px）
-/// なので、2.5倍の窓があれば実在マーカーは必ず窓内に収まる。
+/// 「2〜3×marker_px」の中間を取った値。較正は実写真2枚（Issue #132 の再現写真）と
+/// wood-background フィクスチャの両方で実行: ホモグラフィー後の残差はせいぜい数十px
+/// （TPS前でも通常 <marker_px）なので、2.5倍の窓があれば実在マーカーは必ず窓内に収まる。
 pub const LOCAL_SEARCH_RADIUS_RATIO: f64 = 2.5;
 
 /// 期待位置近傍だけを探索してマーカーを再検出する（#132フォローアップ・補正後の再検出専用）。
